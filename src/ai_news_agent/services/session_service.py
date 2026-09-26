@@ -10,6 +10,7 @@ from datetime import datetime
 
 from ai_news_agent.digest_request_builder import resolve_digest_request
 from ai_news_agent.repositories.session_store import SessionStore
+from ai_news_agent.repositories.unit_of_work import SqliteUnitOfWork
 from ai_news_agent.request import DigestRequest
 from ai_news_agent.telemetry import new_correlation_id
 from ai_news_agent.services.session_records import (
@@ -26,6 +27,9 @@ class SessionBusyError(Exception):
 
 class RequestInProgressError(Exception):
     """The same request ID is already active for this session."""
+
+
+CANCELLED_ASSISTANT_MESSAGE = "The request was cancelled."
 
 
 def _parse_ts(value: str) -> datetime:
@@ -190,5 +194,30 @@ class SessionService:
         """Mark leftover active requests interrupted after startup or crash."""
         return self._store.interrupt_active_requests()
 
+    def cancel_request(self, session_id: str, request_id: str) -> bool:
+        row = self._store.get_request(session_id, request_id)
+        if row is None or row["status"] != "active" or row["run_id"] is not None:
+            return False
 
-__all__ = ["RequestInProgressError", "SessionBusyError", "SessionService"]
+        with SqliteUnitOfWork(self._store.db_path) as uow:
+            assistant_message_id = uow.session_store.insert_message(
+                session_id,
+                role="assistant",
+                content=CANCELLED_ASSISTANT_MESSAGE,
+            )
+            uow.session_store.mark_terminal(
+                session_id,
+                request_id,
+                status="cancelled",
+                assistant_message_id=assistant_message_id,
+                error_code="cancelled",
+            )
+        return True
+
+
+__all__ = [
+    "CANCELLED_ASSISTANT_MESSAGE",
+    "RequestInProgressError",
+    "SessionBusyError",
+    "SessionService",
+]
