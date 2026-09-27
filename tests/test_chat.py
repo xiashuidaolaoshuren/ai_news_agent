@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from ai_news_agent.chat import ChatService
+from ai_news_agent.repositories.session_store import SessionStore
+from ai_news_agent.services.chat import (
+    DeltaEvent,
+    DigestEvent,
+    DoneEvent,
+    ErrorEvent,
+    ProgressEvent,
+    StartedEvent,
+)
+from ai_news_agent.services.session_service import SessionService
 from ai_news_agent.connectors.base import ConnectorRequest, ConnectorResult
 from ai_news_agent.graph.state import DigestResult
 from ai_news_agent.followup_structured import NO_SAVED_DIGEST
@@ -150,8 +161,11 @@ def test_chat_maps_interface_digest_result_with_warnings_notice(
         interface_router=router,
     )
 
+    import ai_news_agent.services.chat as services_chat
+
     monkeypatch.setattr(
-        "ai_news_agent.chat.format_connector_warnings_notice",
+        services_chat,
+        "format_connector_warnings_notice",
         lambda _warnings, _errors: "Notice:",
     )
 
@@ -185,9 +199,12 @@ def test_chat_with_interface_router_routes_structured_followup_through_router(
         interface_router=router,
     )
 
+    import ai_news_agent.services.chat as services_chat
+
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
-            "ai_news_agent.chat.answer_structured_followup",
+            services_chat,
+            "answer_structured_followup",
             lambda _message, _ctx: (_ for _ in ()).throw(
                 AssertionError("answer_structured_followup must not be called")
             ),
@@ -745,7 +762,7 @@ def test_chat_digest_single_github_repo_url_stays_focused(tmp_path) -> None:
     ],
 )
 def test_message_requests_digest_true_for_source_browse_phrases(message: str) -> None:
-    from ai_news_agent.chat import _message_requests_digest
+    from ai_news_agent.services.chat import _message_requests_digest
 
     assert _message_requests_digest(message) is True
 
@@ -1669,4 +1686,469 @@ def test_non_history_streaming_still_routes_through_router(tmp_path) -> None:
     chunks = asyncio.run(_collect_streaming(svc, "what trends do you see?"))
     assert "".join(chunks) == "stream routed"
     assert len(router.calls) == 1
+
+
+def test_services_chat_surface_importable() -> None:
+    from ai_news_agent.chat import ChatService as ReexportedChatService
+    from ai_news_agent.services.chat import (
+        ChatService,
+        DeltaEvent,
+        DigestEvent,
+        DoneEvent,
+        ErrorEvent,
+        ProgressEvent,
+        StartedEvent,
+    )
+
+    assert ReexportedChatService is ChatService
+    assert StartedEvent.__name__ == "StartedEvent"
+    assert ProgressEvent.__name__ == "ProgressEvent"
+    assert DeltaEvent.__name__ == "DeltaEvent"
+    assert DigestEvent.__name__ == "DigestEvent"
+    assert DoneEvent.__name__ == "DoneEvent"
+    assert ErrorEvent.__name__ == "ErrorEvent"
+
+
+async def _collect_stream_events(service: ChatService, message: str, *, session_id: str, **kwargs):  # noqa: ANN003
+    events: list = []
+    async for event in service.stream_events(message, session_id=session_id, **kwargs):
+        events.append(event)
+    return events
+
+
+def test_stream_events_digest_happy_path_sets_session_id(tmp_path: Path) -> None:
+    db_path = tmp_path / "stream-digest.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+
+    async def fake_streaming_runner(
+        req: DigestRequest,
+        *,
+        session_id: str | None = None,
+    ):
+        yield "Collecting items…", False, None
+        collected = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
+        run_id = store.save_run(
+            requested_at=collected,
+            timeframe=req.timeframe,
+            topics=list(req.topics),
+            connector_names=list(req.connector_names or ["github"]),
+        )
+        if session_id is not None:
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    "UPDATE runs SET session_id = ? WHERE id = ?",
+                    (session_id, run_id),
+                )
+                conn.commit()
+        digest = Digest(
+            generated_at=collected,
+            entries=[
+                DigestEntry(
+                    source_kind=SourceKind.GITHUB,
+                    source_id="repo-1",
+                    title="Repo 1",
+                    source_name="GitHub",
+                    source_url="https://example.com/repo-1",
+                    summary="summary",
+                    why_it_matters="why",
+                    background_knowledge="bg",
+                    follow_up_action=FollowUpAction.READ,
+                )
+            ],
+            topics=list(req.topics),
+            timeframe=req.timeframe,
+        )
+        item = NewsItem(
+            source=SourceKind.GITHUB,
+            source_id="repo-1",
+            url="https://example.com/repo-1",
+            title="Repo 1",
+            collected_at=collected,
+        )
+        store.save_connector_result(run_id, ConnectorResult(items=[item], warnings=[]))
+        store.save_ranked_items(run_id, [])
+        store.save_digest(run_id, digest)
+        yield "", True, DigestResult(
+            request=req,
+            digest=digest,
+            run_id=run_id,
+            markdown="# Session digest\n",
+            text="# Session digest\n",
+            ranked_items=[],
+            warnings=[],
+            errors=[],
+            started_at=collected,
+            finished_at=collected,
+        )
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=fake_streaming_runner,
+        streaming_workflow_runner=fake_streaming_runner,
+        session_service=session_service,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Give me today's AI digest",
+            session_id=created.id,
+            request_id="req-digest-1",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    assert any(isinstance(e, StartedEvent) for e in events)
+    assert any(isinstance(e, ProgressEvent) for e in events)
+    assert any(isinstance(e, DeltaEvent) for e in events)
+    assert any(isinstance(e, DigestEvent) for e in events)
+    assert any(isinstance(e, DoneEvent) for e in events)
+
+    started = next(e for e in events if isinstance(e, StartedEvent))
+    assert started.request_id == "req-digest-1"
+
+    done = next(e for e in events if isinstance(e, DoneEvent))
+    assert done.path == "digest"
+    assert done.run_id is not None
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT session_id FROM runs WHERE id = ?",
+            (done.run_id,),
+        ).fetchone()
+    assert row is not None
+    assert row["session_id"] == created.id
+
+
+def _save_session_digest(
+    store: DigestStore,
+    session_store: SessionStore,
+    *,
+    session_id: str,
+    topics: list[str],
+    request_id: str,
+    ensure_session: bool = True,
+) -> int:
+    collected = datetime(2026, 5, 7, 10, 0, 0, tzinfo=UTC)
+    run_id = store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=topics,
+        connector_names=["github"],
+    )
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE runs SET session_id = ? WHERE id = ?",
+            (session_id, run_id),
+        )
+        conn.commit()
+    item = NewsItem(
+        source=SourceKind.GITHUB,
+        source_id=f"repo-{topics[0]}",
+        url=f"https://example.com/{topics[0]}",
+        title=f"Repo {topics[0]}",
+        collected_at=collected,
+    )
+    digest = Digest(
+        generated_at=collected,
+        entries=[
+            DigestEntry(
+                source_kind=SourceKind.GITHUB,
+                source_id=item.source_id,
+                title=item.title,
+                source_name="GitHub",
+                source_url=item.url,
+                summary="summary",
+                why_it_matters="why",
+                background_knowledge="bg",
+                follow_up_action=FollowUpAction.READ,
+            )
+        ],
+        topics=topics,
+        timeframe="today",
+    )
+    store.save_connector_result(run_id, ConnectorResult(items=[item], warnings=[]))
+    store.save_ranked_items(run_id, [])
+    store.save_digest(run_id, digest)
+    if ensure_session:
+        session_store.create_session(session_id)
+    user_message_id = session_store.insert_message(
+        session_id,
+        role="user",
+        content="digest please",
+    )
+    session_store.create_request(
+        session_id,
+        request_id,
+        user_message_id=user_message_id,
+        correlation_id=f"corr-{request_id}",
+    )
+    session_store.update_request_run_id(session_id, request_id, run_id)
+    session_store.mark_terminal(session_id, request_id, status="succeeded")
+    return run_id
+
+
+def test_stream_events_followup_uses_session_context_not_shared_or_other_session(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "stream-followup.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+
+    shared_run_id = _save_session_digest(
+        store,
+        session_store,
+        session_id="unused-for-shared",
+        topics=["shared-latest"],
+        request_id="req-shared",
+    )
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE runs SET session_id = NULL WHERE id = ?",
+            (shared_run_id,),
+        )
+        conn.commit()
+
+    session_a = session_service.create_session()
+    session_b = session_service.create_session()
+    _save_session_digest(
+        store,
+        session_store,
+        session_id=session_a.id,
+        topics=["session-a-topic"],
+        request_id="req-a",
+        ensure_session=False,
+    )
+    _save_session_digest(
+        store,
+        session_store,
+        session_id=session_b.id,
+        topics=["session-b-topic"],
+        request_id="req-b",
+        ensure_session=False,
+    )
+
+    async def unused_runner(_: DigestRequest) -> DigestResult:
+        raise AssertionError("digest runner must not run for follow-up")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=unused_runner,
+        session_service=session_service,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "list sources",
+            session_id=session_b.id,
+            request_id="req-followup-b",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    deltas = [e.text for e in events if isinstance(e, DeltaEvent)]
+    joined = "".join(deltas)
+    assert "session-b-topic" in joined or "Repo session-b-topic" in joined
+    assert "session-a-topic" not in joined
+    assert "shared-latest" not in joined
+    assert any(isinstance(e, DoneEvent) for e in events)
+    done = next(e for e in events if isinstance(e, DoneEvent))
+    assert done.path == "followup"
+
+
+def test_stream_events_digest_failure_emits_error_without_raw_exception_detail(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "stream-failure.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+
+    async def failing_runner(_: DigestRequest, *, session_id: str | None = None):
+        yield "Collecting items…", False, None
+        raise RuntimeError("secret internal db password leak")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=failing_runner,
+        streaming_workflow_runner=failing_runner,
+        session_service=session_service,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Give me today's AI digest",
+            session_id=created.id,
+            request_id="req-fail",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    error = next(e for e in events if isinstance(e, ErrorEvent))
+    assert error.code == "workflow_error"
+    assert "password" not in error.message
+    assert "secret" not in error.message
+
+    row = SessionStore(db_path).get_request(created.id, "req-fail")
+    assert row is not None
+    assert row["status"] == "failed"
+    assert row["error_code"] == "workflow_error"
+    assert row["error_message"] == error.message
+    assert row["error_message"] is not None
+    assert "password" not in row["error_message"]
+
+
+async def _collect_stream_events_with_cancel(
+    service: ChatService,
+    message: str,
+    *,
+    session_id: str,
+    session_service: SessionService,
+    request_id: str,
+    gate: asyncio.Event,
+) -> list:
+    events: list = []
+
+    async def fake_streaming(_: DigestRequest, *, session_id: str | None = None):
+        yield "Collecting items…", False, None
+        await gate.wait()
+        now = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
+        req = DigestRequest(topics=["AI"])
+        yield "", True, DigestResult(
+            request=req,
+            digest=None,
+            run_id=999,
+            markdown="should not persist",
+            text="should not persist",
+            ranked_items=[],
+            warnings=[],
+            errors=[],
+            started_at=now,
+            finished_at=now,
+        )
+
+    service._streaming_workflow_runner = fake_streaming  # noqa: SLF001
+    service._workflow_runner = fake_streaming  # noqa: SLF001
+
+    collect_task = asyncio.create_task(
+        _collect_stream_events(
+            service,
+            message,
+            session_id=session_id,
+            request_id=request_id,
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    await asyncio.sleep(0.05)
+    session_service.cancel_request(session_id, request_id)
+    gate.set()
+    return await collect_task
+
+
+def test_stream_events_cooperative_cancel_emits_error_without_digest_persist(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import CANCELLED_ASSISTANT_MESSAGE
+
+    db_path = tmp_path / "stream-cancel.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+    gate = asyncio.Event()
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=lambda _: None,
+        session_service=session_service,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events_with_cancel(
+            svc,
+            "Give me today's AI digest",
+            session_id=created.id,
+            session_service=session_service,
+            request_id="req-cancel",
+            gate=gate,
+        )
+    )
+
+    error = next(e for e in events if isinstance(e, ErrorEvent))
+    assert error.code == "cancelled"
+    assert error.message == CANCELLED_ASSISTANT_MESSAGE
+    assert not any(isinstance(e, DigestEvent) for e in events)
+    assert not any(isinstance(e, DoneEvent) for e in events)
+
+    row = SessionStore(db_path).get_request(created.id, "req-cancel")
+    assert row is not None
+    assert row["status"] == "cancelled"
+    assert row["run_id"] is None
+
+
+def test_stream_events_terminal_replay_returns_stored_outcome_without_rerun(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "stream-replay.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+
+    run_calls: list[str] = []
+
+    async def counting_runner(_: DigestRequest, *, session_id: str | None = None):
+        run_calls.append(session_id or "")
+        yield "", True, None
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=counting_runner,
+        streaming_workflow_runner=counting_runner,
+        session_service=session_service,
+    )
+
+    first = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "list sources",
+            session_id=created.id,
+            request_id="req-replay",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    assert any(isinstance(e, DoneEvent) for e in first)
+    assert run_calls == []
+
+    replay = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "list sources again",
+            session_id=created.id,
+            request_id="req-replay",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    assert any(isinstance(e, StartedEvent) for e in replay)
+    assert any(isinstance(e, DeltaEvent) for e in replay)
+    assert any(isinstance(e, DoneEvent) for e in replay)
+    assert run_calls == []
+    assert len(SessionStore(db_path).list_messages(created.id)) == 2
 

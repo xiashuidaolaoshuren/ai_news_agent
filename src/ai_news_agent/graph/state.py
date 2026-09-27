@@ -70,10 +70,15 @@ class DigestGraphState(TypedDict, total=False):
     text: str | None
 
 
-def initial_state(request: DigestRequest, *, now: datetime | None = None) -> DigestGraphState:
+def initial_state(
+    request: DigestRequest,
+    *,
+    now: datetime | None = None,
+    session_id: str | None = None,
+) -> DigestGraphState:
     """Build starting state with empty list accumulators and ``started_at`` set."""
     ts = now if now is not None else utcnow()
-    return {
+    state: DigestGraphState = {
         "request": request,
         "started_at": ts,
         "finished_at": None,
@@ -81,6 +86,9 @@ def initial_state(request: DigestRequest, *, now: datetime | None = None) -> Dig
         "warnings": [],
         "errors": [],
     }
+    if session_id is not None:
+        state["session_id"] = session_id
+    return state
 
 
 def state_to_result(state: DigestGraphState) -> DigestResult:

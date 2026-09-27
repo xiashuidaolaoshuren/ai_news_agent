@@ -7,7 +7,10 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from datetime import datetime
 from typing import Any
 
-from ai_news_agent.chat import _apply_session_items_per_source, _message_requests_digest
+from ai_news_agent.services.chat import (
+    _apply_session_items_per_source,
+    _message_requests_digest,
+)
 from ai_news_agent.digest_request_builder import resolve_digest_request
 from ai_news_agent.followup_structured import (
     NO_SAVED_DIGEST,

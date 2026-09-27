@@ -120,7 +120,14 @@ class SessionStore:
                 ),
             )
 
-    def insert_message(self, session_id: str, *, role: str, content: str) -> int:
+    def insert_message(
+        self,
+        session_id: str,
+        *,
+        role: str,
+        content: str,
+        run_id: int | None = None,
+    ) -> int:
         now = utcnow().isoformat()
         with self._conn() as conn:
             row = conn.execute(
@@ -135,10 +142,10 @@ class SessionStore:
             cur = conn.execute(
                 """
                 INSERT INTO session_messages (
-                  session_id, sequence, role, content, created_at
-                ) VALUES (?, ?, ?, ?, ?)
+                  session_id, sequence, role, content, run_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (session_id, sequence, role, content, now),
+                (session_id, sequence, role, content, run_id, now),
             )
             conn.execute(
                 "UPDATE sessions SET updated_at = ? WHERE id = ?",

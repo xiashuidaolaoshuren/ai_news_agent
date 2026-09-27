@@ -642,3 +642,51 @@ def test_cancel_returns_false_without_writes_for_post_persistence_terminal_and_u
     assert service.cancel_request(created.id, "req-unknown") is False
     assert store.get_request(created.id, "req-unknown") is None
     assert len(store.list_messages(created.id)) == messages_before
+
+
+def test_complete_request_persists_assistant_message_with_run_link(
+    tmp_path: Path,
+) -> None:
+    from datetime import UTC, datetime
+
+    from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "svc-complete.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    digest_store = DigestStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(created.id, content="Give me digest", request_id="req-1")
+
+    collected = datetime(2026, 5, 7, 10, 0, 0, tzinfo=UTC)
+    run_id = digest_store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=["RAG"],
+        connector_names=["github"],
+    )
+    store.update_request_run_id(created.id, "req-1", run_id)
+
+    message_id = service.complete_request(
+        created.id,
+        "req-1",
+        status="succeeded",
+        content="Digest complete.",
+        run_id=run_id,
+    )
+
+    row = store.get_request(created.id, "req-1")
+    assert row is not None
+    assert row["status"] == "succeeded"
+    assert row["assistant_message_id"] == message_id
+    assert row["run_id"] == run_id
+    assert row["completed_at"] is not None
+
+    messages = store.list_messages(created.id)
+    assistant = messages[-1]
+    assert assistant["role"] == "assistant"
+    assert assistant["content"] == "Digest complete."
+    assert assistant["run_id"] == run_id
+    assert assistant["id"] == message_id

@@ -214,6 +214,40 @@ class SessionService:
             )
         return True
 
+    def complete_request(
+        self,
+        session_id: str,
+        request_id: str,
+        *,
+        status: str,
+        content: str,
+        run_id: int | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> int:
+        row = self._store.get_request(session_id, request_id)
+        if row is None or row["status"] != "active":
+            raise KeyError(
+                f"active request not found: session={session_id!r} request={request_id!r}"
+            )
+
+        with SqliteUnitOfWork(self._store.db_path) as uow:
+            assistant_message_id = uow.session_store.insert_message(
+                session_id,
+                role="assistant",
+                content=content,
+                run_id=run_id,
+            )
+            uow.session_store.mark_terminal(
+                session_id,
+                request_id,
+                status=status,
+                assistant_message_id=assistant_message_id,
+                error_code=error_code,
+                error_message=error_message,
+            )
+        return assistant_message_id
+
 
 __all__ = [
     "CANCELLED_ASSISTANT_MESSAGE",
