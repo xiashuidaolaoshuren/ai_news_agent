@@ -208,7 +208,7 @@ Dependency notation: `Blocked by: T1` means start after T1 is done.
 
 ### T9 — Cancellation point of no return
 
-- [ ] **Do:** Cancellation before the digest-bundle transaction starts ends the request as `cancelled` with a safe assistant message. Cancellation after that transaction has started leaves the successful terminal result unchanged.
+- [x] **Do:** Cancellation before the digest-bundle transaction starts ends the request as `cancelled` with a safe assistant message. Cancellation after that transaction has started leaves the successful terminal result unchanged.
 
 - **Blocked by:** T8
 - **Plan mode:** high
@@ -219,7 +219,7 @@ Dependency notation: `Blocked by: T1` means start after T1 is done.
 
 ### T10 — Typed chat events and session routing
 
-- [ ] **Do:** Move `ChatService` to `services/chat.py` with a re-export. Add `stream_events()` yielding started, progress, delta, digest, done, and error. Keep `handle_message_streaming_async` as the Gradio string adapter on shared-interface context. Session chat passes `session_id` into digest persist and reads `get_followup_context_for_session()`.
+- [x] **Do:** Move `ChatService` to `services/chat.py` with a re-export. Add `stream_events()` yielding started, progress, delta, digest, done, and error. Keep `handle_message_streaming_async` as the Gradio string adapter on shared-interface context. Session chat passes `session_id` into digest persist and reads `get_followup_context_for_session()`.
 
 - **Blocked by:** T9
 - **Plan mode:** high
@@ -230,7 +230,7 @@ Dependency notation: `Blocked by: T1` means start after T1 is done.
 
 ### T11 — DigestView
 
-- [ ] **Do:** Add source-kind-discriminated `DigestView` DTOs and `build_digest_view`. Every entry has `display_rank` and common digest fields. Hugging Face includes family metrics and variants. Do not expose raw `source_evidence`. Markdown remains the renderer output.
+- [x] **Do:** Add source-kind-discriminated `DigestView` DTOs and `build_digest_view`. Every entry has `display_rank` and common digest fields. Hugging Face includes family metrics and variants. Do not expose raw `source_evidence`. Markdown remains the renderer output.
 
 - **Blocked by:** T10
 - **Plan mode:** high
@@ -241,7 +241,7 @@ Dependency notation: `Blocked by: T1` means start after T1 is done.
 
 ### T12 — Lexical session search
 
-- [ ] **Do:** Search titles and message text, return one hit per session, and rank title, then user message, then assistant message, then recent activity. Include a bounded excerpt and matching message ID. Cursor pagination lives with the result. No embeddings.
+- [x] **Do:** Search titles and message text, return one hit per session, and rank title, then user message, then assistant message, then recent activity. Include a bounded excerpt and matching message ID. Cursor pagination lives with the result. No embeddings.
 
 - **Blocked by:** T7
 - **Plan mode:** medium
