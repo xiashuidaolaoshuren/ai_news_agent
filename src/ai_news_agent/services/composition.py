@@ -61,6 +61,7 @@ class Application:
     db_path: Path
     session_service: SessionService
     chat_service: ChatService
+    digest_store: DigestStore
 
 
 def build_application(*, fake: bool, db_path: Path) -> Application:
@@ -78,6 +79,7 @@ def build_application(*, fake: bool, db_path: Path) -> Application:
         db_path=db_path,
         session_service=session_service,
         chat_service=chat_service,
+        digest_store=store,
     )
 
 

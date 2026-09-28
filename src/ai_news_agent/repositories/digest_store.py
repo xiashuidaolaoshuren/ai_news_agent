@@ -748,6 +748,19 @@ class DigestStore:
             rows = rows[:cap]
         return [self._historical_row_to_candidate(row) for row in rows], truncated
 
+    def get_digest_by_run_id(self, run_id: int) -> Digest | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM digests WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._digest_from_row(row)
+
+    def get_news_items_for_run(self, run_id: int) -> list[NewsItem]:
+        return self._load_news_items(run_id)
+
     def get_followup_context_for_digest(self, digest_id: int) -> FollowupContext | None:
         with self._conn() as conn:
             row = conn.execute("SELECT * FROM digests WHERE id = ?", (digest_id,)).fetchone()

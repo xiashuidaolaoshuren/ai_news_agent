@@ -97,6 +97,9 @@ class SessionService:
     def list_sessions(self) -> list[SessionRecord]:
         return [_session_record(row) for row in self._store.list_sessions()]
 
+    def list_messages(self, session_id: str) -> list[MessageRecord]:
+        return [_message_record(row) for row in self._store.list_messages(session_id)]
+
     def rename_session(self, session_id: str, title: str) -> None:
         self._store.rename_session(session_id, title)
 

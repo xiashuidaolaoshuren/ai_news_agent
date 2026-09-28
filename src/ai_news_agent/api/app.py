@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from ai_news_agent.api.routers import meta
+from ai_news_agent.api.routers import meta, sessions
 from ai_news_agent.services.composition import Application
 
 _LOOPBACK_CORS_ORIGINS: tuple[str, ...] = (
@@ -35,4 +35,5 @@ def create_app(application: Application) -> FastAPI:
         allow_headers=["Accept", "Content-Type"],
     )
     app.include_router(meta.router, prefix="/api/v1")
+    app.include_router(sessions.router, prefix="/api/v1")
     return app

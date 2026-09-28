@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -110,6 +113,378 @@ def test_build_application_fake_skips_live_model_factory(
     assert calls == []
     assert application.chat_service is not None
     assert application.session_service is not None
+
+
+def test_encode_sse_formats_event_frame() -> None:
+    from ai_news_agent.api.sse import encode_sse
+
+    frame = encode_sse("started", {"request_id": "req-1", "user_message_id": 7})
+
+    assert frame == (
+        'event: started\ndata: {"request_id":"req-1","user_message_id":7}\n\n'
+    )
+
+
+def _parse_sse_events(body: str) -> list[tuple[str, dict]]:
+    events: list[tuple[str, dict]] = []
+    for block in body.split("\n\n"):
+        if not block.strip():
+            continue
+        event_name: str | None = None
+        data: dict | None = None
+        for line in block.split("\n"):
+            if line.startswith("event: "):
+                event_name = line[len("event: ") :]
+            elif line.startswith("data: "):
+                data = json.loads(line[len("data: ") :])
+        if event_name is not None and data is not None:
+            events.append((event_name, data))
+    return events
+
+
+def test_post_and_get_session(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "sessions-crud.db")
+
+    create = client.post("/api/v1/sessions")
+    assert create.status_code == 201
+    payload = create.json()
+    assert payload["id"]
+    assert payload["title"] is None
+    assert payload["connector_names"] is None
+    assert payload["items_per_source"] is None
+    assert payload["created_at"]
+    assert payload["updated_at"]
+
+    fetched = client.get(f"/api/v1/sessions/{payload['id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["id"] == payload["id"]
+
+    missing = client.get("/api/v1/sessions/00000000-0000-0000-0000-000000000000")
+    assert missing.status_code == 404
+
+
+def test_list_sessions_cursor_page(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "sessions-page.db")
+    ids: list[str] = []
+    for idx in range(3):
+        response = client.post("/api/v1/sessions")
+        ids.append(response.json()["id"])
+        client.patch(
+            f"/api/v1/sessions/{ids[-1]}",
+            json={"title": f"Session {idx}"},
+        )
+
+    first = client.get("/api/v1/sessions", params={"limit": 2})
+    assert first.status_code == 200
+    page = first.json()
+    assert "sessions" in page
+    assert "next_cursor" in page
+    assert len(page["sessions"]) == 2
+    assert page["next_cursor"] is not None
+    first_ids = {item["id"] for item in page["sessions"]}
+    assert len(first_ids) == 2
+
+    second = client.get(
+        "/api/v1/sessions",
+        params={"limit": 2, "cursor": page["next_cursor"]},
+    )
+    assert second.status_code == 200
+    page2 = second.json()
+    assert len(page2["sessions"]) == 1
+    assert page2["next_cursor"] is None
+    assert page2["sessions"][0]["id"] not in first_ids
+
+
+def test_patch_session_rename_and_preferences_validation(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "sessions-patch.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    patched = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={
+            "title": "Renamed",
+            "connector_names": ["github", "juya"],
+            "items_per_source": 5,
+        },
+    )
+    assert patched.status_code == 200
+    body = patched.json()
+    assert body["title"] == "Renamed"
+    assert body["connector_names"] == ["github", "juya"]
+    assert body["items_per_source"] == 5
+
+    invalid_source = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={"connector_names": ["not-a-source"]},
+    )
+    assert invalid_source.status_code == 400
+
+    invalid_items = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={"items_per_source": 21},
+    )
+    assert invalid_items.status_code == 400
+
+    missing = client.patch(
+        "/api/v1/sessions/00000000-0000-0000-0000-000000000000",
+        json={"title": "Nope"},
+    )
+    assert missing.status_code == 404
+
+
+def test_delete_session_rules(tmp_path: Path) -> None:
+    from ai_news_agent.services.composition import build_application
+
+    db_path = tmp_path / "sessions-delete.db"
+    application = build_application(fake=True, db_path=db_path)
+    client = _build_test_client(fake=True, db_path=db_path)
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    application.session_service.begin_request(
+        session_id,
+        content="busy",
+        request_id="active-req",
+    )
+    busy = client.delete(f"/api/v1/sessions/{session_id}")
+    assert busy.status_code == 409
+    assert busy.json()["detail"]["code"] == "session_busy"
+
+    application.session_service.complete_request(
+        session_id,
+        "active-req",
+        status="succeeded",
+        content="done",
+    )
+    deleted = client.delete(f"/api/v1/sessions/{session_id}")
+    assert deleted.status_code == 204
+
+    missing = client.delete(f"/api/v1/sessions/{session_id}")
+    assert missing.status_code == 404
+
+
+def _seed_digest_transcript(tmp_path: Path) -> tuple[object, str, int]:
+    from ai_news_agent.models import Digest, DigestEntry, FollowUpAction, SourceKind
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.composition import build_application
+    from ai_news_agent.storage import DigestStore
+    from fastapi.testclient import TestClient
+
+    from ai_news_agent.api.app import create_app
+
+    db_path = tmp_path / "messages-digest.db"
+    application = build_application(fake=True, db_path=db_path)
+    client = TestClient(create_app(application))
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    store = DigestStore(db_path)
+    collected = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
+    run_id = store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=["ai"],
+        connector_names=["github"],
+        session_id=session_id,
+    )
+    digest = Digest(
+        generated_at=collected,
+        entries=[
+            DigestEntry(
+                source_kind=SourceKind.GITHUB,
+                source_id="repo-1",
+                title="Repo 1",
+                source_name="GitHub",
+                source_url="https://example.com/repo-1",
+                summary="summary",
+                why_it_matters="why",
+                background_knowledge="bg",
+                follow_up_action=FollowUpAction.READ,
+            )
+        ],
+        topics=["ai"],
+        timeframe="today",
+    )
+    store.save_digest(run_id, digest)
+
+    session_store = SessionStore(db_path)
+    session_store.insert_message(session_id, role="user", content="Give me a digest")
+    session_store.insert_message(
+        session_id,
+        role="assistant",
+        content="Digest text",
+        run_id=run_id,
+    )
+    return client, session_id, run_id
+
+
+def test_list_messages_page_includes_digest_view(tmp_path: Path) -> None:
+    client, session_id, run_id = _seed_digest_transcript(tmp_path)
+
+    response = client.get(f"/api/v1/sessions/{session_id}/messages")
+    assert response.status_code == 200
+    page = response.json()
+    assert "messages" in page
+    assert "next_cursor" in page
+    assert len(page["messages"]) >= 1
+    sequences = [message["sequence"] for message in page["messages"]]
+    assert sequences == sorted(sequences)
+
+    assistant = next(
+        message for message in page["messages"] if message["role"] == "assistant"
+    )
+    assert assistant["run_id"] == run_id
+    assert assistant["digest"] is not None
+    assert assistant["digest"]["entries"][0]["display_rank"] == 1
+
+    missing = client.get(
+        "/api/v1/sessions/00000000-0000-0000-0000-000000000000/messages"
+    )
+    assert missing.status_code == 404
+
+
+def test_post_message_streams_sse_and_persists_transcript(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "sse-happy.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Give me today's AI digest",
+            "client_request_id": "req-digest-1",
+        },
+    ) as response:
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+        body = response.read().decode()
+
+    events = _parse_sse_events(body)
+    event_names = [name for name, _ in events]
+    assert "started" in event_names
+    assert "progress" in event_names or "delta" in event_names
+    assert "digest" in event_names
+    assert "done" in event_names
+
+    started = next(payload for name, payload in events if name == "started")
+    assert started["request_id"] == "req-digest-1"
+
+    transcript = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    roles = [message["role"] for message in transcript["messages"]]
+    assert roles.count("user") == 1
+    assert roles.count("assistant") == 1
+
+
+def test_post_message_status_mapping(tmp_path: Path) -> None:
+    from ai_news_agent.services.composition import build_application
+
+    db_path = tmp_path / "sse-status.db"
+    application = build_application(fake=True, db_path=db_path)
+    client = _build_test_client(fake=True, db_path=db_path)
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    unknown = client.post(
+        "/api/v1/sessions/00000000-0000-0000-0000-000000000000/messages",
+        json={"content": "hello"},
+    )
+    assert unknown.status_code == 404
+
+    blank = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "   "},
+    )
+    assert blank.status_code == 400
+
+    application.session_service.begin_request(
+        session_id,
+        content="first",
+        request_id="active-one",
+    )
+    busy = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "second", "client_request_id": "active-two"},
+    )
+    assert busy.status_code == 409
+    assert busy.json()["detail"]["code"] == "session_busy"
+
+    duplicate = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "retry", "client_request_id": "active-one"},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"]["code"] == "request_in_progress"
+
+
+def test_post_message_terminal_request_id_replays_without_new_messages(
+    tmp_path: Path,
+) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "sse-replay.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "list sources", "client_request_id": "req-replay"},
+    ) as first:
+        assert first.status_code == 200
+        first.read()
+
+    before = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    assert len(before["messages"]) == 2
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "ignored content", "client_request_id": "req-replay"},
+    ) as replay:
+        assert replay.status_code == 200
+        body = replay.read().decode()
+
+    events = _parse_sse_events(body)
+    assert any(name == "started" for name, _ in events)
+    assert any(name == "done" for name, _ in events)
+
+    after = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    assert len(after["messages"]) == 2
+
+
+def test_shielded_sse_pump_persists_after_consumer_disconnect(tmp_path: Path) -> None:
+    from ai_news_agent.api.routers.sessions import shielded_event_stream
+    from ai_news_agent.services.chat import StartedEvent
+    from ai_news_agent.services.composition import build_application
+
+    db_path = tmp_path / "sse-pump.db"
+    application = build_application(fake=True, db_path=db_path)
+    session_id = application.session_service.create_session().id
+
+    async def _consume_partially() -> None:
+        stream = application.chat_service.stream_events(
+            "list sources",
+            session_id=session_id,
+            request_id="pump-req",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+        shielded = shielded_event_stream(stream)
+        event = await anext(shielded)
+        assert isinstance(event, StartedEvent)
+        await shielded.aclose()
+
+    asyncio.run(_consume_partially())
+
+    # Allow detached pump from partial consume to finish
+    for _ in range(50):
+        messages = application.session_service.list_messages(session_id)
+        if any(message.role == "assistant" for message in messages):
+            break
+        asyncio.run(asyncio.sleep(0.05))
+    else:
+        pytest.fail("assistant message was not persisted after consumer disconnect")
+
+    assistant = next(
+        message
+        for message in application.session_service.list_messages(session_id)
+        if message.role == "assistant"
+    )
+    assert assistant.content
 
 
 def test_build_application_live_uses_model_factory(
