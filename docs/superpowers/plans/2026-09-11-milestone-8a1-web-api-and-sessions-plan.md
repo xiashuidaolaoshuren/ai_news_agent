@@ -252,7 +252,7 @@ Dependency notation: `Blocked by: T1` means start after T1 is done.
 
 ### T13 — FastAPI application shell
 
-- [ ] **Do:** Add FastAPI and Uvicorn. Create the app factory, loopback CORS allowlist, `/api/v1/health`, and `/api/v1/sources`. No wildcard origins. Composition root supplies fake and live modes.
+- [x] **Do:** Add FastAPI and Uvicorn. Create the app factory, loopback CORS allowlist, `/api/v1/health`, and `/api/v1/sources`. No wildcard origins. Composition root supplies fake and live modes.
 
 - **Blocked by:** T6
 - **Plan mode:** medium
