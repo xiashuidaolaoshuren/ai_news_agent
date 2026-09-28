@@ -100,6 +100,17 @@ class SessionService:
     def list_messages(self, session_id: str) -> list[MessageRecord]:
         return [_message_record(row) for row in self._store.list_messages(session_id)]
 
+    def list_all_messages(self) -> list[MessageRecord]:
+        return [_message_record(row) for row in self._store.list_all_messages()]
+
+    def get_request(
+        self,
+        session_id: str,
+        request_id: str,
+    ) -> SessionRequestRecord | None:
+        row = self._store.get_request(session_id, request_id)
+        return _request_record(row) if row is not None else None
+
     def rename_session(self, session_id: str, title: str) -> None:
         self._store.rename_session(session_id, title)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -60,3 +61,39 @@ class PostMessageBody(BaseModel):
 
     content: str
     client_request_id: str | None = Field(default=None)
+
+
+MatchKind = Literal["title", "user", "assistant"]
+
+
+class SessionSearchHitOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    title: str | None
+    updated_at: datetime
+    match_kind: MatchKind
+    message_id: int | None
+    excerpt: str
+
+
+class SessionSearchPageOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    hits: list[SessionSearchHitOut]
+    next_cursor: str | None
+
+
+class RequestOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    session_id: str
+    status: str
+    user_message_id: int
+    assistant_message_id: int | None
+    run_id: int | None
+    error_code: str | None
+    error_message: str | None
+    started_at: datetime
+    completed_at: datetime | None

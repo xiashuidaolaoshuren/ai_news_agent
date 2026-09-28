@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from ai_news_agent.api.deps import get_application
 from ai_news_agent.api.schemas.digests import build_digest_view
@@ -19,9 +19,12 @@ from ai_news_agent.api.schemas.sessions import (
     MessageListPage,
     MessageOut,
     PostMessageBody,
+    RequestOut,
     SessionListPage,
     SessionOut,
     SessionPatch,
+    SessionSearchHitOut,
+    SessionSearchPageOut,
 )
 from ai_news_agent.api.schemas.streaming import (
     DeltaPayload,
@@ -43,7 +46,12 @@ from ai_news_agent.services.chat import (
     StartedEvent,
 )
 from ai_news_agent.services.composition import Application
-from ai_news_agent.services.session_records import MessageRecord, SessionRecord
+from ai_news_agent.services.session_search import SessionSearchHit, search_sessions
+from ai_news_agent.services.session_records import (
+    MessageRecord,
+    SessionRecord,
+    SessionRequestRecord,
+)
 from ai_news_agent.services.session_service import (
     RequestInProgressError,
     SessionBusyError,
@@ -68,6 +76,32 @@ def _session_out(record: SessionRecord) -> SessionOut:
         items_per_source=record.items_per_source,
         created_at=record.created_at,
         updated_at=record.updated_at,
+    )
+
+
+def _search_hit_out(hit: SessionSearchHit) -> SessionSearchHitOut:
+    return SessionSearchHitOut(
+        session_id=hit.session_id,
+        title=hit.title,
+        updated_at=hit.updated_at,
+        match_kind=hit.match_kind,
+        message_id=hit.message_id,
+        excerpt=hit.excerpt,
+    )
+
+
+def _request_out(record: SessionRequestRecord) -> RequestOut:
+    return RequestOut(
+        id=record.id,
+        session_id=record.session_id,
+        status=record.status,
+        user_message_id=record.user_message_id,
+        assistant_message_id=record.assistant_message_id,
+        run_id=record.run_id,
+        error_code=record.error_code,
+        error_message=record.error_message,
+        started_at=record.started_at,
+        completed_at=record.completed_at,
     )
 
 
@@ -269,6 +303,29 @@ def list_sessions(
     )
 
 
+@router.get("/search", response_model=SessionSearchPageOut)
+def search(
+    q: str = Query(...),
+    limit: int = Query(default=_DEFAULT_PAGE_LIMIT, ge=1, le=_MAX_PAGE_LIMIT),
+    cursor: str | None = Query(default=None),
+    application: Application = Depends(get_application),
+) -> SessionSearchPageOut:
+    try:
+        page = search_sessions(
+            application.session_service.list_sessions(),
+            application.session_service.list_all_messages(),
+            q,
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return SessionSearchPageOut(
+        hits=[_search_hit_out(hit) for hit in page.hits],
+        next_cursor=page.next_cursor,
+    )
+
+
 @router.get("/{session_id}", response_model=SessionOut)
 def get_session(
     session_id: str,
@@ -336,6 +393,41 @@ def delete_session(
             status.HTTP_409_CONFLICT,
             detail={"code": "session_busy"},
         ) from exc
+
+
+@router.get(
+    "/{session_id}/requests/{request_id}",
+    response_model=RequestOut,
+)
+def get_request_status(
+    session_id: str,
+    request_id: str,
+    application: Application = Depends(get_application),
+) -> RequestOut:
+    if application.session_service.get_session(session_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
+    record = application.session_service.get_request(session_id, request_id)
+    if record is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="request not found")
+    return _request_out(record)
+
+
+@router.post(
+    "/{session_id}/requests/{request_id}/cancel",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_class=Response,
+)
+def cancel_request(
+    session_id: str,
+    request_id: str,
+    application: Application = Depends(get_application),
+) -> Response:
+    if application.session_service.get_session(session_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
+    accepted = application.session_service.cancel_request(session_id, request_id)
+    if accepted:
+        return Response(status_code=status.HTTP_202_ACCEPTED)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{session_id}/messages", response_model=MessageListPage)

@@ -487,6 +487,205 @@ def test_shielded_sse_pump_persists_after_consumer_disconnect(tmp_path: Path) ->
     assert assistant.content
 
 
+def test_get_request_status_returns_durable_fields(tmp_path: Path) -> None:
+    from ai_news_agent.services.composition import build_application
+
+    db_path = tmp_path / "request-status.db"
+    application = build_application(fake=True, db_path=db_path)
+    client = _build_test_client(fake=True, db_path=db_path)
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    application.session_service.begin_request(
+        session_id,
+        content="Give me a digest",
+        request_id="req-active",
+    )
+    active = client.get(f"/api/v1/sessions/{session_id}/requests/req-active")
+    assert active.status_code == 200
+    active_body = active.json()
+    assert active_body["id"] == "req-active"
+    assert active_body["session_id"] == session_id
+    assert active_body["status"] == "active"
+    assert active_body["user_message_id"] == 1
+    assert active_body["assistant_message_id"] is None
+    assert active_body["run_id"] is None
+
+    application.session_service.complete_request(
+        session_id,
+        "req-active",
+        status="succeeded",
+        content="Done",
+        run_id=None,
+    )
+    terminal = client.get(f"/api/v1/sessions/{session_id}/requests/req-active")
+    assert terminal.status_code == 200
+    terminal_body = terminal.json()
+    assert terminal_body["status"] == "succeeded"
+    assert terminal_body["assistant_message_id"] == 2
+
+    missing_session = client.get(
+        "/api/v1/sessions/00000000-0000-0000-0000-000000000000/requests/req-active"
+    )
+    assert missing_session.status_code == 404
+
+    missing_request = client.get(
+        f"/api/v1/sessions/{session_id}/requests/missing-req"
+    )
+    assert missing_request.status_code == 404
+
+
+def test_post_cancel_request_status_codes(tmp_path: Path) -> None:
+    from datetime import UTC, datetime
+
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.composition import build_application
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "request-cancel.db"
+    application = build_application(fake=True, db_path=db_path)
+    client = _build_test_client(fake=True, db_path=db_path)
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    application.session_service.begin_request(
+        session_id,
+        content="Please cancel me",
+        request_id="req-cancel",
+    )
+    accepted = client.post(
+        f"/api/v1/sessions/{session_id}/requests/req-cancel/cancel"
+    )
+    assert accepted.status_code == 202
+    assert accepted.content == b""
+
+    status = client.get(f"/api/v1/sessions/{session_id}/requests/req-cancel")
+    assert status.json()["status"] == "cancelled"
+
+    application.session_service.begin_request(
+        session_id,
+        content="Post persistence",
+        request_id="req-active-run",
+    )
+    collected = datetime(2026, 5, 7, 10, 0, 0, tzinfo=UTC)
+    run_id = application.digest_store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=["RAG"],
+        connector_names=["github"],
+    )
+    SessionStore(db_path).update_request_run_id(
+        session_id,
+        "req-active-run",
+        run_id,
+    )
+    post_persistence = client.post(
+        f"/api/v1/sessions/{session_id}/requests/req-active-run/cancel"
+    )
+    assert post_persistence.status_code == 204
+
+    application.session_service.complete_request(
+        session_id,
+        "req-active-run",
+        status="succeeded",
+        content="Done",
+        run_id=run_id,
+    )
+    terminal = client.post(
+        f"/api/v1/sessions/{session_id}/requests/req-active-run/cancel"
+    )
+    assert terminal.status_code == 204
+
+    unknown_request = client.post(
+        f"/api/v1/sessions/{session_id}/requests/missing/cancel"
+    )
+    assert unknown_request.status_code == 204
+
+    missing_session = client.post(
+        "/api/v1/sessions/00000000-0000-0000-0000-000000000000/requests/req-cancel/cancel"
+    )
+    assert missing_session.status_code == 404
+
+
+def test_get_session_search_returns_ranked_hits(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "session-search.db")
+
+    title_session = client.post("/api/v1/sessions").json()["id"]
+    client.patch(
+        f"/api/v1/sessions/{title_session}",
+        json={"title": "Weekly digest planning"},
+    )
+    user_session = client.post("/api/v1/sessions").json()["id"]
+    client.patch(
+        f"/api/v1/sessions/{user_session}",
+        json={"title": "Other notes"},
+    )
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{user_session}/messages",
+        json={"content": "Weekly digest please", "client_request_id": "search-user"},
+    ) as response:
+        response.read()
+
+    response = client.get("/api/v1/sessions/search", params={"q": "Weekly digest"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert "hits" in payload
+    assert "next_cursor" in payload
+    assert len(payload["hits"]) == 2
+    by_session = {hit["session_id"]: hit for hit in payload["hits"]}
+    assert by_session[title_session]["match_kind"] == "title"
+    assert by_session[title_session]["message_id"] is None
+    assert "Weekly digest" in by_session[title_session]["excerpt"]
+    assert by_session[user_session]["match_kind"] == "user"
+    assert by_session[user_session]["message_id"] is not None
+
+    blank = client.get("/api/v1/sessions/search", params={"q": "   "})
+    assert blank.status_code == 200
+    assert blank.json() == {"hits": [], "next_cursor": None}
+
+
+def test_get_session_search_cursor_pagination_and_invalid_cursor(
+    tmp_path: Path,
+) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "session-search-page.db")
+
+    for idx in range(3):
+        session_id = client.post("/api/v1/sessions").json()["id"]
+        client.patch(
+            f"/api/v1/sessions/{session_id}",
+            json={"title": f"Weekly digest note {idx}"},
+        )
+
+    first = client.get(
+        "/api/v1/sessions/search",
+        params={"q": "Weekly digest", "limit": 2},
+    )
+    assert first.status_code == 200
+    page = first.json()
+    assert len(page["hits"]) == 2
+    assert page["next_cursor"] is not None
+    first_ids = {hit["session_id"] for hit in page["hits"]}
+
+    second = client.get(
+        "/api/v1/sessions/search",
+        params={
+            "q": "Weekly digest",
+            "limit": 2,
+            "cursor": page["next_cursor"],
+        },
+    )
+    assert second.status_code == 200
+    page2 = second.json()
+    assert len(page2["hits"]) == 1
+    assert page2["next_cursor"] is None
+    assert page2["hits"][0]["session_id"] not in first_ids
+
+    invalid = client.get(
+        "/api/v1/sessions/search",
+        params={"q": "Weekly digest", "cursor": "not-a-cursor"},
+    )
+    assert invalid.status_code == 400
+
+
 def test_build_application_live_uses_model_factory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

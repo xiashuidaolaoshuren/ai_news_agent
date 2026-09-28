@@ -165,6 +165,16 @@ class SessionStore:
             ).fetchall()
         return list(rows)
 
+    def list_all_messages(self) -> list[sqlite3.Row]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM session_messages
+                ORDER BY session_id ASC, sequence ASC
+                """
+            ).fetchall()
+        return list(rows)
+
     def delete_session(self, session_id: str) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
