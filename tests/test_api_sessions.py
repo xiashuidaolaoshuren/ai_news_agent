@@ -539,7 +539,6 @@ def test_post_cancel_request_status_codes(tmp_path: Path) -> None:
 
     from ai_news_agent.repositories.session_store import SessionStore
     from ai_news_agent.services.composition import build_application
-    from ai_news_agent.storage import DigestStore
 
     db_path = tmp_path / "request-cancel.db"
     application = build_application(fake=True, db_path=db_path)
@@ -689,6 +688,7 @@ def test_get_session_search_cursor_pagination_and_invalid_cursor(
 def test_build_application_live_uses_model_factory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from ai_news_agent.app import digest_service
     from ai_news_agent.services.composition import build_application
 
     calls: list[str] = []
@@ -701,13 +701,31 @@ def test_build_application_live_uses_model_factory(
         calls.append("build_tool_chat_model")
         return object()
 
+    for module_path in (
+        "ai_news_agent.services.composition",
+        "ai_news_agent.app.digest_service",
+    ):
+        monkeypatch.setattr(f"{module_path}.build_chat_model", _track_build_chat_model)
+        monkeypatch.setattr(
+            f"{module_path}.build_tool_chat_model",
+            _track_build_tool_chat_model,
+        )
     monkeypatch.setattr(
-        "ai_news_agent.services.composition.build_chat_model",
-        _track_build_chat_model,
+        digest_service,
+        "build_connector_factory",
+        lambda **kwargs: object(),
+        raising=False,
     )
     monkeypatch.setattr(
-        "ai_news_agent.services.composition.build_tool_chat_model",
-        _track_build_tool_chat_model,
+        digest_service,
+        "build_interface_tool_router",
+        lambda **kwargs: object(),
+        raising=False,
+    )
+    monkeypatch.setattr("ai_news_agent.services.composition.build_connector_factory", lambda **kw: object())
+    monkeypatch.setattr(
+        "ai_news_agent.services.composition.build_interface_tool_router",
+        lambda **kwargs: object(),
     )
     monkeypatch.setattr("ai_news_agent.services.composition.load_local_env", lambda **_: None)
     monkeypatch.setattr(

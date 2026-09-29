@@ -9,6 +9,7 @@ from typing import Any
 
 from ai_news_agent.connectors.base import SourceConnector
 from ai_news_agent.env import configure_bilibili_network_from_env, load_local_env
+from ai_news_agent.app.digest_service import DigestServiceRuntime, digest_request_from_json
 from ai_news_agent.graph.state import DigestResult
 from ai_news_agent.graph.workflow import run_digest, run_digest_streaming
 from ai_news_agent.llm import build_chat_model, build_tool_chat_model
@@ -62,6 +63,7 @@ class Application:
     session_service: SessionService
     chat_service: ChatService
     digest_store: DigestStore
+    openclaw_runtime: DigestServiceRuntime
 
 
 def build_application(*, fake: bool, db_path: Path) -> Application:
@@ -80,6 +82,11 @@ def build_application(*, fake: bool, db_path: Path) -> Application:
         session_service=session_service,
         chat_service=chat_service,
         digest_store=store,
+        openclaw_runtime=DigestServiceRuntime(
+            fake=fake,
+            db_path=db_path,
+            store=store,
+        ),
     )
 
 
