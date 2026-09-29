@@ -263,7 +263,7 @@ Dependency notation: `Blocked by: T1` means start after T1 is done.
 
 ### T14 — Session HTTP and SSE
 
-- [ ] **Do:** Expose session CRUD, cursor-paginated transcripts, and `POST /api/v1/sessions/{id}/messages` as SSE. Map `session_busy` and validation to the spec status codes. A dropped client still persists the terminal assistant message. Transcript pages include `DigestView` for digest-linked messages.
+- [x] **Do:** Expose session CRUD, cursor-paginated transcripts, and `POST /api/v1/sessions/{id}/messages` as SSE. Map `session_busy` and validation to the spec status codes. A dropped client still persists the terminal assistant message. Transcript pages include `DigestView` for digest-linked messages.
 
 - **Blocked by:** T11, T13
 - **Plan mode:** high
@@ -274,7 +274,7 @@ Dependency notation: `Blocked by: T1` means start after T1 is done.
 
 ### T15 — Request status, cancel, and search HTTP
 
-- [ ] **Do:** Add request-status GET, cancel POST, and cursor-paginated `GET /api/v1/sessions/search`. Status supports reconnect without reattaching to a byte stream. Cancel returns 202 only before persistence and 204 afterward.
+- [x] **Do:** Add request-status GET, cancel POST, and cursor-paginated `GET /api/v1/sessions/search`. Status supports reconnect without reattaching to a byte stream. Cancel returns 202 only before persistence and 204 afterward.
 
 - **Blocked by:** T12, T14
 - **Plan mode:** high
@@ -285,7 +285,7 @@ Dependency notation: `Blocked by: T1` means start after T1 is done.
 
 ### T16 — History HTTP
 
-- [ ] **Do:** Adapt existing history search and show to `/api/v1/history`. Preserve 7D.1 validation, empty-result success, persist-only show, and `dN:rN` tokens. Do not add OpenClaw history routes.
+- [x] **Do:** Adapt existing history search and show to `/api/v1/history`. Preserve 7D.1 validation, empty-result success, persist-only show, and `dN:rN` tokens. Do not add OpenClaw history routes.
 
 - **Blocked by:** T13
 - **Plan mode:** medium
@@ -296,7 +296,7 @@ Dependency notation: `Blocked by: T1` means start after T1 is done.
 
 ### T17 — OpenClaw-compatible FastAPI service
 
-- [ ] **Do:** Serve `/health`, `/digest`, and `/followup` from FastAPI with the current response fields. `ai-news-agent service` starts that app through the composition root. Remove the hand-written `http.server` handler only after parity passes. Gradio uses the same composition root.
+- [x] **Do:** Serve `/health`, `/digest`, and `/followup` from FastAPI with the current response fields. `ai-news-agent service` starts that app through the composition root. Remove the hand-written `http.server` handler only after parity passes. Gradio uses the same composition root.
 
 - **Blocked by:** T10, T13
 - **Plan mode:** high
