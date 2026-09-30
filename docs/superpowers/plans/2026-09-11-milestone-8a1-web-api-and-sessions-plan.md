@@ -307,7 +307,7 @@ Dependency notation: `Blocked by: T1` means start after T1 is done.
 
 ### T18 — Operator docs and full regression
 
-- [ ] **Do:** Document local `/api/v1` startup, fake mode, SSE, and the unchanged Gradio and OpenClaw commands. State that 8A.1 is local-only. Run the default suite.
+- [x] **Do:** Document local `/api/v1` startup, fake mode, SSE, and the unchanged Gradio and OpenClaw commands. State that 8A.1 is local-only. Run the default suite.
 
 - **Blocked by:** T15, T16, T17
 - **Plan mode:** skip
