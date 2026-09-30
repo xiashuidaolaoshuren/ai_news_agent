@@ -452,9 +452,10 @@ def test_build_service_live_closures_respect_connector_names(
         connectors,
         model,
         store,
+        session_id=None,
         on_stage=None,
     ) -> DigestResult:
-        del connectors, model, store, on_stage
+        del connectors, model, store, session_id, on_stage
         now = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
         return DigestResult(
             request=req,
@@ -475,8 +476,9 @@ def test_build_service_live_closures_respect_connector_names(
         connectors,
         model,
         store,
+        session_id=None,
     ):
-        del connectors, model, store
+        del connectors, model, store, session_id
         now = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
         yield "", True, DigestResult(
             request=req,

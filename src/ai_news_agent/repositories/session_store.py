@@ -284,6 +284,43 @@ class SessionStore:
                 ),
             )
 
+    def mark_cancelled_if_active(
+        self,
+        session_id: str,
+        request_id: str,
+        *,
+        assistant_message_id: int,
+    ) -> bool:
+        """Cancel an active pre-persistence request; False when the race is lost.
+
+        The conditional ``WHERE`` makes the cancel check atomic with persistence:
+        a digest bundle that already linked ``run_id`` (or a request already
+        terminal) is left untouched.
+        """
+        completed_at = utcnow().isoformat()
+        with self._conn() as conn:
+            cur = conn.execute(
+                """
+                UPDATE session_requests
+                SET status = 'cancelled',
+                    assistant_message_id = ?,
+                    error_code = 'cancelled',
+                    error_message = NULL,
+                    completed_at = ?
+                WHERE session_id = ?
+                  AND id = ?
+                  AND status = 'active'
+                  AND run_id IS NULL
+                """,
+                (
+                    assistant_message_id,
+                    completed_at,
+                    session_id,
+                    request_id,
+                ),
+            )
+            return int(cur.rowcount) == 1
+
     def interrupt_active_requests(self) -> int:
         completed_at = utcnow().isoformat()
         with self._conn() as conn:

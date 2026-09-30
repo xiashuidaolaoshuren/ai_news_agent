@@ -29,6 +29,10 @@ class RequestInProgressError(Exception):
     """The same request ID is already active for this session."""
 
 
+class _CancelRaceLost(Exception):
+    """Internal signal: digest persistence committed before cancellation landed."""
+
+
 CANCELLED_ASSISTANT_MESSAGE = "The request was cancelled."
 
 
@@ -151,7 +155,12 @@ class SessionService:
         req = resolve_digest_request(message, session_connector_names=stored_names)
         items_per_source = row["items_per_source"]
         if items_per_source is not None:
-            req = replace(req, max_items_per_source=int(items_per_source))
+            value = int(items_per_source)
+            req = replace(
+                req,
+                items_per_source=value,
+                max_items_per_source=max(req.max_items_per_source, value),
+            )
         return req
 
     def delete_session(self, session_id: str) -> None:
@@ -213,19 +222,22 @@ class SessionService:
         if row is None or row["status"] != "active" or row["run_id"] is not None:
             return False
 
-        with SqliteUnitOfWork(self._store.db_path) as uow:
-            assistant_message_id = uow.session_store.insert_message(
-                session_id,
-                role="assistant",
-                content=CANCELLED_ASSISTANT_MESSAGE,
-            )
-            uow.session_store.mark_terminal(
-                session_id,
-                request_id,
-                status="cancelled",
-                assistant_message_id=assistant_message_id,
-                error_code="cancelled",
-            )
+        try:
+            with SqliteUnitOfWork(self._store.db_path) as uow:
+                assistant_message_id = uow.session_store.insert_message(
+                    session_id,
+                    role="assistant",
+                    content=CANCELLED_ASSISTANT_MESSAGE,
+                )
+                if not uow.session_store.mark_cancelled_if_active(
+                    session_id,
+                    request_id,
+                    assistant_message_id=assistant_message_id,
+                ):
+                    # Digest persistence won the race; discard the cancel writes.
+                    raise _CancelRaceLost
+        except _CancelRaceLost:
+            return False
         return True
 
     def complete_request(

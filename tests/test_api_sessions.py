@@ -232,6 +232,47 @@ def test_patch_session_rename_and_preferences_validation(tmp_path: Path) -> None
     assert missing.status_code == 404
 
 
+def test_patch_session_partial_preferences_preserve_sibling(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "sessions-partial-patch.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    both = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={"connector_names": ["github", "juya"], "items_per_source": 5},
+    )
+    assert both.status_code == 200
+    assert both.json()["connector_names"] == ["github", "juya"]
+    assert both.json()["items_per_source"] == 5
+
+    only_items = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={"items_per_source": 7},
+    )
+    assert only_items.status_code == 200
+    items_body = only_items.json()
+    assert items_body["items_per_source"] == 7
+    assert items_body["connector_names"] == ["github", "juya"]
+
+    only_names = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={"connector_names": ["zhihu"]},
+    )
+    assert only_names.status_code == 200
+    names_body = only_names.json()
+    assert names_body["connector_names"] == ["zhihu"]
+    assert names_body["items_per_source"] == 7
+
+    title_only = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={"title": "Renamed only"},
+    )
+    assert title_only.status_code == 200
+    title_body = title_only.json()
+    assert title_body["title"] == "Renamed only"
+    assert title_body["connector_names"] == ["zhihu"]
+    assert title_body["items_per_source"] == 7
+
+
 def test_delete_session_rules(tmp_path: Path) -> None:
     from ai_news_agent.services.composition import build_application
 
@@ -371,6 +412,58 @@ def test_post_message_streams_sse_and_persists_transcript(tmp_path: Path) -> Non
     roles = [message["role"] for message in transcript["messages"]]
     assert roles.count("user") == 1
     assert roles.count("assistant") == 1
+
+
+def test_session_digest_links_run_and_request_to_session(tmp_path: Path) -> None:
+    import sqlite3
+
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "sse-session-link.db"
+    client = _build_test_client(fake=True, db_path=db_path)
+    store = DigestStore(db_path)
+    shared_run_id = store.save_run(
+        requested_at=datetime(2026, 5, 17, 12, 0, tzinfo=UTC),
+        timeframe="today",
+        topics=["ai"],
+        connector_names=["github"],
+    )
+
+    session_id = client.post("/api/v1/sessions").json()["id"]
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Give me today's AI digest",
+            "client_request_id": "req-linked-1",
+        },
+    ) as response:
+        assert response.status_code == 200
+        response.read()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        run_row = conn.execute(
+            "SELECT id, session_id FROM runs WHERE id != ? ORDER BY id DESC LIMIT 1",
+            (shared_run_id,),
+        ).fetchone()
+        request_row = conn.execute(
+            "SELECT run_id, status FROM session_requests WHERE id = ?",
+            ("req-linked-1",),
+        ).fetchone()
+
+    assert run_row is not None
+    assert run_row["session_id"] == session_id
+    assert request_row is not None
+    assert request_row["run_id"] == run_row["id"]
+    assert request_row["status"] == "succeeded"
+
+    shared_ctx = store.get_latest_followup_context()
+    assert shared_ctx.run_id == shared_run_id
+
+    session_ctx = store.get_followup_context_for_session(session_id)
+    assert session_ctx.run_id == run_row["id"]
+    assert session_ctx.digest is not None
 
 
 def test_post_message_status_mapping(tmp_path: Path) -> None:

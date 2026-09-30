@@ -1826,6 +1826,33 @@ def test_stream_events_digest_happy_path_sets_session_id(tmp_path: Path) -> None
     assert row["session_id"] == created.id
 
 
+class _SessionFollowupRouter:
+    """Router double exposing the session-scoped follow-up hook."""
+
+    def __init__(self, *, text: str = "router tool answer") -> None:
+        self.text = text
+        self.calls: list[dict[str, object]] = []
+
+    async def run_session_followup(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        correlation_id: str | None = None,
+    ) -> InterfaceAgentResult:
+        self.calls.append(
+            {
+                "session_id": session_id,
+                "message": message,
+                "correlation_id": correlation_id,
+            }
+        )
+        return InterfaceAgentResult(
+            kind=InterfaceAgentResultKind.CONVERSATIONAL,
+            text=self.text,
+        )
+
+
 def _save_session_digest(
     store: DigestStore,
     session_store: SessionStore,
@@ -1964,6 +1991,101 @@ def test_stream_events_followup_uses_session_context_not_shared_or_other_session
     assert any(isinstance(e, DoneEvent) for e in events)
     done = next(e for e in events if isinstance(e, DoneEvent))
     assert done.path == "followup"
+
+
+def test_stream_events_session_followup_uses_interface_router_tool_agent(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "router-followup.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _save_session_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["router-topic"],
+        request_id="req-router",
+        ensure_session=False,
+    )
+
+    router = _SessionFollowupRouter(text="router tool answer")
+
+    async def unused_runner(_: DigestRequest) -> DigestResult:
+        raise AssertionError("digest runner must not run for follow-up")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=unused_runner,
+        session_service=session_service,
+        interface_router=router,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Why does the top item matter for my team?",
+            session_id=created.id,
+            request_id="req-router-followup",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    joined = "".join(e.text for e in events if isinstance(e, DeltaEvent))
+    assert "router tool answer" in joined
+    assert len(router.calls) == 1
+    assert router.calls[0]["session_id"] == created.id
+    assert router.calls[0]["message"] == "Why does the top item matter for my team?"
+    assert any(isinstance(e, DoneEvent) for e in events)
+
+
+def test_stream_events_session_structured_followup_skips_interface_router(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "router-structured.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _save_session_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["router-topic"],
+        request_id="req-router-structured",
+        ensure_session=False,
+    )
+
+    router = _SessionFollowupRouter()
+
+    async def unused_runner(_: DigestRequest) -> DigestResult:
+        raise AssertionError("digest runner must not run for follow-up")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=unused_runner,
+        session_service=session_service,
+        interface_router=router,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "show sources",
+            session_id=created.id,
+            request_id="req-router-structured-followup",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    joined = "".join(e.text for e in events if isinstance(e, DeltaEvent))
+    assert "https://example.com/router-topic" in joined
+    assert router.calls == []
 
 
 def test_stream_events_digest_failure_emits_error_without_raw_exception_detail(

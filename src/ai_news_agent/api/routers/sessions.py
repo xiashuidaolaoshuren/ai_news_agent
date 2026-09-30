@@ -368,10 +368,20 @@ def patch_session(
     if body.title is not None:
         application.session_service.rename_session(session_id, body.title)
     if body.connector_names is not None or body.items_per_source is not None:
+        current = application.session_service.get_session(session_id)
+        assert current is not None
         application.session_service.update_preferences(
             session_id,
-            connector_names=body.connector_names,
-            items_per_source=body.items_per_source,
+            connector_names=(
+                body.connector_names
+                if body.connector_names is not None
+                else current.connector_names
+            ),
+            items_per_source=(
+                body.items_per_source
+                if body.items_per_source is not None
+                else current.items_per_source
+            ),
         )
 
     record = application.session_service.get_session(session_id)

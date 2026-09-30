@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from ai_news_agent.repositories.session_store import SessionStore
 from ai_news_agent.storage import DigestStore
 
@@ -237,7 +239,8 @@ def test_build_request_applies_preferences_as_one_request_defaults(tmp_path: Pat
 
     default_req = service.build_request(created.id, "Give me today's digest")
     assert default_req.connector_names == ["github"]
-    assert default_req.max_items_per_source == 5
+    assert default_req.items_per_source == 5
+    assert default_req.max_items_per_source == 20
 
     overridden = service.build_request(created.id, "zhihu only: give me a digest")
     assert overridden.connector_names == ["zhihu"]
@@ -246,6 +249,30 @@ def test_build_request_applies_preferences_as_one_request_defaults(tmp_path: Pat
     assert stored is not None
     assert stored.connector_names == ["github"]
     assert stored.items_per_source == 5
+
+
+def test_build_request_maps_preference_to_ranking_quota_not_collection_cap(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-build-quota.db"
+    _init_db(db_path)
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+    service.update_preferences(created.id, connector_names=None, items_per_source=5)
+
+    req = service.build_request(created.id, "Give me today's digest")
+
+    assert req.items_per_source == 5
+    assert req.max_items_per_source == 20
+
+    service.update_preferences(created.id, connector_names=None, items_per_source=50)
+    raised = service.build_request(created.id, "Give me today's digest")
+
+    assert raised.items_per_source == 50
+    assert raised.max_items_per_source == 50
+    assert raised.top_n == req.top_n
 
 
 def test_build_request_missing_session_raises(tmp_path: Path) -> None:
@@ -591,6 +618,64 @@ def test_cancel_before_persistence_marks_cancelled_with_safe_message(
     assert assistant["role"] == "assistant"
     assert assistant["content"] == CANCELLED_ASSISTANT_MESSAGE
     assert assistant["id"] == row["assistant_message_id"]
+
+
+def test_cancel_loses_race_when_digest_bundle_commits_first(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-cancel-race.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    digest_store = DigestStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(created.id, content="Racing", request_id="req-race")
+
+    state: dict[str, object] = {"triggered": False, "run_id": None}
+    original_get_request = SessionStore.get_request
+
+    def racing_get_request(self: SessionStore, session_id: str, request_id: str):
+        row = original_get_request(self, session_id, request_id)
+        if not state["triggered"] and request_id == "req-race" and row is not None:
+            state["triggered"] = True
+            run_id = digest_store.save_run(
+                requested_at=datetime(2026, 5, 7, 10, 0, 0, tzinfo=UTC),
+                timeframe="today",
+                topics=["RAG"],
+                connector_names=["github"],
+            )
+            SessionStore(db_path).update_request_run_id(session_id, request_id, run_id)
+            state["run_id"] = run_id
+        return row
+
+    monkeypatch.setattr(SessionStore, "get_request", racing_get_request)
+
+    accepted = service.cancel_request(created.id, "req-race")
+
+    assert accepted is False
+    row = store.get_request(created.id, "req-race")
+    assert row is not None
+    assert row["status"] == "active"
+    assert row["run_id"] == state["run_id"]
+    assert row["assistant_message_id"] is None
+
+    messages = store.list_messages(created.id)
+    assert len(messages) == 1
+    assert all(message["role"] != "assistant" for message in messages)
+
+    service.complete_request(
+        created.id,
+        "req-race",
+        status="succeeded",
+        content="Digest complete",
+        run_id=int(state["run_id"]),  # type: ignore[arg-type]
+    )
+    completed = store.get_request(created.id, "req-race")
+    assert completed is not None
+    assert completed["status"] == "succeeded"
 
 
 def test_cancel_returns_false_without_writes_for_post_persistence_terminal_and_unknown(

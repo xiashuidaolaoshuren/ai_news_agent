@@ -595,7 +595,10 @@ class ChatService:
             async for event in stream:
                 yield event
             return
-        result = await self._workflow_runner(req)
+        try:
+            result = await self._workflow_runner(req, session_id=session_id)
+        except TypeError:
+            result = await self._workflow_runner(req)
         yield "", True, result
 
     async def _handle_session_followup_message_async(
@@ -612,6 +615,19 @@ class ChatService:
         if structured is not None:
             logger.info("follow-up path=structured session_id=%s", session_id)
             return structured
+
+        run_session_followup = getattr(
+            self._interface_router,
+            "run_session_followup",
+            None,
+        )
+        if callable(run_session_followup):
+            logger.info("follow-up path=tool_agent session_id=%s", session_id)
+            result = await run_session_followup(
+                session_id=session_id,
+                message=message,
+            )
+            return _interface_result_to_text(result, store=self._store)
 
         if self._tool_agent_runner is not None:
             logger.info("follow-up path=tool_agent session_id=%s", session_id)
