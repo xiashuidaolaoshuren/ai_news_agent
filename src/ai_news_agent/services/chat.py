@@ -452,7 +452,15 @@ class ChatService:
                 chunk_size=chunk_size,
                 delay_s=chunk_delay_s,
             ):
+                cancelled = self._cancelled_error_event(session_id, record)
+                if cancelled is not None:
+                    yield cancelled
+                    return
                 yield DeltaEvent(text=chunk)
+            cancelled = self._cancelled_error_event(session_id, record)
+            if cancelled is not None:
+                yield cancelled
+                return
             if result.digest is not None and result.run_id is not None:
                 yield DigestEvent(
                     run_id=result.run_id,
@@ -481,8 +489,8 @@ class ChatService:
         record: SessionRequestRecord,
     ) -> ErrorEvent | None:
         assert self._session_service is not None
-        row = self._session_service._store.get_request(session_id, record.id)  # noqa: SLF001
-        if row is None or row["status"] != "cancelled":
+        current = self._session_service.get_request(session_id, record.id)
+        if current is None or current.status != "cancelled":
             return None
         return ErrorEvent(
             request_id=record.id,
@@ -501,6 +509,10 @@ class ChatService:
         chunk_delay_s: float,
     ) -> AsyncIterator[ChatEvent]:
         text = await self._handle_session_followup_message_async(session_id, message)
+        cancelled = self._cancelled_error_event(session_id, record)
+        if cancelled is not None:
+            yield cancelled
+            return
         async for event in self._stream_session_text_events(
             session_id=session_id,
             record=record,
@@ -527,7 +539,15 @@ class ChatService:
             chunk_size=chunk_size,
             delay_s=chunk_delay_s,
         ):
+            cancelled = self._cancelled_error_event(session_id, record)
+            if cancelled is not None:
+                yield cancelled
+                return
             yield DeltaEvent(text=chunk)
+        cancelled = self._cancelled_error_event(session_id, record)
+        if cancelled is not None:
+            yield cancelled
+            return
         message_id = self._session_service.complete_request(
             session_id,
             record.id,
@@ -556,9 +576,9 @@ class ChatService:
         assert self._session_service is not None
         text = ""
         if record.assistant_message_id is not None:
-            for row in self._session_service._store.list_messages(session_id):  # noqa: SLF001
-                if int(row["id"]) == record.assistant_message_id:
-                    text = row["content"]
+            for message in self._session_service.list_messages(session_id):
+                if message.id == record.assistant_message_id:
+                    text = message.content
                     break
         async for chunk in iter_text_chunks(
             text,
@@ -567,6 +587,18 @@ class ChatService:
         ):
             yield DeltaEvent(text=chunk)
         if record.status == "succeeded":
+            if record.run_id is not None:
+                digest = self._store.get_digest_by_run_id(record.run_id)
+                if digest is not None:
+                    yield DigestEvent(
+                        run_id=record.run_id,
+                        digest=digest,
+                        markdown=text,
+                        warnings=self._store.get_connector_warnings_for_run(
+                            record.run_id
+                        ),
+                        errors=[],
+                    )
             yield DoneEvent(
                 request_id=record.id,
                 message_id=record.assistant_message_id or 0,

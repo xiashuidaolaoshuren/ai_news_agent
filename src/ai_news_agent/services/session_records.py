@@ -1,52 +1,12 @@
-"""Typed session records and initial title rules (Milestone 8A.1 T7)."""
+"""Session record re-exports and title rules (Milestone 8A.1 T7)."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
-
-
-@dataclass(frozen=True)
-class SessionRecord:
-    """Typed view of a persisted chat session."""
-
-    id: str
-    title: str | None
-    connector_names: list[str] | None
-    items_per_source: int | None
-    created_at: datetime
-    updated_at: datetime
-
-
-@dataclass(frozen=True)
-class MessageRecord:
-    """Typed view of an ordered session message."""
-
-    id: int
-    session_id: str
-    sequence: int
-    role: str
-    content: str
-    run_id: int | None
-    created_at: datetime
-
-
-@dataclass(frozen=True)
-class SessionRequestRecord:
-    """Typed view of a durable session request."""
-
-    id: str
-    session_id: str
-    status: str
-    user_message_id: int
-    assistant_message_id: int | None
-    run_id: int | None
-    correlation_id: str
-    error_code: str | None
-    error_message: str | None
-    started_at: datetime
-    completed_at: datetime | None
-
+from ai_news_agent.repositories.session_records import (
+    MessageRecord,
+    SessionRecord,
+    SessionRequestRecord,
+)
 
 _TITLE_MAX_CHARS = 60
 

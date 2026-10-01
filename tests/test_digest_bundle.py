@@ -110,10 +110,10 @@ def test_unit_of_work_commit_persists_digest_and_session_writes(tmp_path: Path) 
     session_store = SessionStore(db_path)
     row = session_store.get_session("sess-1")
     assert row is not None
-    assert row["title"] == "Chat"
+    assert row.title == "Chat"
     messages = session_store.list_messages("sess-1")
     assert len(messages) == 1
-    assert messages[0]["content"] == "Hello"
+    assert messages[0].content == "Hello"
 
 
 def test_unit_of_work_rollback_discards_digest_and_session_writes(tmp_path: Path) -> None:

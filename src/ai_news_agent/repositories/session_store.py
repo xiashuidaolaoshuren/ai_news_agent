@@ -9,6 +9,14 @@ from pathlib import Path
 from typing import Iterator
 
 from ai_news_agent.models import utcnow
+from ai_news_agent.repositories.session_records import (
+    MessageRecord,
+    SessionRecord,
+    SessionRequestRecord,
+    message_record_from_row,
+    request_record_from_row,
+    session_record_from_row,
+)
 
 _TERMINAL_REQUEST_STATUSES = frozenset(
     {"succeeded", "failed", "cancelled", "interrupted"}
@@ -73,19 +81,20 @@ class SessionStore:
                 ),
             )
 
-    def get_session(self, session_id: str) -> sqlite3.Row | None:
+    def get_session(self, session_id: str) -> SessionRecord | None:
         with self._conn() as conn:
-            return conn.execute(
+            row = conn.execute(
                 "SELECT * FROM sessions WHERE id = ?",
                 (session_id,),
             ).fetchone()
+        return session_record_from_row(row) if row is not None else None
 
-    def list_sessions(self) -> list[sqlite3.Row]:
+    def list_sessions(self) -> list[SessionRecord]:
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT * FROM sessions ORDER BY updated_at DESC, id DESC"
             ).fetchall()
-        return list(rows)
+        return [session_record_from_row(row) for row in rows]
 
     def rename_session(self, session_id: str, title: str) -> None:
         with self._conn() as conn:
@@ -153,7 +162,7 @@ class SessionStore:
             )
             return int(cur.lastrowid)
 
-    def list_messages(self, session_id: str) -> list[sqlite3.Row]:
+    def list_messages(self, session_id: str) -> list[MessageRecord]:
         with self._conn() as conn:
             rows = conn.execute(
                 """
@@ -163,9 +172,9 @@ class SessionStore:
                 """,
                 (session_id,),
             ).fetchall()
-        return list(rows)
+        return [message_record_from_row(row) for row in rows]
 
-    def list_all_messages(self) -> list[sqlite3.Row]:
+    def list_all_messages(self) -> list[MessageRecord]:
         with self._conn() as conn:
             rows = conn.execute(
                 """
@@ -173,7 +182,7 @@ class SessionStore:
                 ORDER BY session_id ASC, sequence ASC
                 """
             ).fetchall()
-        return list(rows)
+        return [message_record_from_row(row) for row in rows]
 
     def delete_session(self, session_id: str) -> None:
         with self._conn() as conn:
@@ -199,17 +208,22 @@ class SessionStore:
                 (request_id, session_id, user_message_id, correlation_id, started),
             )
 
-    def get_request(self, session_id: str, request_id: str) -> sqlite3.Row | None:
+    def get_request(
+        self,
+        session_id: str,
+        request_id: str,
+    ) -> SessionRequestRecord | None:
         with self._conn() as conn:
-            return conn.execute(
+            row = conn.execute(
                 """
                 SELECT * FROM session_requests
                 WHERE session_id = ? AND id = ?
                 """,
                 (session_id, request_id),
             ).fetchone()
+        return request_record_from_row(row) if row is not None else None
 
-    def list_requests(self, session_id: str) -> list[sqlite3.Row]:
+    def list_requests(self, session_id: str) -> list[SessionRequestRecord]:
         with self._conn() as conn:
             rows = conn.execute(
                 """
@@ -219,7 +233,7 @@ class SessionStore:
                 """,
                 (session_id,),
             ).fetchall()
-        return list(rows)
+        return [request_record_from_row(row) for row in rows]
 
     def update_request_run_id(
         self,

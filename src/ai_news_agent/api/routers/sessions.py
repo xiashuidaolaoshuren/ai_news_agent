@@ -34,6 +34,7 @@ from ai_news_agent.api.schemas.streaming import (
     ProgressPayload,
     StartedPayload,
     WorkflowErrorPayload,
+    session_message_stream_openapi_schema,
 )
 from ai_news_agent.api.sse import encode_sse
 from ai_news_agent.services.chat import (
@@ -169,7 +170,6 @@ def _chat_event_payload(event: ChatEvent, digest_store: DigestStore) -> tuple[st
                 WorkflowErrorPayload(
                     stage=error.stage,
                     message=error.message,
-                    detail=error.detail,
                 )
                 for error in event.errors
             ],
@@ -459,7 +459,20 @@ def list_messages(
     )
 
 
-@router.post("/{session_id}/messages")
+@router.post(
+    "/{session_id}/messages",
+    response_class=StreamingResponse,
+    responses={
+        status.HTTP_200_OK: {
+            "description": "Session chat event stream",
+            "content": {
+                "text/event-stream": {
+                    "schema": session_message_stream_openapi_schema(),
+                },
+            },
+        },
+    },
+)
 async def post_message(
     session_id: str,
     body: PostMessageBody,

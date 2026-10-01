@@ -761,6 +761,10 @@ class DigestStore:
     def get_news_items_for_run(self, run_id: int) -> list[NewsItem]:
         return self._load_news_items(run_id)
 
+    def get_connector_warnings_for_run(self, run_id: int) -> list[ConnectorWarning]:
+        """Return persisted connector warnings for a saved digest run."""
+        return self._load_warnings(run_id)
+
     def get_followup_context_for_digest(self, digest_id: int) -> FollowupContext | None:
         with self._conn() as conn:
             row = conn.execute("SELECT * FROM digests WHERE id = ?", (digest_id,)).fetchone()

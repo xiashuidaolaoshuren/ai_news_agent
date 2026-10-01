@@ -6,6 +6,7 @@ import asyncio
 import json
 import threading
 import time
+from datetime import UTC, datetime
 from http.client import HTTPConnection
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -17,6 +18,7 @@ from ai_news_agent.app.digest_service import (
     DigestServiceRuntime,
     build_digest_request_payload,
 )
+from ai_news_agent.graph.state import DigestResult
 from ai_news_agent.request import DigestRequest
 from ai_news_agent.sources import DEFAULT_SOURCE_NAMES
 from ai_news_agent.tools.schemas import (
@@ -277,10 +279,52 @@ def test_digest_endpoint_returns_markdown_text(tmp_path: Path) -> None:
     assert "stages" in data
 
 
-def test_digest_service_runtime_live_builds_interface_tool_router(
+async def _fake_workflow_runner(
+    req: DigestRequest,
+    *,
+    on_stage=None,
+    session_id: str | None = None,
+) -> DigestResult:
+    del session_id
+    if on_stage is not None:
+        on_stage("parse_request")
+        on_stage("collect_sources")
+    now = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
+    return DigestResult(
+        request=req,
+        digest=None,
+        run_id=1,
+        markdown="# AI News Digest\n\nFake GitHub repo\n",
+        text="# AI News Digest\n\nFake GitHub repo\n",
+        ranked_items=[],
+        warnings=[],
+        errors=[],
+        started_at=now,
+        finished_at=now,
+    )
+
+
+def _injected_live_runtime(
+    tmp_path: Path,
+    *,
+    db_name: str = "live-runtime.db",
+    interface_router: MagicMock | None = None,
+) -> DigestServiceRuntime:
+    return DigestServiceRuntime(
+        fake=False,
+        db_path=tmp_path / db_name,
+        model=MagicMock(name="ChatModel"),
+        workflow_runner=_fake_workflow_runner,
+        interface_router=interface_router or MagicMock(name="InterfaceToolRouter"),
+    )
+
+
+def test_build_application_live_builds_openclaw_interface_tool_router(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from ai_news_agent.services import composition
+
     router_calls: list[dict[str, object]] = []
     fake_router = MagicMock(name="InterfaceToolRouter")
 
@@ -288,85 +332,97 @@ def test_digest_service_runtime_live_builds_interface_tool_router(
         router_calls.append(kwargs)
         return fake_router
 
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: MagicMock(name="ChatModel"))
+    monkeypatch.setattr(composition, "build_chat_model", lambda: MagicMock(name="ChatModel"))
     monkeypatch.setattr(
-        digest_service,
+        composition,
         "build_tool_chat_model",
         lambda: MagicMock(name="ToolChatModel"),
         raising=False,
     )
     monkeypatch.setattr(
-        digest_service,
+        composition,
         "build_connector_factory",
         lambda **kw: MagicMock(name="ConnectorFactory"),
         raising=False,
     )
     monkeypatch.setattr(
-        digest_service,
+        composition,
         "build_interface_tool_router",
         spy_build_interface_tool_router,
         raising=False,
     )
 
-    runtime = DigestServiceRuntime(fake=False, db_path=tmp_path / "live-router.db")
+    application = composition.build_application(
+        fake=False,
+        db_path=tmp_path / "live-router.db",
+    )
 
-    assert len(router_calls) == 1
-    assert router_calls[0]["interface_name"] == "openclaw"
-    assert router_calls[0]["tool_model"] is not None
-    assert router_calls[0]["digest_model"] is not None
-    assert callable(router_calls[0]["build_connectors_fn"])
-    assert callable(router_calls[0]["workflow_runner"])
-    assert router_calls[0]["streaming_workflow_runner"] is None
-    assert "juya_factory" in router_calls[0]
-    assert "huggingface_factory" in router_calls[0]
-    assert "zhihu_factory" in router_calls[0]
-    assert runtime._interface_router is fake_router
+    openclaw_calls = [
+        call for call in router_calls if call["interface_name"] == "openclaw"
+    ]
+    assert len(openclaw_calls) == 1
+    assert openclaw_calls[0]["tool_model"] is not None
+    assert openclaw_calls[0]["digest_model"] is not None
+    assert callable(openclaw_calls[0]["build_connectors_fn"])
+    assert callable(openclaw_calls[0]["workflow_runner"])
+    assert openclaw_calls[0]["streaming_workflow_runner"] is None
+    assert "juya_factory" in openclaw_calls[0]
+    assert "huggingface_factory" in openclaw_calls[0]
+    assert "zhihu_factory" in openclaw_calls[0]
+    assert application.openclaw_runtime._interface_router is fake_router
 
 
-def test_digest_service_runtime_live_passes_juya_factory(
+def test_build_application_live_passes_juya_factory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from ai_news_agent.services import composition
+
     factory_calls: list[dict[str, object]] = []
-    router_calls: list[dict[str, object]] = []
 
     def recording_build_connector_factory(**kwargs: object) -> MagicMock:
         factory_calls.append(dict(kwargs))
         return MagicMock(name=f"ConnectorFactory-{kwargs.get('name')}")
 
-    def spy_build_interface_tool_router(**kwargs: object) -> MagicMock:
-        router_calls.append(kwargs)
-        return MagicMock(name="InterfaceToolRouter")
-
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: MagicMock(name="ChatModel"))
+    monkeypatch.setattr(composition, "build_chat_model", lambda: MagicMock(name="ChatModel"))
     monkeypatch.setattr(
-        digest_service,
+        composition,
         "build_tool_chat_model",
         lambda: MagicMock(name="ToolChatModel"),
         raising=False,
     )
     monkeypatch.setattr(
-        digest_service,
+        composition,
         "build_connector_factory",
         recording_build_connector_factory,
         raising=False,
     )
     monkeypatch.setattr(
-        digest_service,
+        composition,
         "build_interface_tool_router",
-        spy_build_interface_tool_router,
+        lambda **kwargs: MagicMock(name="InterfaceToolRouter"),
         raising=False,
     )
 
-    DigestServiceRuntime(fake=False, db_path=tmp_path / "live-juya-factory.db")
+    composition.build_application(fake=False, db_path=tmp_path / "live-juya-factory.db")
 
     assert any(call.get("name") == "juya" for call in factory_calls)
     assert any(call.get("name") == "huggingface" for call in factory_calls)
     assert any(call.get("name") == "zhihu" for call in factory_calls)
-    assert len(router_calls) == 1
-    assert router_calls[0]["juya_factory"] is not None
-    assert router_calls[0]["huggingface_factory"] is not None
-    assert router_calls[0]["zhihu_factory"] is not None
+
+
+def test_digest_service_runtime_live_requires_injected_dependencies(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="composition root"):
+        DigestServiceRuntime(fake=False, db_path=tmp_path / "live-missing-deps.db")
+
+
+def test_digest_service_runtime_live_does_not_build_interface_tool_router(
+    tmp_path: Path,
+) -> None:
+    runtime = _injected_live_runtime(tmp_path, db_name="live-no-build.db")
+    assert runtime._interface_router is not None
 
 
 def test_digest_service_runtime_fake_mode_has_no_interface_router(tmp_path: Path) -> None:
@@ -397,27 +453,6 @@ def _live_app_client_factory(
     )
     monkeypatch.setattr(
         composition,
-        "build_interface_tool_router",
-        lambda **kwargs: MagicMock(name="InterfaceToolRouter"),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service, "build_chat_model", lambda: MagicMock(name="ChatModel")
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_tool_chat_model",
-        lambda: MagicMock(name="ToolChatModel"),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_connector_factory",
-        lambda **kw: MagicMock(name="ConnectorFactory"),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
         "build_interface_tool_router",
         lambda **kwargs: MagicMock(name="InterfaceToolRouter"),
         raising=False,
@@ -480,32 +515,13 @@ def test_live_digest_fallback_preserves_stage_timings(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: MagicMock(name="ChatModel"))
-    monkeypatch.setattr(
-        digest_service,
-        "build_tool_chat_model",
-        lambda: MagicMock(name="ToolChatModel"),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_connector_factory",
-        lambda **kw: MagicMock(name="ConnectorFactory"),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_interface_tool_router",
-        lambda **kwargs: MagicMock(name="InterfaceToolRouter"),
-        raising=False,
-    )
     original_build_connectors = digest_service.build_connectors
     monkeypatch.setattr(
         digest_service,
         "build_connectors",
         lambda *, fake, names: original_build_connectors(fake=True, names=names),
     )
-    runtime = DigestServiceRuntime(fake=False, db_path=tmp_path / "stages.db")
+    runtime = _injected_live_runtime(tmp_path, db_name="stages.db")
     runtime._interface_router = _WorkflowInvokingRouter(runtime)
 
     request = DigestRequest(topics=["AI"], connector_names=["github"])
@@ -520,28 +536,8 @@ def test_live_digest_fallback_preserves_stage_timings(
 
 def test_live_digest_agent_success_preserves_stage_timings(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: MagicMock(name="ChatModel"))
-    monkeypatch.setattr(
-        digest_service,
-        "build_tool_chat_model",
-        lambda: MagicMock(name="ToolChatModel"),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_connector_factory",
-        lambda **kw: MagicMock(name="ConnectorFactory"),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_interface_tool_router",
-        lambda **kwargs: MagicMock(name="InterfaceToolRouter"),
-        raising=False,
-    )
-    runtime = DigestServiceRuntime(fake=False, db_path=tmp_path / "agent-stages.db")
+    runtime = _injected_live_runtime(tmp_path, db_name="agent-stages.db")
     router = _OnStageInvokingRouter()
     runtime._interface_router = router
 
@@ -561,32 +557,13 @@ def test_live_digest_fallback_uses_per_request_on_stage_not_instance_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: MagicMock(name="ChatModel"))
-    monkeypatch.setattr(
-        digest_service,
-        "build_tool_chat_model",
-        lambda: MagicMock(name="ToolChatModel"),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_connector_factory",
-        lambda **kw: MagicMock(name="ConnectorFactory"),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_interface_tool_router",
-        lambda **kwargs: MagicMock(name="InterfaceToolRouter"),
-        raising=False,
-    )
     original_build_connectors = digest_service.build_connectors
     monkeypatch.setattr(
         digest_service,
         "build_connectors",
         lambda *, fake, names: original_build_connectors(fake=True, names=names),
     )
-    runtime = DigestServiceRuntime(fake=False, db_path=tmp_path / "per-request-on-stage.db")
+    runtime = _injected_live_runtime(tmp_path, db_name="per-request-on-stage.db")
     runtime._interface_router = _ConcurrentOverwriteRouter(runtime)
 
     request = DigestRequest(topics=["AI"], connector_names=["github"])
@@ -667,6 +644,32 @@ def test_digest_endpoint_maps_unexpected_failure_to_safe_500(
     data = resp.json()
     assert "error" in data
     assert data["correlation_id"] == "boom-1"
+    assert "secret-token" not in data["error"]
+    assert "RuntimeError" not in data["error"]
+
+
+def test_followup_endpoint_maps_unexpected_failure_to_safe_500(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _RaisingRouter:
+        async def route(self, **kwargs: object) -> object:
+            raise RuntimeError("provider exploded with secret-token")
+
+    live_client, application, _router = _live_app_client_factory(tmp_path, monkeypatch)
+    application.openclaw_runtime._interface_router = _RaisingRouter()
+
+    resp = live_client.post(
+        "/followup",
+        json={"message": "show sources", "correlation_id": "boom-2"},
+    )
+
+    assert resp.status_code == 500
+    data = resp.json()
+    assert "error" in data
+    assert data["correlation_id"] == "boom-2"
+    assert "secret-token" not in data["error"]
+    assert "RuntimeError" not in data["error"]
 
 
 def test_followup_endpoint_requires_message(tmp_path: Path) -> None:

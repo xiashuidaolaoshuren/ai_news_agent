@@ -20,6 +20,39 @@ def _build_test_client(*, fake: bool, db_path: Path):
     return TestClient(create_app(application))
 
 
+def test_post_message_unknown_field_returns_400(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "validation-400.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    response = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "hello", "unexpected": True},
+    )
+
+    assert response.status_code == 400
+
+
+def test_openapi_documents_session_message_stream_as_sse(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "openapi-sse.db")
+    schema = client.get("/openapi.json").json()
+    post = schema["paths"]["/api/v1/sessions/{session_id}/messages"]["post"]
+    success = post["responses"]["200"]
+    assert "text/event-stream" in success["content"]
+    stream_schema = success["content"]["text/event-stream"]["schema"]
+    if "oneOf" in stream_schema:
+        assert stream_schema.get("discriminator", {}).get("propertyName") == "event"
+        assert len(stream_schema["oneOf"]) >= 6
+    elif "$ref" in stream_schema:
+        ref_name = stream_schema["$ref"].rsplit("/", 1)[-1]
+        event_schema = schema["components"]["schemas"][ref_name]
+        assert "event" in event_schema.get("properties", {})
+    else:
+        assert "event" in stream_schema.get("properties", {})
+    schema_names = schema["components"]["schemas"]
+    assert any(name.endswith("Payload") for name in schema_names)
+    assert any("DigestView" in json.dumps(schema_names[name]) for name in schema_names)
+
+
 def test_fastapi_shell_surface_importable() -> None:
     from ai_news_agent.api.app import create_app
     from ai_news_agent.services.composition import Application, build_application
@@ -539,6 +572,48 @@ def test_post_message_terminal_request_id_replays_without_new_messages(
     assert len(after["messages"]) == 2
 
 
+def test_post_message_terminal_digest_replay_emits_digest_sse_event(
+    tmp_path: Path,
+) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "sse-digest-replay.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Give me today's AI digest",
+            "client_request_id": "req-digest-replay",
+        },
+    ) as first:
+        assert first.status_code == 200
+        first_body = first.read().decode()
+    first_events = _parse_sse_events(first_body)
+    assert "digest" in [name for name, _ in first_events]
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "ignored content",
+            "client_request_id": "req-digest-replay",
+        },
+    ) as replay:
+        assert replay.status_code == 200
+        replay_body = replay.read().decode()
+
+    replay_events = _parse_sse_events(replay_body)
+    event_names = [name for name, _ in replay_events]
+    assert "started" in event_names
+    assert "delta" in event_names
+    assert "digest" in event_names
+    assert "done" in event_names
+    digest_payload = next(payload for name, payload in replay_events if name == "digest")
+    assert "run_id" in digest_payload
+    assert "digest" in digest_payload
+    assert "markdown" in digest_payload
+
+
 def test_shielded_sse_pump_persists_after_consumer_disconnect(tmp_path: Path) -> None:
     from ai_news_agent.api.routers.sessions import shielded_event_stream
     from ai_news_agent.services.chat import StartedEvent
@@ -781,7 +856,6 @@ def test_get_session_search_cursor_pagination_and_invalid_cursor(
 def test_build_application_live_uses_model_factory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from ai_news_agent.app import digest_service
     from ai_news_agent.services.composition import build_application
 
     calls: list[str] = []
@@ -794,28 +868,18 @@ def test_build_application_live_uses_model_factory(
         calls.append("build_tool_chat_model")
         return object()
 
-    for module_path in (
-        "ai_news_agent.services.composition",
-        "ai_news_agent.app.digest_service",
-    ):
-        monkeypatch.setattr(f"{module_path}.build_chat_model", _track_build_chat_model)
-        monkeypatch.setattr(
-            f"{module_path}.build_tool_chat_model",
-            _track_build_tool_chat_model,
-        )
     monkeypatch.setattr(
-        digest_service,
-        "build_connector_factory",
-        lambda **kwargs: object(),
-        raising=False,
+        "ai_news_agent.services.composition.build_chat_model",
+        _track_build_chat_model,
     )
     monkeypatch.setattr(
-        digest_service,
-        "build_interface_tool_router",
-        lambda **kwargs: object(),
-        raising=False,
+        "ai_news_agent.services.composition.build_tool_chat_model",
+        _track_build_tool_chat_model,
     )
-    monkeypatch.setattr("ai_news_agent.services.composition.build_connector_factory", lambda **kw: object())
+    monkeypatch.setattr(
+        "ai_news_agent.services.composition.build_connector_factory",
+        lambda **kw: object(),
+    )
     monkeypatch.setattr(
         "ai_news_agent.services.composition.build_interface_tool_router",
         lambda **kwargs: object(),

@@ -273,8 +273,7 @@ def test_create_app_chat_interface_fn_is_async_generator(tmp_path) -> None:
 
 
 def _patch_live_builders(monkeypatch: pytest.MonkeyPatch, *, router=None, router_calls=None):
-    """Patch the model/connector/router builders in the shared composition root."""
-    from ai_news_agent.app import digest_service
+    """Patch the model/connector/router builders in the composition root."""
     from ai_news_agent.services import composition
 
     def make_router(**kwargs):
@@ -282,26 +281,25 @@ def _patch_live_builders(monkeypatch: pytest.MonkeyPatch, *, router=None, router
             router_calls.append(kwargs)
         return router if router is not None else MagicMock(name="InterfaceToolRouter")
 
-    for module in (composition, digest_service):
-        monkeypatch.setattr(module, "build_chat_model", lambda: MagicMock(name="ChatModel"))
-        monkeypatch.setattr(
-            module,
-            "build_tool_chat_model",
-            lambda: MagicMock(name="ToolChatModel"),
-            raising=False,
-        )
-        monkeypatch.setattr(
-            module,
-            "build_connector_factory",
-            lambda **kw: MagicMock(name=f"ConnectorFactory-{kw.get('name')}"),
-            raising=False,
-        )
-        monkeypatch.setattr(
-            module,
-            "build_interface_tool_router",
-            make_router,
-            raising=False,
-        )
+    monkeypatch.setattr(composition, "build_chat_model", lambda: MagicMock(name="ChatModel"))
+    monkeypatch.setattr(
+        composition,
+        "build_tool_chat_model",
+        lambda: MagicMock(name="ToolChatModel"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        composition,
+        "build_connector_factory",
+        lambda **kw: MagicMock(name=f"ConnectorFactory-{kw.get('name')}"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        composition,
+        "build_interface_tool_router",
+        make_router,
+        raising=False,
+    )
 
 
 def test_build_service_delegates_to_composition_root(
@@ -388,7 +386,6 @@ def test_build_service_live_mode_passes_juya_factory(tmp_path, monkeypatch: pyte
     factory_calls: list[dict[str, object]] = []
     router_calls: list[dict] = []
 
-    from ai_news_agent.app import digest_service
     from ai_news_agent.services import composition
 
     def recording_build_connector_factory(**kwargs):
@@ -399,26 +396,25 @@ def test_build_service_live_mode_passes_juya_factory(tmp_path, monkeypatch: pyte
         router_calls.append(kwargs)
         return MagicMock(name="InterfaceToolRouter")
 
-    for module in (composition, digest_service):
-        monkeypatch.setattr(module, "build_chat_model", lambda: MagicMock(name="ChatModel"))
-        monkeypatch.setattr(
-            module,
-            "build_tool_chat_model",
-            lambda: MagicMock(name="ToolChatModel"),
-            raising=False,
-        )
-        monkeypatch.setattr(
-            module,
-            "build_connector_factory",
-            recording_build_connector_factory,
-            raising=False,
-        )
-        monkeypatch.setattr(
-            module,
-            "build_interface_tool_router",
-            spy_build_interface_tool_router,
-            raising=False,
-        )
+    monkeypatch.setattr(composition, "build_chat_model", lambda: MagicMock(name="ChatModel"))
+    monkeypatch.setattr(
+        composition,
+        "build_tool_chat_model",
+        lambda: MagicMock(name="ToolChatModel"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        composition,
+        "build_connector_factory",
+        recording_build_connector_factory,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        composition,
+        "build_interface_tool_router",
+        spy_build_interface_tool_router,
+        raising=False,
+    )
 
     _build_service(fake=False, db_path=tmp_path / "live-juya-factory.db")
 
@@ -435,7 +431,6 @@ def test_build_service_live_mode_passes_juya_factory(tmp_path, monkeypatch: pyte
 def test_build_service_live_closures_respect_connector_names(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from ai_news_agent.app import digest_service
     from ai_news_agent.services import composition
 
     router_calls: list[dict] = []
@@ -497,33 +492,32 @@ def test_build_service_live_closures_respect_connector_names(
         router_calls.append(kwargs)
         return MagicMock(name="InterfaceToolRouter")
 
-    for module in (composition, digest_service):
-        monkeypatch.setattr(module, "build_chat_model", lambda: MagicMock(name="ChatModel"))
-        monkeypatch.setattr(
-            module,
-            "build_tool_chat_model",
-            lambda: MagicMock(name="ToolChatModel"),
-            raising=False,
-        )
-        monkeypatch.setattr(
-            module,
-            "build_connector_factory",
-            lambda **kw: MagicMock(name=f"ConnectorFactory-{kw.get('name')}"),
-            raising=False,
-        )
-        monkeypatch.setattr(
-            module,
-            "build_interface_tool_router",
-            spy_build_interface_tool_router,
-            raising=False,
-        )
-        monkeypatch.setattr(module, "load_local_env", lambda **kwargs: None, raising=False)
-        monkeypatch.setattr(
-            module,
-            "configure_bilibili_network_from_env",
-            lambda *_args, **_kwargs: None,
-            raising=False,
-        )
+    monkeypatch.setattr(composition, "build_chat_model", lambda: MagicMock(name="ChatModel"))
+    monkeypatch.setattr(
+        composition,
+        "build_tool_chat_model",
+        lambda: MagicMock(name="ToolChatModel"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        composition,
+        "build_connector_factory",
+        lambda **kw: MagicMock(name=f"ConnectorFactory-{kw.get('name')}"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        composition,
+        "build_interface_tool_router",
+        spy_build_interface_tool_router,
+        raising=False,
+    )
+    monkeypatch.setattr(composition, "load_local_env", lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(
+        composition,
+        "configure_bilibili_network_from_env",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
 
     monkeypatch.setattr(composition, "build_connectors", recording_build_connectors)
     monkeypatch.setattr(composition, "run_digest", fake_run_digest)

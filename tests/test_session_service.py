@@ -412,8 +412,8 @@ def test_begin_request_creates_user_message_and_active_request(tmp_path: Path) -
 
     messages = store.list_messages(created.id)
     assert len(messages) == 1
-    assert messages[0]["content"] == "Give me today's digest"
-    assert messages[0]["id"] == record.user_message_id
+    assert messages[0].content == "Give me today's digest"
+    assert messages[0].id == record.user_message_id
 
     session = service.get_session(created.id)
     assert session is not None
@@ -556,8 +556,8 @@ def test_interrupt_active_requests_marks_leftover_active_as_interrupted(
     assert interrupted_count == 1
     row = store.get_request(second.id, "req-2")
     assert row is not None
-    assert row["status"] == "interrupted"
-    assert row["completed_at"] is not None
+    assert row.status == "interrupted"
+    assert row.completed_at is not None
 
 
 def test_interrupt_replay_returns_interrupted_outcome_without_rerun(
@@ -606,18 +606,18 @@ def test_cancel_before_persistence_marks_cancelled_with_safe_message(
     assert accepted is True
     row = store.get_request(created.id, "req-1")
     assert row is not None
-    assert row["status"] == "cancelled"
-    assert row["error_code"] == "cancelled"
-    assert row["error_message"] is None
-    assert row["completed_at"] is not None
-    assert row["assistant_message_id"] is not None
+    assert row.status == "cancelled"
+    assert row.error_code == "cancelled"
+    assert row.error_message is None
+    assert row.completed_at is not None
+    assert row.assistant_message_id is not None
 
     messages = store.list_messages(created.id)
     assert len(messages) == 2
     assistant = messages[-1]
-    assert assistant["role"] == "assistant"
-    assert assistant["content"] == CANCELLED_ASSISTANT_MESSAGE
-    assert assistant["id"] == row["assistant_message_id"]
+    assert assistant.role == "assistant"
+    assert assistant.content == CANCELLED_ASSISTANT_MESSAGE
+    assert assistant.id == row.assistant_message_id
 
 
 def test_cancel_loses_race_when_digest_bundle_commits_first(
@@ -658,13 +658,13 @@ def test_cancel_loses_race_when_digest_bundle_commits_first(
     assert accepted is False
     row = store.get_request(created.id, "req-race")
     assert row is not None
-    assert row["status"] == "active"
-    assert row["run_id"] == state["run_id"]
-    assert row["assistant_message_id"] is None
+    assert row.status == "active"
+    assert row.run_id == state["run_id"]
+    assert row.assistant_message_id is None
 
     messages = store.list_messages(created.id)
     assert len(messages) == 1
-    assert all(message["role"] != "assistant" for message in messages)
+    assert all(message.role != "assistant" for message in messages)
 
     service.complete_request(
         created.id,
@@ -675,7 +675,7 @@ def test_cancel_loses_race_when_digest_bundle_commits_first(
     )
     completed = store.get_request(created.id, "req-race")
     assert completed is not None
-    assert completed["status"] == "succeeded"
+    assert completed.status == "succeeded"
 
 
 def test_cancel_returns_false_without_writes_for_post_persistence_terminal_and_unknown(
@@ -707,8 +707,8 @@ def test_cancel_returns_false_without_writes_for_post_persistence_terminal_and_u
     assert service.cancel_request(created.id, "req-active") is False
     post_persistence = store.get_request(created.id, "req-active")
     assert post_persistence is not None
-    assert post_persistence["status"] == "active"
-    assert post_persistence["run_id"] == run_id
+    assert post_persistence.status == "active"
+    assert post_persistence.run_id == run_id
     assert len(store.list_messages(created.id)) == messages_before
 
     store.mark_terminal(created.id, "req-active", status="succeeded")
@@ -719,8 +719,8 @@ def test_cancel_returns_false_without_writes_for_post_persistence_terminal_and_u
     assert service.cancel_request(created.id, "req-active") is False
     succeeded_after = store.get_request(created.id, "req-active")
     assert succeeded_after is not None
-    assert succeeded_after["status"] == "succeeded"
-    assert succeeded_after["completed_at"] == succeeded_before["completed_at"]
+    assert succeeded_after.status == "succeeded"
+    assert succeeded_after.completed_at == succeeded_before.completed_at
     assert len(store.list_messages(created.id)) == messages_before
 
     messages_before = len(store.list_messages(created.id))
@@ -764,14 +764,14 @@ def test_complete_request_persists_assistant_message_with_run_link(
 
     row = store.get_request(created.id, "req-1")
     assert row is not None
-    assert row["status"] == "succeeded"
-    assert row["assistant_message_id"] == message_id
-    assert row["run_id"] == run_id
-    assert row["completed_at"] is not None
+    assert row.status == "succeeded"
+    assert row.assistant_message_id == message_id
+    assert row.run_id == run_id
+    assert row.completed_at is not None
 
     messages = store.list_messages(created.id)
     assistant = messages[-1]
-    assert assistant["role"] == "assistant"
-    assert assistant["content"] == "Digest complete."
-    assert assistant["run_id"] == run_id
-    assert assistant["id"] == message_id
+    assert assistant.role == "assistant"
+    assert assistant.content == "Digest complete."
+    assert assistant.run_id == run_id
+    assert assistant.id == message_id

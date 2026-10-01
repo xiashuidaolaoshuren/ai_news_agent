@@ -2126,11 +2126,11 @@ def test_stream_events_digest_failure_emits_error_without_raw_exception_detail(
 
     row = SessionStore(db_path).get_request(created.id, "req-fail")
     assert row is not None
-    assert row["status"] == "failed"
-    assert row["error_code"] == "workflow_error"
-    assert row["error_message"] == error.message
-    assert row["error_message"] is not None
-    assert "password" not in row["error_message"]
+    assert row.status == "failed"
+    assert row.error_code == "workflow_error"
+    assert row.error_message == error.message
+    assert row.error_message is not None
+    assert "password" not in row.error_message
 
 
 async def _collect_stream_events_with_cancel(
@@ -2218,8 +2218,8 @@ def test_stream_events_cooperative_cancel_emits_error_without_digest_persist(
 
     row = SessionStore(db_path).get_request(created.id, "req-cancel")
     assert row is not None
-    assert row["status"] == "cancelled"
-    assert row["run_id"] is None
+    assert row.status == "cancelled"
+    assert row.run_id is None
 
 
 def test_stream_events_terminal_replay_returns_stored_outcome_without_rerun(
@@ -2273,4 +2273,174 @@ def test_stream_events_terminal_replay_returns_stored_outcome_without_rerun(
     assert any(isinstance(e, DoneEvent) for e in replay)
     assert run_calls == []
     assert len(SessionStore(db_path).list_messages(created.id)) == 2
+
+
+def test_stream_events_terminal_digest_replay_emits_digest_event(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "stream-digest-replay.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    run_id = _save_session_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["replay-topic"],
+        request_id="req-digest-replay",
+        ensure_session=False,
+    )
+    assistant_id = session_store.insert_message(
+        created.id,
+        role="assistant",
+        content="Rendered digest markdown",
+        run_id=run_id,
+    )
+    session_store.mark_terminal(
+        created.id,
+        "req-digest-replay",
+        status="succeeded",
+        assistant_message_id=assistant_id,
+    )
+
+    async def forbidden_runner(_: DigestRequest, *, session_id: str | None = None):
+        raise AssertionError("digest runner must not run on replay")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=forbidden_runner,
+        streaming_workflow_runner=forbidden_runner,
+        session_service=session_service,
+    )
+
+    replay = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "ignored",
+            session_id=created.id,
+            request_id="req-digest-replay",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    assert any(isinstance(e, StartedEvent) for e in replay)
+    assert any(isinstance(e, DeltaEvent) for e in replay)
+    digest_events = [e for e in replay if isinstance(e, DigestEvent)]
+    assert len(digest_events) == 1
+    assert digest_events[0].run_id == run_id
+    assert digest_events[0].digest is not None
+    assert digest_events[0].markdown == "Rendered digest markdown"
+    done = next(e for e in replay if isinstance(e, DoneEvent))
+    assert done.path == "digest"
+    assert done.run_id == run_id
+
+
+def test_stream_events_followup_cancel_emits_cancelled_error(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import CANCELLED_ASSISTANT_MESSAGE
+
+    db_path = tmp_path / "stream-followup-cancel.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+    gate = asyncio.Event()
+
+    async def unused_runner(_: DigestRequest, *, session_id: str | None = None):
+        raise AssertionError("digest runner must not run")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=unused_runner,
+        session_service=session_service,
+    )
+
+    async def slow_followup(session_id: str, message: str) -> str:
+        del session_id, message
+        await gate.wait()
+        return "too late"
+
+    svc._handle_session_followup_message_async = slow_followup  # noqa: SLF001
+
+    async def run() -> list:
+        collect_task = asyncio.create_task(
+            _collect_stream_events(
+                svc,
+                "show sources",
+                session_id=created.id,
+                request_id="req-cancel-followup",
+                chunk_size=1000,
+                chunk_delay_s=0,
+            )
+        )
+        await asyncio.sleep(0.05)
+        session_service.cancel_request(created.id, "req-cancel-followup")
+        gate.set()
+        return await collect_task
+
+    events = asyncio.run(run())
+    error = next(e for e in events if isinstance(e, ErrorEvent))
+    assert error.code == "cancelled"
+    assert error.message == CANCELLED_ASSISTANT_MESSAGE
+    assert not any(isinstance(e, DoneEvent) for e in events)
+
+    row = SessionStore(db_path).get_request(created.id, "req-cancel-followup")
+    assert row is not None
+    assert row.status == "cancelled"
+
+
+def test_stream_events_history_cancel_emits_cancelled_error(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import CANCELLED_ASSISTANT_MESSAGE
+
+    db_path = tmp_path / "stream-history-cancel.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+    gate = asyncio.Event()
+
+    async def unused_runner(_: DigestRequest, *, session_id: str | None = None):
+        raise AssertionError("digest runner must not run")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=unused_runner,
+        session_service=session_service,
+    )
+    original_stream = svc._stream_session_text_events
+
+    async def gating_stream(**kwargs):  # noqa: ANN003
+        await gate.wait()
+        async for event in original_stream(**kwargs):
+            yield event
+
+    svc._stream_session_text_events = gating_stream  # noqa: SLF001
+
+    async def run() -> list:
+        collect_task = asyncio.create_task(
+            _collect_stream_events(
+                svc,
+                "search history for AI",
+                session_id=created.id,
+                request_id="req-cancel-history",
+                chunk_size=1000,
+                chunk_delay_s=0,
+            )
+        )
+        await asyncio.sleep(0.05)
+        session_service.cancel_request(created.id, "req-cancel-history")
+        gate.set()
+        return await collect_task
+
+    events = asyncio.run(run())
+    error = next(e for e in events if isinstance(e, ErrorEvent))
+    assert error.code == "cancelled"
+    assert error.message == CANCELLED_ASSISTANT_MESSAGE
+    assert not any(isinstance(e, DoneEvent) for e in events)
 

@@ -29,19 +29,12 @@ from ai_news_agent.followup_structured import (
 )
 from ai_news_agent.graph.state import DigestResult
 from ai_news_agent.graph.workflow import run_digest_instrumented
-from ai_news_agent.llm import build_chat_model, build_tool_chat_model
 from ai_news_agent.logging_setup import configure_logging, get_logger
 from ai_news_agent.models import utcnow
 from ai_news_agent.request import DigestRequest
-from ai_news_agent.sources import (
-    DEFAULT_SOURCE_NAMES,
-    FakeDigestModel,
-    build_connector_factory,
-    build_connectors,
-)
+from ai_news_agent.sources import DEFAULT_SOURCE_NAMES, FakeDigestModel, build_connectors
 from ai_news_agent.storage import DigestStore
 from ai_news_agent.telemetry import DigestStageTimer, new_correlation_id
-from ai_news_agent.tools import build_interface_tool_router
 from ai_news_agent.tools.schemas import (
     InterfaceAgentResult,
     InterfaceAgentResultKind,
@@ -191,84 +184,35 @@ def build_followup_request_payload(*, message: str) -> dict[str, Any]:
 
 
 class DigestServiceRuntime:
-    """Warm digest runtime: store schema, model, and connector factory."""
+    """Warm digest runtime executing dependencies supplied by the composition root."""
 
     def __init__(
         self,
         *,
         fake: bool,
         db_path: Path,
-        interface_router: Any | None = None,
         store: DigestStore | None = None,
+        model: Any | None = None,
+        workflow_runner: Any | None = None,
+        interface_router: Any | None = None,
     ) -> None:
         self.fake = fake
         self.db_path = db_path
         self._store = store if store is not None else DigestStore(db_path)
         self._store.init_schema()
-        self._interface_router: Any | None = None
-        self._workflow_runner: Any = None
         if fake:
-            self._model: Any = FakeDigestModel()
+            self._model: Any = model if model is not None else FakeDigestModel()
+            self._interface_router: Any | None = None
+            self._workflow_runner: Any = None
         else:
-            self._model = build_chat_model()
-            tool_model = build_tool_chat_model()
-
-            def build_connectors_fn(req: DigestRequest) -> Sequence[SourceConnector]:
-                names = (
-                    list(req.connector_names)
-                    if req.connector_names is not None
-                    else list(DEFAULT_SOURCE_NAMES)
+            if model is None or workflow_runner is None or interface_router is None:
+                raise ValueError(
+                    "live DigestServiceRuntime requires model, workflow_runner, "
+                    "and interface_router from the composition root"
                 )
-                return build_connectors(fake=False, names=names)
-
-            async def workflow_runner(
-                req: DigestRequest,
-                on_stage: Callable[[str], None] | None = None,
-            ) -> DigestResult:
-                load_local_env(force_reload=True)
-                configure_bilibili_network_from_env(logger)
-                names = (
-                    list(req.connector_names)
-                    if req.connector_names is not None
-                    else list(DEFAULT_SOURCE_NAMES)
-                )
-                connectors = build_connectors(fake=False, names=names)
-                try:
-                    result = await run_digest_instrumented(
-                        req,
-                        connectors=list(connectors),
-                        model=self._model,
-                        store=self._store,
-                        on_stage=on_stage,
-                    )
-                finally:
-                    await _aclose_connectors(connectors)
-                return result
-
+            self._model = model
             self._workflow_runner = workflow_runner
-            if interface_router is not None:
-                self._interface_router = interface_router
-            else:
-                self._interface_router = build_interface_tool_router(
-                    store=self._store,
-                    workflow_runner=workflow_runner,
-                    streaming_workflow_runner=None,
-                    tool_model=tool_model,
-                    digest_model=self._model,
-                    github_factory=build_connector_factory(fake=False, name="github"),
-                    bilibili_factory=build_connector_factory(
-                        fake=False,
-                        name="bilibili",
-                    ),
-                    juya_factory=build_connector_factory(fake=False, name="juya"),
-                    huggingface_factory=build_connector_factory(
-                        fake=False,
-                        name="huggingface",
-                    ),
-                    zhihu_factory=build_connector_factory(fake=False, name="zhihu"),
-                    build_connectors_fn=build_connectors_fn,
-                    interface_name="openclaw",
-                )
+            self._interface_router = interface_router
         logger.info(
             "digest service runtime ready fake=%s db_path=%s",
             fake,

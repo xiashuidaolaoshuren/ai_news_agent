@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["openclaw"])
 
+_SAFE_SERVICE_ERROR = "Request failed."
+
 
 @router.get("/health")
 def health(application: Application = Depends(get_application)) -> dict[str, Any]:
@@ -74,7 +76,7 @@ async def digest(
         return JSONResponse(
             status_code=500,
             content={
-                "error": f"{type(exc).__name__}: {exc}",
+                "error": _SAFE_SERVICE_ERROR,
                 "correlation_id": correlation_id,
             },
         )
@@ -119,7 +121,7 @@ async def followup(
         return JSONResponse(
             status_code=500,
             content={
-                "error": f"{type(exc).__name__}: {exc}",
+                "error": _SAFE_SERVICE_ERROR,
                 "correlation_id": correlation_id,
             },
         )

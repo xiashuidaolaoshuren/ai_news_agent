@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated, Literal, Union
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from ai_news_agent.api.schemas.digests import DigestView
 from ai_news_agent.models import ConnectorWarning
@@ -61,3 +63,65 @@ class ErrorPayload(BaseModel):
     code: str
     message: str
     correlation_id: str
+
+
+class StartedStreamEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event: Literal["started"] = "started"
+    data: StartedPayload
+
+
+class ProgressStreamEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event: Literal["progress"] = "progress"
+    data: ProgressPayload
+
+
+class DeltaStreamEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event: Literal["delta"] = "delta"
+    data: DeltaPayload
+
+
+class DigestStreamEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event: Literal["digest"] = "digest"
+    data: DigestPayload
+
+
+class DoneStreamEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event: Literal["done"] = "done"
+    data: DonePayload
+
+
+class ErrorStreamEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event: Literal["error"] = "error"
+    data: ErrorPayload
+
+
+_STREAM_EVENT_UNION = Annotated[
+    Union[
+        StartedStreamEvent,
+        ProgressStreamEvent,
+        DeltaStreamEvent,
+        DigestStreamEvent,
+        DoneStreamEvent,
+        ErrorStreamEvent,
+    ],
+    Field(discriminator="event"),
+]
+
+
+def session_message_stream_openapi_schema() -> dict[str, object]:
+    """OpenAPI schema for one SSE JSON data frame on session message POST."""
+    return TypeAdapter(_STREAM_EVENT_UNION).json_schema(
+        ref_template="#/components/schemas/{model}",
+    )

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,6 +9,11 @@ from pathlib import Path
 import pytest
 
 from ai_news_agent.models import Digest, DigestEntry, FollowUpAction, SourceKind
+from ai_news_agent.repositories.session_records import (
+    MessageRecord,
+    SessionRecord,
+    SessionRequestRecord,
+)
 from ai_news_agent.repositories.session_store import SessionStore
 from ai_news_agent.storage import DigestStore
 
@@ -30,15 +34,16 @@ def test_create_and_get_session_round_trip(tmp_path: Path) -> None:
         items_per_source=5,
     )
 
-    row = store.get_session("sess-1")
-    assert row is not None
-    assert row["id"] == "sess-1"
-    assert row["title"] == "My chat"
-    assert json.loads(row["connector_names"]) == ["github", "zhihu"]
-    assert row["items_per_source"] == 5
-    assert row["created_at"] is not None
-    assert row["updated_at"] is not None
-    assert datetime.fromisoformat(row["created_at"]) <= datetime.now(tz=UTC)
+    record = store.get_session("sess-1")
+    assert record is not None
+    assert isinstance(record, SessionRecord)
+    assert record.id == "sess-1"
+    assert record.title == "My chat"
+    assert record.connector_names == ["github", "zhihu"]
+    assert record.items_per_source == 5
+    assert record.created_at is not None
+    assert record.updated_at is not None
+    assert record.created_at <= datetime.now(tz=UTC)
 
 
 def test_list_sessions_ordered_and_rename(tmp_path: Path) -> None:
@@ -60,13 +65,14 @@ def test_list_sessions_ordered_and_rename(tmp_path: Path) -> None:
         )
 
     listed = store.list_sessions()
-    assert [row["id"] for row in listed] == ["sess-new", "sess-old"]
+    assert all(isinstance(item, SessionRecord) for item in listed)
+    assert [item.id for item in listed] == ["sess-new", "sess-old"]
 
     store.rename_session("sess-old", "Renamed")
     renamed = store.get_session("sess-old")
     assert renamed is not None
-    assert renamed["title"] == "Renamed"
-    assert renamed["updated_at"] > "2026-01-01T00:00:00+00:00"
+    assert renamed.title == "Renamed"
+    assert renamed.updated_at > datetime.fromisoformat("2026-01-01T00:00:00+00:00")
 
 
 def test_update_preferences_rejects_empty_connector_list(tmp_path: Path) -> None:
@@ -79,16 +85,16 @@ def test_update_preferences_rejects_empty_connector_list(tmp_path: Path) -> None
         store.update_preferences("sess-1", connector_names=[], items_per_source=3)
 
     store.update_preferences("sess-1", connector_names=["github"], items_per_source=7)
-    row = store.get_session("sess-1")
-    assert row is not None
-    assert json.loads(row["connector_names"]) == ["github"]
-    assert row["items_per_source"] == 7
+    record = store.get_session("sess-1")
+    assert record is not None
+    assert record.connector_names == ["github"]
+    assert record.items_per_source == 7
 
     store.update_preferences("sess-1", connector_names=None, items_per_source=None)
-    row = store.get_session("sess-1")
-    assert row is not None
-    assert row["connector_names"] is None
-    assert row["items_per_source"] is None
+    record = store.get_session("sess-1")
+    assert record is not None
+    assert record.connector_names is None
+    assert record.items_per_source is None
 
 
 def test_insert_message_assigns_sequence_and_lists_ordered(tmp_path: Path) -> None:
@@ -102,15 +108,16 @@ def test_insert_message_assigns_sequence_and_lists_ordered(tmp_path: Path) -> No
 
     messages = store.list_messages("sess-1")
     assert len(messages) == 2
-    assert messages[0]["id"] == first_id
-    assert messages[0]["sequence"] == 1
-    assert messages[0]["role"] == "user"
-    assert messages[0]["content"] == "Hello"
-    assert messages[0]["created_at"] is not None
-    assert messages[1]["id"] == second_id
-    assert messages[1]["sequence"] == 2
-    assert messages[1]["role"] == "assistant"
-    assert messages[1]["content"] == "Hi there"
+    assert all(isinstance(message, MessageRecord) for message in messages)
+    assert messages[0].id == first_id
+    assert messages[0].sequence == 1
+    assert messages[0].role == "user"
+    assert messages[0].content == "Hello"
+    assert messages[0].created_at is not None
+    assert messages[1].id == second_id
+    assert messages[1].sequence == 2
+    assert messages[1].role == "assistant"
+    assert messages[1].content == "Hi there"
 
 
 def test_delete_session_nulls_run_session_id_and_keeps_digests(tmp_path: Path) -> None:
@@ -186,19 +193,20 @@ def test_create_and_get_request_round_trip(tmp_path: Path) -> None:
         started_at="2026-03-01T12:00:00+00:00",
     )
 
-    row = store.get_request("sess-1", "req-1")
-    assert row is not None
-    assert row["id"] == "req-1"
-    assert row["session_id"] == "sess-1"
-    assert row["status"] == "active"
-    assert row["user_message_id"] == user_message_id
-    assert row["assistant_message_id"] is None
-    assert row["run_id"] is None
-    assert row["correlation_id"] == "corr-abc"
-    assert row["error_code"] is None
-    assert row["error_message"] is None
-    assert row["started_at"] == "2026-03-01T12:00:00+00:00"
-    assert row["completed_at"] is None
+    record = store.get_request("sess-1", "req-1")
+    assert record is not None
+    assert isinstance(record, SessionRequestRecord)
+    assert record.id == "req-1"
+    assert record.session_id == "sess-1"
+    assert record.status == "active"
+    assert record.user_message_id == user_message_id
+    assert record.assistant_message_id is None
+    assert record.run_id is None
+    assert record.correlation_id == "corr-abc"
+    assert record.error_code is None
+    assert record.error_message is None
+    assert record.started_at == datetime.fromisoformat("2026-03-01T12:00:00+00:00")
+    assert record.completed_at is None
 
     assert store.get_request("sess-1", "missing") is None
 
@@ -226,7 +234,8 @@ def test_list_requests_ordered_by_started_at(tmp_path: Path) -> None:
     )
 
     listed = store.list_requests("sess-1")
-    assert [row["id"] for row in listed] == ["req-new", "req-old"]
+    assert all(isinstance(item, SessionRequestRecord) for item in listed)
+    assert [item.id for item in listed] == ["req-new", "req-old"]
 
 
 def test_update_request_run_id(tmp_path: Path) -> None:
@@ -253,10 +262,10 @@ def test_update_request_run_id(tmp_path: Path) -> None:
 
     store.update_request_run_id("sess-1", "req-1", run_id)
 
-    row = store.get_request("sess-1", "req-1")
-    assert row is not None
-    assert row["run_id"] == run_id
-    assert row["status"] == "active"
+    record = store.get_request("sess-1", "req-1")
+    assert record is not None
+    assert record.run_id == run_id
+    assert record.status == "active"
 
 
 def test_mark_terminal_request_sets_status_links_and_safe_error_fields(tmp_path: Path) -> None:
@@ -282,11 +291,11 @@ def test_mark_terminal_request_sets_status_links_and_safe_error_fields(tmp_path:
 
     succeeded = store.get_request("sess-1", "req-1")
     assert succeeded is not None
-    assert succeeded["status"] == "succeeded"
-    assert succeeded["assistant_message_id"] == assistant_message_id
-    assert succeeded["completed_at"] is not None
-    assert succeeded["error_code"] is None
-    assert succeeded["error_message"] is None
+    assert succeeded.status == "succeeded"
+    assert succeeded.assistant_message_id == assistant_message_id
+    assert succeeded.completed_at is not None
+    assert succeeded.error_code is None
+    assert succeeded.error_message is None
 
     store.create_request(
         "sess-1",
@@ -304,10 +313,10 @@ def test_mark_terminal_request_sets_status_links_and_safe_error_fields(tmp_path:
 
     failed = store.get_request("sess-1", "req-2")
     assert failed is not None
-    assert failed["status"] == "failed"
-    assert failed["error_code"] == "provider_error"
-    assert failed["error_message"] == "Digest generation failed"
-    assert failed["completed_at"] is not None
+    assert failed.status == "failed"
+    assert failed.error_code == "provider_error"
+    assert failed.error_message == "Digest generation failed"
+    assert failed.completed_at is not None
 
     with pytest.raises(ValueError, match="status"):
         store.mark_terminal("sess-1", "req-2", status="active")
@@ -351,8 +360,8 @@ def test_interrupt_active_requests_marks_leftover_interrupted(tmp_path: Path) ->
     assert active_1 is not None
     assert active_2 is not None
     assert terminal is not None
-    assert active_1["status"] == "interrupted"
-    assert active_2["status"] == "interrupted"
-    assert active_1["completed_at"] is not None
-    assert active_2["completed_at"] is not None
-    assert terminal["status"] == "succeeded"
+    assert active_1.status == "interrupted"
+    assert active_2.status == "interrupted"
+    assert active_1.completed_at is not None
+    assert active_2.completed_at is not None
+    assert terminal.status == "succeeded"

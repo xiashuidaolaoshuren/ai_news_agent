@@ -325,24 +325,36 @@ def test_build_followup_request_payload() -> None:
     ]
 
 
-@pytest.fixture
-def live_followup_server(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> UvicornTestServer:
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: object())
+def _patch_composition_live_builders(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_news_agent.services import composition
+
+    monkeypatch.setattr(composition, "build_chat_model", lambda: object())
     monkeypatch.setattr(
-        digest_service,
+        composition,
         "build_tool_chat_model",
         lambda: object(),
         raising=False,
     )
     monkeypatch.setattr(
-        digest_service,
+        composition,
         "build_connector_factory",
         lambda **kw: object(),
         raising=False,
     )
+    monkeypatch.setattr(
+        composition,
+        "build_interface_tool_router",
+        lambda **kwargs: object(),
+        raising=False,
+    )
+
+
+@pytest.fixture
+def live_followup_server(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> UvicornTestServer:
+    _patch_composition_live_builders(monkeypatch)
     router = _FakeInterfaceRouter(
         result=InterfaceAgentResult(
             kind=InterfaceAgentResultKind.STRUCTURED,
@@ -396,25 +408,7 @@ def test_live_followup_maps_digest_to_guidance_path(
             run_id=9,
         )
     )
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: object())
-    monkeypatch.setattr(
-        digest_service,
-        "build_tool_chat_model",
-        lambda: object(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_connector_factory",
-        lambda **kw: object(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_interface_tool_router",
-        lambda **kwargs: router,
-        raising=False,
-    )
+    _patch_composition_live_builders(monkeypatch)
     server = UvicornTestServer(
         fake=False,
         db_path=tmp_path / "digest-followup-svc.db",
@@ -449,25 +443,7 @@ def test_live_followup_maps_conversational_to_guidance(
             run_id=5,
         )
     )
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: object())
-    monkeypatch.setattr(
-        digest_service,
-        "build_tool_chat_model",
-        lambda: object(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_connector_factory",
-        lambda **kw: object(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_interface_tool_router",
-        lambda **kwargs: router,
-        raising=False,
-    )
+    _patch_composition_live_builders(monkeypatch)
     server = UvicornTestServer(
         fake=False,
         db_path=tmp_path / "guidance.db",
@@ -501,25 +477,7 @@ def test_live_followup_maps_no_saved_digest_to_no_digest_path(
             text=NO_SAVED_DIGEST,
         )
     )
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: object())
-    monkeypatch.setattr(
-        digest_service,
-        "build_tool_chat_model",
-        lambda: object(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_connector_factory",
-        lambda **kw: object(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_interface_tool_router",
-        lambda **kwargs: router,
-        raising=False,
-    )
+    _patch_composition_live_builders(monkeypatch)
     server = UvicornTestServer(
         fake=False,
         db_path=tmp_path / "no-digest-live.db",

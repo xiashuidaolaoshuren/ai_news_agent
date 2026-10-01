@@ -482,6 +482,24 @@ def test_collect_sources_node_catches_connector_exceptions() -> None:
     assert "boom" in (err.detail or "")
 
 
+def test_collect_sources_node_progress_omits_raw_exception_text() -> None:
+    conn_a = _FakeConnector(name="a", error=RuntimeError("secret-token"))
+    progress: list[str] = []
+    req = DigestRequest(topics=["RAG"], connector_names=["a"])
+    state: DigestGraphState = {
+        "request": req,
+        "connector_request": parse_request_node({"request": req})["connector_request"],
+    }
+    node = make_collect_sources_node([conn_a], on_progress=progress.append)
+
+    asyncio.run(node(state))
+
+    failed_lines = [line for line in progress if line.startswith("Tool failed")]
+    assert len(failed_lines) == 1
+    assert "secret-token" not in failed_lines[0]
+    assert failed_lines[0] == "Tool failed a: collection failed."
+
+
 def test_collect_sources_node_missing_connector_request_emits_error() -> None:
     req = DigestRequest(topics=["RAG"])
     state: DigestGraphState = {"request": req}
