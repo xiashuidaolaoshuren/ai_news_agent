@@ -187,6 +187,7 @@ def _build_chat_service(
         req: DigestRequest,
         on_stage: Callable[[str], None] | None = None,
         session_id: str | None = None,
+        request_id: str | None = None,
     ) -> DigestResult:
         del on_stage
         if not fake:
@@ -200,6 +201,7 @@ def _build_chat_service(
                 model=model,
                 store=store,
                 session_id=session_id,
+                request_id=request_id,
             )
         finally:
             await _aclose_connectors(connectors)
@@ -208,6 +210,7 @@ def _build_chat_service(
         req: DigestRequest,
         on_stage: Callable[[str], None] | None = None,
         session_id: str | None = None,
+        request_id: str | None = None,
     ) -> AsyncIterator[tuple[str, bool, DigestResult | None]]:
         del on_stage
         if not fake:
@@ -221,6 +224,7 @@ def _build_chat_service(
                 model=model,
                 store=store,
                 session_id=session_id,
+                request_id=request_id,
             ):
                 yield event
         finally:

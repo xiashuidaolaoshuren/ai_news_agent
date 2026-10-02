@@ -225,3 +225,55 @@ def test_save_digest_bundle_links_session_run_and_active_request(tmp_path: Path)
     assert run_row["session_id"] == "sess-1"
     assert request_row is not None
     assert request_row["run_id"] == run_id
+
+
+def test_save_digest_bundle_links_run_to_specific_request_not_other_active(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "bundle-targeted-link.db"
+    _init_db(db_path)
+    digest_store = DigestStore(db_path)
+    session_store = SessionStore(db_path)
+
+    session_store.create_session("sess-1", title="Chat")
+    user_message_id = session_store.insert_message("sess-1", role="user", content="First")
+    session_store.create_request(
+        "sess-1",
+        "req-cancelled",
+        user_message_id=user_message_id,
+        correlation_id="corr-cancelled",
+    )
+    cancelled_message_id = session_store.insert_message(
+        "sess-1",
+        role="assistant",
+        content="The request was cancelled.",
+    )
+    session_store.mark_cancelled_if_active(
+        "sess-1",
+        "req-cancelled",
+        assistant_message_id=cancelled_message_id,
+    )
+
+    retry_message_id = session_store.insert_message("sess-1", role="user", content="Retry")
+    session_store.create_request(
+        "sess-1",
+        "req-retry",
+        user_message_id=retry_message_id,
+        correlation_id="corr-retry",
+    )
+
+    bundle = _sample_bundle()
+    run_id = digest_store.save_digest_bundle(
+        **bundle,
+        session_id="sess-1",
+        request_id="req-cancelled",
+    )
+
+    cancelled = session_store.get_request("sess-1", "req-cancelled")
+    retry = session_store.get_request("sess-1", "req-retry")
+    assert cancelled is not None
+    assert retry is not None
+    assert cancelled.run_id == run_id
+    assert cancelled.status == "cancelled"
+    assert retry.run_id is None
+    assert retry.status == "active"

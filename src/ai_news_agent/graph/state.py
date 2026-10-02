@@ -66,6 +66,7 @@ class DigestGraphState(TypedDict, total=False):
     digest: Digest | None
     run_id: int | None
     session_id: str | None
+    request_id: str | None
     markdown: str | None
     text: str | None
 
@@ -75,6 +76,7 @@ def initial_state(
     *,
     now: datetime | None = None,
     session_id: str | None = None,
+    request_id: str | None = None,
 ) -> DigestGraphState:
     """Build starting state with empty list accumulators and ``started_at`` set."""
     ts = now if now is not None else utcnow()
@@ -88,6 +90,8 @@ def initial_state(
     }
     if session_id is not None:
         state["session_id"] = session_id
+    if request_id is not None:
+        state["request_id"] = request_id
     return state
 
 

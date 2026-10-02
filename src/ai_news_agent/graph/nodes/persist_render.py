@@ -63,6 +63,7 @@ def make_persist_results_node(store: DigestStore):
                 ranked=ranked,
                 digest=digest,
                 session_id=state.get("session_id"),
+                request_id=state.get("request_id"),
             )
         except Exception as exc:  # noqa: BLE001 - surface as workflow error
             return {

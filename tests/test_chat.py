@@ -1728,7 +1728,9 @@ def test_stream_events_digest_happy_path_sets_session_id(tmp_path: Path) -> None
         req: DigestRequest,
         *,
         session_id: str | None = None,
+        request_id: str | None = None,
     ):
+        del request_id
         yield "Collecting items…", False, None
         collected = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
         run_id = store.save_run(
@@ -2391,6 +2393,294 @@ def test_stream_events_followup_cancel_emits_cancelled_error(
     row = SessionStore(db_path).get_request(created.id, "req-cancel-followup")
     assert row is not None
     assert row.status == "cancelled"
+
+
+def test_stream_events_history_failure_completes_failed_and_frees_session(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "stream-history-failure.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+
+    async def unused_runner(_: DigestRequest, *, session_id: str | None = None):
+        raise AssertionError("digest runner must not run")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=unused_runner,
+        session_service=session_service,
+    )
+
+    def boom_history(_cmd):  # noqa: ANN001
+        raise RuntimeError("boom-token")
+
+    svc._handle_history_command = boom_history  # noqa: SLF001
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "search history for AI",
+            session_id=created.id,
+            request_id="req-history-fail",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    error = next(e for e in events if isinstance(e, ErrorEvent))
+    assert error.code == "request_failed"
+    assert error.message == "Request failed."
+    assert "boom-token" not in error.message
+    assert not any(isinstance(e, DoneEvent) for e in events)
+
+    row = SessionStore(db_path).get_request(created.id, "req-history-fail")
+    assert row is not None
+    assert row.status == "failed"
+    assert row.error_code == "request_failed"
+
+    retry = session_service.begin_request(created.id, content="Next message")
+    assert retry.status == "active"
+
+
+def test_stream_events_followup_failure_completes_failed_and_frees_session(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "stream-followup-failure.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+
+    async def unused_runner(_: DigestRequest, *, session_id: str | None = None):
+        raise AssertionError("digest runner must not run")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=unused_runner,
+        session_service=session_service,
+    )
+
+    async def boom_followup(session_id: str, message: str) -> str:
+        del session_id, message
+        raise RuntimeError("boom-token")
+
+    svc._handle_session_followup_message_async = boom_followup  # noqa: SLF001
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "show sources",
+            session_id=created.id,
+            request_id="req-followup-fail",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    error = next(e for e in events if isinstance(e, ErrorEvent))
+    assert error.code == "request_failed"
+    assert error.message == "Request failed."
+    assert "boom-token" not in error.message
+    assert not any(isinstance(e, DoneEvent) for e in events)
+
+    row = SessionStore(db_path).get_request(created.id, "req-followup-fail")
+    assert row is not None
+    assert row.status == "failed"
+    assert row.error_code == "request_failed"
+
+    retry = session_service.begin_request(created.id, content="Next message")
+    assert retry.status == "active"
+
+
+def test_stream_events_unsaved_digest_completes_failed_not_succeeded(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.graph.state import WorkflowError
+
+    db_path = tmp_path / "stream-unsaved-digest.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+    now = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
+    digest = Digest(
+        generated_at=now,
+        entries=[],
+        topics=["AI"],
+        timeframe="today",
+    )
+
+    async def unsaved_runner(
+        req: DigestRequest,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ):
+        del req, session_id, request_id
+        yield "Saving run…", False, None
+        yield "", True, DigestResult(
+            request=DigestRequest(topics=["AI"]),
+            digest=digest,
+            run_id=None,
+            markdown="# Digest\n",
+            text="# Digest\n",
+            ranked_items=[],
+            warnings=[],
+            errors=[
+                WorkflowError(
+                    stage="store",
+                    message="persistence failed: OperationalError",
+                    detail="secret-token",
+                )
+            ],
+            started_at=now,
+            finished_at=now,
+        )
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=lambda _: None,
+        streaming_workflow_runner=unsaved_runner,
+        session_service=session_service,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Give me today's AI digest",
+            session_id=created.id,
+            request_id="req-unsaved",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    error = next(e for e in events if isinstance(e, ErrorEvent))
+    assert error.code == "workflow_error"
+    assert "persistence failed" in error.message
+    assert "secret-token" not in error.message
+    assert not any(isinstance(e, DoneEvent) for e in events)
+    assert not any(isinstance(e, DigestEvent) for e in events)
+    assert not any(isinstance(e, DeltaEvent) for e in events)
+
+    row = SessionStore(db_path).get_request(created.id, "req-unsaved")
+    assert row is not None
+    assert row.status == "failed"
+    assert row.error_code == "workflow_error"
+    assert row.error_message == error.message
+    messages = SessionStore(db_path).list_messages(created.id)
+    assistant = messages[-1]
+    assert assistant.role == "assistant"
+    assert assistant.content == error.message
+    assert assistant.run_id is None
+
+
+def test_stream_events_digest_passes_request_id_to_streaming_runner(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "stream-request-id.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+    seen: dict[str, str | None] = {"request_id": None}
+
+    async def fake_streaming_runner(
+        req: DigestRequest,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ):
+        del req
+        seen["request_id"] = request_id
+        assert session_id == created.id
+        now = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
+        yield "Collecting items…", False, None
+        yield "", True, DigestResult(
+            request=DigestRequest(topics=["AI"]),
+            digest=None,
+            run_id=None,
+            markdown="ok",
+            text="ok\n",
+            ranked_items=[],
+            warnings=[],
+            errors=[],
+            started_at=now,
+            finished_at=now,
+        )
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=lambda _: None,
+        streaming_workflow_runner=fake_streaming_runner,
+        session_service=session_service,
+    )
+
+    asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Give me today's AI digest",
+            session_id=created.id,
+            request_id="req-pass-id",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    assert seen["request_id"] == "req-pass-id"
+
+
+def test_stream_events_cancel_wins_at_completion_emits_cancelled_not_done(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import CANCELLED_ASSISTANT_MESSAGE
+
+    db_path = tmp_path / "stream-complete-cancel-race.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+    gate = asyncio.Event()
+
+    async def unused_runner(_: DigestRequest, *, session_id: str | None = None):
+        raise AssertionError("digest runner must not run")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=unused_runner,
+        session_service=session_service,
+    )
+
+    async def slow_followup(session_id: str, message: str) -> str:
+        del session_id, message
+        await gate.wait()
+        return "answer after cancel"
+
+    svc._handle_session_followup_message_async = slow_followup  # noqa: SLF001
+
+    async def run() -> list:
+        collect_task = asyncio.create_task(
+            _collect_stream_events(
+                svc,
+                "show sources",
+                session_id=created.id,
+                request_id="req-complete-race",
+                chunk_size=1000,
+                chunk_delay_s=0,
+            )
+        )
+        await asyncio.sleep(0.05)
+        session_service.cancel_request(created.id, "req-complete-race")
+        gate.set()
+        return await collect_task
+
+    events = asyncio.run(run())
+    error = next(e for e in events if isinstance(e, ErrorEvent))
+    assert error.code == "cancelled"
+    assert error.message == CANCELLED_ASSISTANT_MESSAGE
+    assert not any(isinstance(e, DoneEvent) for e in events)
 
 
 def test_stream_events_history_cancel_emits_cancelled_error(

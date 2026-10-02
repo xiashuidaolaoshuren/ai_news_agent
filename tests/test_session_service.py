@@ -678,6 +678,61 @@ def test_cancel_loses_race_when_digest_bundle_commits_first(
     assert completed.status == "succeeded"
 
 
+def test_complete_request_loses_race_when_cancel_commits_first(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_news_agent.services.session_service import (
+        CANCELLED_ASSISTANT_MESSAGE,
+        SessionService,
+    )
+
+    db_path = tmp_path / "svc-complete-cancel-race.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(created.id, content="Racing", request_id="req-race")
+
+    state: dict[str, object] = {"triggered": False}
+    original_get_request = SessionStore.get_request
+
+    def racing_get_request(self: SessionStore, session_id: str, request_id: str):
+        row = original_get_request(self, session_id, request_id)
+        if not state["triggered"] and request_id == "req-race" and row is not None:
+            state["triggered"] = True
+            with SessionStore(db_path)._conn() as conn:
+                assistant_message_id = SessionStore(db_path, conn=conn).insert_message(
+                    session_id,
+                    role="assistant",
+                    content=CANCELLED_ASSISTANT_MESSAGE,
+                )
+                SessionStore(db_path, conn=conn).mark_cancelled_if_active(
+                    session_id,
+                    request_id,
+                    assistant_message_id=assistant_message_id,
+                )
+        return row
+
+    monkeypatch.setattr(SessionStore, "get_request", racing_get_request)
+
+    with pytest.raises(KeyError, match="active request not found"):
+        service.complete_request(
+            created.id,
+            "req-race",
+            status="succeeded",
+            content="Too late",
+        )
+
+    row = store.get_request(created.id, "req-race")
+    assert row is not None
+    assert row.status == "cancelled"
+    assert row.error_code == "cancelled"
+    messages = store.list_messages(created.id)
+    assert len(messages) == 2
+    assert messages[-1].content == CANCELLED_ASSISTANT_MESSAGE
+
+
 def test_cancel_returns_false_without_writes_for_post_persistence_terminal_and_unknown(
     tmp_path: Path,
 ) -> None:

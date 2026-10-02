@@ -217,14 +217,17 @@ class SessionService:
                 content=content,
                 run_id=run_id,
             )
-            uow.session_store.mark_terminal(
+            if not uow.session_store.mark_terminal_if_active(
                 session_id,
                 request_id,
                 status=status,
                 assistant_message_id=assistant_message_id,
                 error_code=error_code,
                 error_message=error_message,
-            )
+            ):
+                raise KeyError(
+                    f"active request not found: session={session_id!r} request={request_id!r}"
+                )
         return assistant_message_id
 
 

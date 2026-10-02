@@ -497,6 +497,7 @@ class DigestStore:
         ranked: list[RankedItem],
         digest: Digest,
         session_id: str | None = None,
+        request_id: str | None = None,
     ) -> int:
         """Persist a complete digest bundle in one SQLite transaction."""
         with self._conn() as conn:
@@ -519,10 +520,18 @@ class DigestStore:
             bound.save_ranked_items(run_id, ranked)
             bound.save_digest(run_id, digest)
             if session_id is not None:
-                SessionStore(self.db_path, conn=conn).link_active_request_run(
-                    session_id,
-                    run_id,
-                )
+                session_store = SessionStore(self.db_path, conn=conn)
+                if request_id is not None:
+                    session_store.update_request_run_id(
+                        session_id,
+                        request_id,
+                        run_id,
+                    )
+                else:
+                    session_store.link_active_request_run(
+                        session_id,
+                        run_id,
+                    )
             return run_id
 
     def get_latest_digest(self) -> Digest | None:

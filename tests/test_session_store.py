@@ -322,6 +322,73 @@ def test_mark_terminal_request_sets_status_links_and_safe_error_fields(tmp_path:
         store.mark_terminal("sess-1", "req-2", status="active")
 
 
+def test_mark_terminal_if_active_updates_only_active_request(tmp_path: Path) -> None:
+    db_path = tmp_path / "sessions.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    store.create_session("sess-1")
+    user_message_id = store.insert_message("sess-1", role="user", content="Hello")
+    store.create_request(
+        "sess-1",
+        "req-1",
+        user_message_id=user_message_id,
+        correlation_id="corr-1",
+    )
+    assistant_message_id = store.insert_message("sess-1", role="assistant", content="Done")
+
+    accepted = store.mark_terminal_if_active(
+        "sess-1",
+        "req-1",
+        status="succeeded",
+        assistant_message_id=assistant_message_id,
+    )
+
+    assert accepted is True
+    succeeded = store.get_request("sess-1", "req-1")
+    assert succeeded is not None
+    assert succeeded.status == "succeeded"
+    assert succeeded.assistant_message_id == assistant_message_id
+
+
+def test_mark_terminal_if_active_returns_false_for_cancelled_request(tmp_path: Path) -> None:
+    db_path = tmp_path / "sessions.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    store.create_session("sess-1")
+    user_message_id = store.insert_message("sess-1", role="user", content="Hello")
+    store.create_request(
+        "sess-1",
+        "req-1",
+        user_message_id=user_message_id,
+        correlation_id="corr-1",
+    )
+    cancelled_message_id = store.insert_message(
+        "sess-1",
+        role="assistant",
+        content="The request was cancelled.",
+    )
+    store.mark_cancelled_if_active(
+        "sess-1",
+        "req-1",
+        assistant_message_id=cancelled_message_id,
+    )
+    late_message_id = store.insert_message("sess-1", role="assistant", content="Too late")
+
+    accepted = store.mark_terminal_if_active(
+        "sess-1",
+        "req-1",
+        status="succeeded",
+        assistant_message_id=late_message_id,
+    )
+
+    assert accepted is False
+    row = store.get_request("sess-1", "req-1")
+    assert row is not None
+    assert row.status == "cancelled"
+    assert row.assistant_message_id == cancelled_message_id
+    assert row.error_code == "cancelled"
+
+
 def test_interrupt_active_requests_marks_leftover_interrupted(tmp_path: Path) -> None:
     db_path = tmp_path / "sessions.db"
     _init_db(db_path)

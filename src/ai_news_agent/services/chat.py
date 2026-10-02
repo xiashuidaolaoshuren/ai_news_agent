@@ -49,6 +49,8 @@ _TERMINAL_REPLAY_STATUSES = frozenset(
 )
 _WORKFLOW_ERROR_CODE = "workflow_error"
 _WORKFLOW_ERROR_MESSAGE = "Digest generation failed."
+_REQUEST_FAILED_CODE = "request_failed"
+_REQUEST_FAILED_MESSAGE = "Request failed."
 
 
 @dataclass(frozen=True)
@@ -361,20 +363,31 @@ class ChatService:
         )
 
         history_cmd = parse_history_chat_message(message)
-        if history_cmd is not None:
-            async for event in self._stream_session_text_events(
-                session_id=session_id,
-                record=record,
-                text=self._handle_history_command(history_cmd),
-                path="followup",
-                chunk_size=chunk_size,
-                chunk_delay_s=chunk_delay_s,
-            ):
-                yield event
-            return
+        try:
+            if history_cmd is not None:
+                async for event in self._stream_session_text_events(
+                    session_id=session_id,
+                    record=record,
+                    text=self._handle_history_command(history_cmd),
+                    path="followup",
+                    chunk_size=chunk_size,
+                    chunk_delay_s=chunk_delay_s,
+                ):
+                    yield event
+                return
 
-        if _message_requests_digest(message):
-            async for event in self._stream_session_digest_events(
+            if _message_requests_digest(message):
+                async for event in self._stream_session_digest_events(
+                    session_id=session_id,
+                    record=record,
+                    message=message,
+                    chunk_size=chunk_size,
+                    chunk_delay_s=chunk_delay_s,
+                ):
+                    yield event
+                return
+
+            async for event in self._stream_session_followup_events(
                 session_id=session_id,
                 record=record,
                 message=message,
@@ -382,16 +395,13 @@ class ChatService:
                 chunk_delay_s=chunk_delay_s,
             ):
                 yield event
-            return
-
-        async for event in self._stream_session_followup_events(
-            session_id=session_id,
-            record=record,
-            message=message,
-            chunk_size=chunk_size,
-            chunk_delay_s=chunk_delay_s,
-        ):
-            yield event
+        except Exception as exc:
+            async for event in self._emit_request_failed_events(
+                session_id,
+                record,
+                exc=exc,
+            ):
+                yield event
 
     async def _stream_session_digest_events(
         self,
@@ -404,7 +414,11 @@ class ChatService:
     ) -> AsyncIterator[ChatEvent]:
         assert self._session_service is not None
         req = self._session_service.build_request(session_id, message)
-        runner = self._iter_streaming_runner(req, session_id=session_id)
+        runner = self._iter_streaming_runner(
+            req,
+            session_id=session_id,
+            request_id=record.id,
+        )
         while True:
             try:
                 progress, done, result = await anext(runner)
@@ -415,14 +429,21 @@ class ChatService:
                     "session digest workflow failed session_id=%s",
                     session_id,
                 )
-                self._session_service.complete_request(
-                    session_id,
-                    record.id,
-                    status="failed",
-                    content=_WORKFLOW_ERROR_MESSAGE,
-                    error_code=_WORKFLOW_ERROR_CODE,
-                    error_message=_WORKFLOW_ERROR_MESSAGE,
-                )
+                try:
+                    self._session_service.complete_request(
+                        session_id,
+                        record.id,
+                        status="failed",
+                        content=_WORKFLOW_ERROR_MESSAGE,
+                        error_code=_WORKFLOW_ERROR_CODE,
+                        error_message=_WORKFLOW_ERROR_MESSAGE,
+                    )
+                except KeyError:
+                    cancelled = self._cancelled_error_event(session_id, record)
+                    if cancelled is not None:
+                        yield cancelled
+                        return
+                    raise
                 yield ErrorEvent(
                     request_id=record.id,
                     code=_WORKFLOW_ERROR_CODE,
@@ -446,6 +467,30 @@ class ChatService:
                 return
             if result is None:
                 continue
+            if result.run_id is None:
+                failure_message = _digest_failure_message(result)
+                try:
+                    self._session_service.complete_request(
+                        session_id,
+                        record.id,
+                        status="failed",
+                        content=failure_message,
+                        error_code=_WORKFLOW_ERROR_CODE,
+                        error_message=failure_message,
+                    )
+                except KeyError:
+                    cancelled = self._cancelled_error_event(session_id, record)
+                    if cancelled is not None:
+                        yield cancelled
+                        return
+                    raise
+                yield ErrorEvent(
+                    request_id=record.id,
+                    code=_WORKFLOW_ERROR_CODE,
+                    message=failure_message,
+                    correlation_id=record.correlation_id,
+                )
+                return
             text = _user_facing_digest_text(result)
             async for chunk in iter_text_chunks(
                 text,
@@ -469,19 +514,66 @@ class ChatService:
                     warnings=result.warnings,
                     errors=result.errors,
                 )
-            message_id = self._session_service.complete_request(
-                session_id,
-                record.id,
-                status="succeeded",
-                content=text,
-                run_id=result.run_id,
-            )
+            try:
+                message_id = self._session_service.complete_request(
+                    session_id,
+                    record.id,
+                    status="succeeded",
+                    content=text,
+                    run_id=result.run_id,
+                )
+            except KeyError:
+                cancelled = self._cancelled_error_event(session_id, record)
+                if cancelled is not None:
+                    yield cancelled
+                    return
+                raise
             yield DoneEvent(
                 request_id=record.id,
                 message_id=message_id,
                 run_id=result.run_id,
                 path="digest",
             )
+
+    async def _emit_request_failed_events(
+        self,
+        session_id: str,
+        record: SessionRequestRecord,
+        *,
+        exc: Exception,
+    ) -> AsyncIterator[ChatEvent]:
+        assert self._session_service is not None
+        logger.exception(
+            "session request failed session_id=%s request_id=%s",
+            session_id,
+            record.id,
+            exc_info=exc,
+        )
+        cancelled = self._cancelled_error_event(session_id, record)
+        if cancelled is not None:
+            yield cancelled
+            return
+        try:
+            self._session_service.complete_request(
+                session_id,
+                record.id,
+                status="failed",
+                content=_REQUEST_FAILED_MESSAGE,
+                error_code=_REQUEST_FAILED_CODE,
+                error_message=_REQUEST_FAILED_MESSAGE,
+            )
+        except KeyError:
+            cancelled = self._cancelled_error_event(session_id, record)
+            if cancelled is not None:
+                yield cancelled
+                return
+            raise
+        yield ErrorEvent(
+            request_id=record.id,
+            code=_REQUEST_FAILED_CODE,
+            message=_REQUEST_FAILED_MESSAGE,
+            correlation_id=record.correlation_id,
+        )
 
     def _cancelled_error_event(
         self,
@@ -548,12 +640,19 @@ class ChatService:
         if cancelled is not None:
             yield cancelled
             return
-        message_id = self._session_service.complete_request(
-            session_id,
-            record.id,
-            status="succeeded",
-            content=text,
-        )
+        try:
+            message_id = self._session_service.complete_request(
+                session_id,
+                record.id,
+                status="succeeded",
+                content=text,
+            )
+        except KeyError:
+            cancelled = self._cancelled_error_event(session_id, record)
+            if cancelled is not None:
+                yield cancelled
+                return
+            raise
         yield DoneEvent(
             request_id=record.id,
             message_id=message_id,
@@ -618,17 +717,26 @@ class ChatService:
         req: DigestRequest,
         *,
         session_id: str,
+        request_id: str,
     ) -> AsyncIterator[tuple[str, bool, DigestResult | None]]:
         if self._streaming_workflow_runner is not None:
             try:
-                stream = self._streaming_workflow_runner(req, session_id=session_id)
+                stream = self._streaming_workflow_runner(
+                    req,
+                    session_id=session_id,
+                    request_id=request_id,
+                )
             except TypeError:
                 stream = self._streaming_workflow_runner(req)
             async for event in stream:
                 yield event
             return
         try:
-            result = await self._workflow_runner(req, session_id=session_id)
+            result = await self._workflow_runner(
+                req,
+                session_id=session_id,
+                request_id=request_id,
+            )
         except TypeError:
             result = await self._workflow_runner(req)
         yield "", True, result
@@ -794,6 +902,13 @@ def _interface_result_to_text(
             return result.text
         return f"{notice}\n\n{result.text}"
     return result.text
+
+
+def _digest_failure_message(result: DigestResult) -> str:
+    for error in result.errors:
+        if error.message:
+            return error.message
+    return _WORKFLOW_ERROR_MESSAGE
 
 
 def _user_facing_digest_text(result: DigestResult) -> str:

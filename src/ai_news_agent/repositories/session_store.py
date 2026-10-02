@@ -298,6 +298,45 @@ class SessionStore:
                 ),
             )
 
+    def mark_terminal_if_active(
+        self,
+        session_id: str,
+        request_id: str,
+        *,
+        status: str,
+        assistant_message_id: int | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> bool:
+        """Mark a request terminal only while it is still active."""
+        if status not in _TERMINAL_REQUEST_STATUSES:
+            raise ValueError(f"status must be a terminal request status, got {status!r}")
+        completed_at = utcnow().isoformat()
+        with self._conn() as conn:
+            cur = conn.execute(
+                """
+                UPDATE session_requests
+                SET status = ?,
+                    assistant_message_id = ?,
+                    error_code = ?,
+                    error_message = ?,
+                    completed_at = ?
+                WHERE session_id = ?
+                  AND id = ?
+                  AND status = 'active'
+                """,
+                (
+                    status,
+                    assistant_message_id,
+                    error_code,
+                    error_message,
+                    completed_at,
+                    session_id,
+                    request_id,
+                ),
+            )
+            return int(cur.rowcount) == 1
+
     def mark_cancelled_if_active(
         self,
         session_id: str,

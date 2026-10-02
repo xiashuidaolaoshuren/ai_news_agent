@@ -985,6 +985,78 @@ def test_persist_results_node_passes_session_id_to_bundle(tmp_path: Path) -> Non
     assert request_row["run_id"] == 1
 
 
+def test_run_digest_with_request_id_links_only_that_request(tmp_path: Path) -> None:
+    import sqlite3
+
+    from ai_news_agent.graph.workflow import run_digest
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.sources import FakeDigestModel, build_connectors
+
+    now = datetime(2026, 5, 16, 12, 0, tzinfo=UTC)
+    req = DigestRequest(topics=["RAG"], connector_names=["github"])
+
+    db = tmp_path / "run-request-id.db"
+    store = DigestStore(db)
+    store.init_schema()
+    session_store = SessionStore(db)
+    session_store.create_session("sess-1")
+    user_message_id = session_store.insert_message("sess-1", role="user", content="First")
+    session_store.create_request(
+        "sess-1",
+        "req-origin",
+        user_message_id=user_message_id,
+        correlation_id="corr-origin",
+    )
+    cancelled_message_id = session_store.insert_message(
+        "sess-1",
+        role="assistant",
+        content="The request was cancelled.",
+    )
+    session_store.mark_cancelled_if_active(
+        "sess-1",
+        "req-origin",
+        assistant_message_id=cancelled_message_id,
+    )
+    retry_message_id = session_store.insert_message("sess-1", role="user", content="Retry")
+    session_store.create_request(
+        "sess-1",
+        "req-retry",
+        user_message_id=retry_message_id,
+        correlation_id="corr-retry",
+    )
+
+    connectors = build_connectors(fake=True, names=["github"])
+    result = asyncio.run(
+        run_digest(
+            req,
+            connectors=connectors,
+            model=FakeDigestModel(),
+            store=store,
+            session_id="sess-1",
+            request_id="req-origin",
+        )
+    )
+
+    assert result.run_id is not None
+    origin = session_store.get_request("sess-1", "req-origin")
+    retry = session_store.get_request("sess-1", "req-retry")
+    assert origin is not None
+    assert retry is not None
+    assert origin.run_id == result.run_id
+    assert origin.status == "cancelled"
+    assert retry.run_id is None
+    assert retry.status == "active"
+
+    with sqlite3.connect(db) as conn:
+        conn.row_factory = sqlite3.Row
+        run_row = conn.execute(
+            "SELECT session_id FROM runs WHERE id = ?",
+            (result.run_id,),
+        ).fetchone()
+    assert run_row is not None
+    assert run_row["session_id"] == "sess-1"
+
+
 def test_persist_results_node_leaves_no_partial_run_on_bundle_failure(tmp_path: Path) -> None:
     import sqlite3
 
