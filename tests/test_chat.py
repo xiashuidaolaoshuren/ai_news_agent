@@ -2277,6 +2277,100 @@ def test_stream_events_terminal_replay_returns_stored_outcome_without_rerun(
     assert len(SessionStore(db_path).list_messages(created.id)) == 2
 
 
+def test_stream_events_digest_deltas_and_persistence_use_markdown(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "stream-digest-markdown.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+    warning = _bilibili_anti_bot_warning()
+    notice = warning.message
+    markdown = f"⚠ {notice}\n\n# Authoritative Markdown\n"
+    plain_text = "Plain text body\n"
+    now = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
+    digest = Digest(
+        generated_at=now,
+        entries=[],
+        topics=["AI"],
+        timeframe="today",
+    )
+
+    async def markdown_streaming_runner(
+        req: DigestRequest,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ):
+        del request_id
+        yield "Collecting items…", False, None
+        run_id = store.save_run(
+            requested_at=now,
+            timeframe=req.timeframe,
+            topics=list(req.topics),
+            connector_names=list(req.connector_names or ["github"]),
+            session_id=session_id,
+        )
+        yield "", True, DigestResult(
+            request=req,
+            digest=digest,
+            run_id=run_id,
+            markdown=markdown,
+            text=plain_text,
+            ranked_items=[],
+            warnings=[warning],
+            errors=[],
+            started_at=now,
+            finished_at=now,
+        )
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=lambda _: None,
+        streaming_workflow_runner=markdown_streaming_runner,
+        session_service=session_service,
+    )
+
+    first = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Give me today's AI digest",
+            session_id=created.id,
+            request_id="req-md-digest",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    joined = "".join(e.text for e in first if isinstance(e, DeltaEvent))
+    digest_event = next(e for e in first if isinstance(e, DigestEvent))
+    assert joined == markdown
+    assert digest_event.markdown == markdown
+    assert joined != plain_text
+    assert digest_event.markdown != plain_text
+
+    messages = SessionStore(db_path).list_messages(created.id)
+    assistant = messages[-1]
+    assert assistant.role == "assistant"
+    assert assistant.content == markdown
+
+    replay = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "ignored",
+            session_id=created.id,
+            request_id="req-md-digest",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    replay_joined = "".join(e.text for e in replay if isinstance(e, DeltaEvent))
+    replay_digest = next(e for e in replay if isinstance(e, DigestEvent))
+    assert replay_joined == markdown
+    assert replay_digest.markdown == markdown
+
+
 def test_stream_events_terminal_digest_replay_emits_digest_event(
     tmp_path: Path,
 ) -> None:

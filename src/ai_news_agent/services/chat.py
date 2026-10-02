@@ -491,9 +491,9 @@ class ChatService:
                     correlation_id=record.correlation_id,
                 )
                 return
-            text = _user_facing_digest_text(result)
+            markdown = _user_facing_digest_markdown(result)
             async for chunk in iter_text_chunks(
-                text,
+                markdown,
                 chunk_size=chunk_size,
                 delay_s=chunk_delay_s,
             ):
@@ -510,7 +510,7 @@ class ChatService:
                 yield DigestEvent(
                     run_id=result.run_id,
                     digest=result.digest,
-                    markdown=result.markdown,
+                    markdown=markdown,
                     warnings=result.warnings,
                     errors=result.errors,
                 )
@@ -519,7 +519,7 @@ class ChatService:
                     session_id,
                     record.id,
                     status="succeeded",
-                    content=text,
+                    content=markdown,
                     run_id=result.run_id,
                 )
             except KeyError:
@@ -918,6 +918,15 @@ def _user_facing_digest_text(result: DigestResult) -> str:
     if notice in result.text:
         return result.text
     return f"{notice}\n\n{result.text}"
+
+
+def _user_facing_digest_markdown(result: DigestResult) -> str:
+    notice = format_connector_warnings_notice(result.warnings, result.errors)
+    if not notice:
+        return result.markdown
+    if notice in result.markdown:
+        return result.markdown
+    return f"{notice}\n\n{result.markdown}"
 
 
 def _apply_session_items_per_source(
