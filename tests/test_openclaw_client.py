@@ -2,35 +2,20 @@
 
 from __future__ import annotations
 
-import json
-import threading
-import time
 from io import StringIO
 from pathlib import Path
 
 import pytest
 
 from ai_news_agent.adapters.openclaw_client import request_digest_markdown
-from ai_news_agent.app.digest_service import DigestServiceServer
+from _service_server import UvicornTestServer
 
 
 @pytest.fixture
 def service_url(tmp_path: Path) -> str:
-    server = DigestServiceServer(
-        host="127.0.0.1",
-        port=0,
-        db_path=tmp_path / "client.db",
-        fake=True,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 5.0
-    while server.port is None and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.port is not None
-    url = f"http://127.0.0.1:{server.port}"
-    yield url
-    server.shutdown()
+    server = UvicornTestServer(fake=True, db_path=tmp_path / "client.db").start()
+    yield server.url
+    server.stop()
 
 
 def test_request_digest_markdown_returns_text(service_url: str) -> None:

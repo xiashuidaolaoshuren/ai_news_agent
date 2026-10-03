@@ -18,7 +18,8 @@ from ai_news_agent.adapters.openclaw_client import (
     request_followup_text,
 )
 from ai_news_agent.app import digest_service
-from ai_news_agent.app.digest_service import DigestServiceServer, build_followup_request_payload
+from ai_news_agent.app.digest_service import build_followup_request_payload
+from _service_server import UvicornTestServer
 from ai_news_agent.connectors.base import ConnectorResult
 from ai_news_agent.followup_structured import (
     NO_SAVED_DIGEST,
@@ -324,24 +325,36 @@ def test_build_followup_request_payload() -> None:
     ]
 
 
-@pytest.fixture
-def live_followup_server(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> DigestServiceServer:
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: object())
+def _patch_composition_live_builders(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_news_agent.services import composition
+
+    monkeypatch.setattr(composition, "build_chat_model", lambda: object())
     monkeypatch.setattr(
-        digest_service,
+        composition,
         "build_tool_chat_model",
         lambda: object(),
         raising=False,
     )
     monkeypatch.setattr(
-        digest_service,
+        composition,
         "build_connector_factory",
         lambda **kw: object(),
         raising=False,
     )
+    monkeypatch.setattr(
+        composition,
+        "build_interface_tool_router",
+        lambda **kwargs: object(),
+        raising=False,
+    )
+
+
+@pytest.fixture
+def live_followup_server(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> UvicornTestServer:
+    _patch_composition_live_builders(monkeypatch)
     router = _FakeInterfaceRouter(
         result=InterfaceAgentResult(
             kind=InterfaceAgentResultKind.STRUCTURED,
@@ -349,27 +362,19 @@ def live_followup_server(
             run_id=3,
         )
     )
-    server = DigestServiceServer(
-        host="127.0.0.1",
-        port=0,
-        db_path=tmp_path / "live-followup.db",
+    server = UvicornTestServer(
         fake=False,
+        db_path=tmp_path / "live-followup.db",
         interface_router=router,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 5.0
-    while server.port is None and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.port is not None
+    ).start()
     yield server
-    server.shutdown()
+    server.stop()
 
 
 def test_live_followup_routes_structured_through_router(
-    live_followup_server: DigestServiceServer,
+    live_followup_server: UvicornTestServer,
 ) -> None:
-    router = live_followup_server._runtime._interface_router
+    router = live_followup_server.application.openclaw_runtime._interface_router
     assert isinstance(router, _FakeInterfaceRouter)
 
     conn = HTTPConnection("127.0.0.1", live_followup_server.port, timeout=5)
@@ -403,38 +408,12 @@ def test_live_followup_maps_digest_to_guidance_path(
             run_id=9,
         )
     )
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: object())
-    monkeypatch.setattr(
-        digest_service,
-        "build_tool_chat_model",
-        lambda: object(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_connector_factory",
-        lambda **kw: object(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_interface_tool_router",
-        lambda **kwargs: router,
-        raising=False,
-    )
-    server = DigestServiceServer(
-        host="127.0.0.1",
-        port=0,
-        db_path=tmp_path / "digest-followup-svc.db",
+    _patch_composition_live_builders(monkeypatch)
+    server = UvicornTestServer(
         fake=False,
+        db_path=tmp_path / "digest-followup-svc.db",
         interface_router=router,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 5.0
-    while server.port is None and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.port is not None
+    ).start()
     try:
         conn = HTTPConnection("127.0.0.1", server.port, timeout=5)
         conn.request(
@@ -450,7 +429,7 @@ def test_live_followup_maps_digest_to_guidance_path(
         assert data["text"] == OPENCLAW_GUIDANCE_FALLBACK
         assert data["run_id"] == 9
     finally:
-        server.shutdown()
+        server.stop()
 
 
 def test_live_followup_maps_conversational_to_guidance(
@@ -464,38 +443,12 @@ def test_live_followup_maps_conversational_to_guidance(
             run_id=5,
         )
     )
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: object())
-    monkeypatch.setattr(
-        digest_service,
-        "build_tool_chat_model",
-        lambda: object(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_connector_factory",
-        lambda **kw: object(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_interface_tool_router",
-        lambda **kwargs: router,
-        raising=False,
-    )
-    server = DigestServiceServer(
-        host="127.0.0.1",
-        port=0,
-        db_path=tmp_path / "guidance.db",
+    _patch_composition_live_builders(monkeypatch)
+    server = UvicornTestServer(
         fake=False,
+        db_path=tmp_path / "guidance.db",
         interface_router=router,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 5.0
-    while server.port is None and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.port is not None
+    ).start()
     try:
         conn = HTTPConnection("127.0.0.1", server.port, timeout=5)
         conn.request(
@@ -511,7 +464,7 @@ def test_live_followup_maps_conversational_to_guidance(
         assert data["text"] == OPENCLAW_GUIDANCE_FALLBACK
         assert data["run_id"] == 5
     finally:
-        server.shutdown()
+        server.stop()
 
 
 def test_live_followup_maps_no_saved_digest_to_no_digest_path(
@@ -524,38 +477,12 @@ def test_live_followup_maps_no_saved_digest_to_no_digest_path(
             text=NO_SAVED_DIGEST,
         )
     )
-    monkeypatch.setattr(digest_service, "build_chat_model", lambda: object())
-    monkeypatch.setattr(
-        digest_service,
-        "build_tool_chat_model",
-        lambda: object(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_connector_factory",
-        lambda **kw: object(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        digest_service,
-        "build_interface_tool_router",
-        lambda **kwargs: router,
-        raising=False,
-    )
-    server = DigestServiceServer(
-        host="127.0.0.1",
-        port=0,
-        db_path=tmp_path / "no-digest-live.db",
+    _patch_composition_live_builders(monkeypatch)
+    server = UvicornTestServer(
         fake=False,
+        db_path=tmp_path / "no-digest-live.db",
         interface_router=router,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 5.0
-    while server.port is None and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.port is not None
+    ).start()
     try:
         conn = HTTPConnection("127.0.0.1", server.port, timeout=5)
         conn.request(
@@ -571,13 +498,13 @@ def test_live_followup_maps_no_saved_digest_to_no_digest_path(
         assert data["text"] == NO_SAVED_DIGEST
         assert data["run_id"] is None
     finally:
-        server.shutdown()
+        server.stop()
 
 
 def test_live_followup_passes_correlation_id_to_router(
-    live_followup_server: DigestServiceServer,
+    live_followup_server: UvicornTestServer,
 ) -> None:
-    router = live_followup_server._runtime._interface_router
+    router = live_followup_server.application.openclaw_runtime._interface_router
     assert isinstance(router, _FakeInterfaceRouter)
 
     conn = HTTPConnection("127.0.0.1", live_followup_server.port, timeout=5)
@@ -603,24 +530,13 @@ def test_digest_service_runtime_fake_mode_has_no_interface_router(tmp_path: Path
 
 
 @pytest.fixture
-def service_server(tmp_path: Path) -> DigestServiceServer:
-    server = DigestServiceServer(
-        host="127.0.0.1",
-        port=0,
-        db_path=tmp_path / "svc.db",
-        fake=True,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 5.0
-    while server.port is None and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.port is not None
+def service_server(tmp_path: Path) -> UvicornTestServer:
+    server = UvicornTestServer(fake=True, db_path=tmp_path / "svc.db").start()
     yield server
-    server.shutdown()
+    server.stop()
 
 
-def test_followup_endpoint_requires_message(service_server: DigestServiceServer) -> None:
+def test_followup_endpoint_requires_message(service_server: UvicornTestServer) -> None:
     conn = HTTPConnection("127.0.0.1", service_server.port, timeout=5)
     conn.request(
         "POST",
@@ -634,7 +550,7 @@ def test_followup_endpoint_requires_message(service_server: DigestServiceServer)
     assert "message" in data["error"]
 
 
-def test_followup_endpoint_no_digest(service_server: DigestServiceServer) -> None:
+def test_followup_endpoint_no_digest(service_server: UvicornTestServer) -> None:
     conn = HTTPConnection("127.0.0.1", service_server.port, timeout=5)
     conn.request(
         "POST",
@@ -650,7 +566,7 @@ def test_followup_endpoint_no_digest(service_server: DigestServiceServer) -> Non
     assert "No saved digest" in data["text"]
 
 
-def test_followup_endpoint_after_digest(service_server: DigestServiceServer) -> None:
+def test_followup_endpoint_after_digest(service_server: UvicornTestServer) -> None:
     conn = HTTPConnection("127.0.0.1", service_server.port, timeout=30)
 
     digest_body = json.dumps(
@@ -687,7 +603,7 @@ def test_followup_endpoint_after_digest(service_server: DigestServiceServer) -> 
     assert data["run_id"] is not None
 
 
-def test_request_followup_text_client(service_server: DigestServiceServer) -> None:
+def test_request_followup_text_client(service_server: UvicornTestServer) -> None:
     url = f"http://127.0.0.1:{service_server.port}"
 
     with httpx.Client(timeout=30.0) as client:
@@ -704,7 +620,7 @@ def test_request_followup_text_client(service_server: DigestServiceServer) -> No
     assert "Fake GitHub repo" in text
 
 
-def test_followup_endpoint_rank_item_after_digest(service_server: DigestServiceServer) -> None:
+def test_followup_endpoint_rank_item_after_digest(service_server: UvicornTestServer) -> None:
     url_host = "127.0.0.1"
     port = service_server.port
 
@@ -859,7 +775,7 @@ def test_handle_openclaw_structured_followup_zhihu_rank_item(tmp_path: Path) -> 
     assert "Digest item 1:" not in text
 
 
-def test_followup_main_cli(service_server: DigestServiceServer) -> None:
+def test_followup_main_cli(service_server: UvicornTestServer) -> None:
     import io
 
     url = f"http://127.0.0.1:{service_server.port}"

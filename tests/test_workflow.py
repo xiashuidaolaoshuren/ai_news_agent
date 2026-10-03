@@ -482,6 +482,24 @@ def test_collect_sources_node_catches_connector_exceptions() -> None:
     assert "boom" in (err.detail or "")
 
 
+def test_collect_sources_node_progress_omits_raw_exception_text() -> None:
+    conn_a = _FakeConnector(name="a", error=RuntimeError("secret-token"))
+    progress: list[str] = []
+    req = DigestRequest(topics=["RAG"], connector_names=["a"])
+    state: DigestGraphState = {
+        "request": req,
+        "connector_request": parse_request_node({"request": req})["connector_request"],
+    }
+    node = make_collect_sources_node([conn_a], on_progress=progress.append)
+
+    asyncio.run(node(state))
+
+    failed_lines = [line for line in progress if line.startswith("Tool failed")]
+    assert len(failed_lines) == 1
+    assert "secret-token" not in failed_lines[0]
+    assert failed_lines[0] == "Tool failed a: collection failed."
+
+
 def test_collect_sources_node_missing_connector_request_emits_error() -> None:
     req = DigestRequest(topics=["RAG"])
     state: DigestGraphState = {"request": req}
@@ -793,7 +811,7 @@ def test_summarize_items_node_catches_summarizer_failure() -> None:
 class _BrokenDigestStore(DigestStore):
     """Used to verify persist node catches unexpected storage failures."""
 
-    def save_run(self, **kwargs):  # type: ignore[no-untyped-def]
+    def save_digest_bundle(self, **kwargs):  # type: ignore[no-untyped-def]
         raise RuntimeError("boom")
 
 
@@ -889,6 +907,197 @@ def test_persist_results_node_missing_digest_emits_error(tmp_path: Path) -> None
     assert len(out["errors"]) == 1
     assert out["errors"][0].stage == "store"
     assert "missing Digest" in out["errors"][0].message
+
+
+def test_persist_results_node_passes_session_id_to_bundle(tmp_path: Path) -> None:
+    import sqlite3
+
+    from ai_news_agent.repositories.session_store import SessionStore
+
+    now = datetime(2026, 5, 16, 12, 0, tzinfo=UTC)
+    req = DigestRequest(topics=["RAG"], connector_names=["github"])
+    item = _news_item("r1")
+    digest = Digest(
+        generated_at=now,
+        entries=[
+            DigestEntry(
+                source_kind=SourceKind.GITHUB,
+                source_id="r1",
+                title="item-r1",
+                source_name="GitHub",
+                source_url=item.url,
+                summary="S",
+                why_it_matters="W",
+                background_knowledge="B",
+                follow_up_action=FollowUpAction.READ,
+            )
+        ],
+        topics=["RAG"],
+        timeframe=None,
+    )
+    ranked = [
+        RankedItem(
+            item=item,
+            score_total=1.0,
+            score_breakdown={"k": 1.0},
+            selected=True,
+            selection_reason="top",
+        )
+    ]
+
+    db = tmp_path / "persist-session.db"
+    store = DigestStore(db)
+    store.init_schema()
+    session_store = SessionStore(db)
+    session_store.create_session("sess-1")
+    user_message_id = session_store.insert_message("sess-1", role="user", content="Hi")
+    session_store.create_request(
+        "sess-1",
+        "req-1",
+        user_message_id=user_message_id,
+        correlation_id="corr-1",
+    )
+
+    node = make_persist_results_node(store)
+    state: DigestGraphState = {
+        "request": req,
+        "started_at": now,
+        "collected_items": [item],
+        "warnings": [],
+        "ranked_items": ranked,
+        "digest": digest,
+        "session_id": "sess-1",
+    }
+    out = node(state)
+    assert out["run_id"] == 1
+
+    with sqlite3.connect(db) as conn:
+        conn.row_factory = sqlite3.Row
+        run_row = conn.execute("SELECT session_id FROM runs WHERE id = 1").fetchone()
+        request_row = conn.execute(
+            "SELECT run_id FROM session_requests WHERE session_id = ? AND id = ?",
+            ("sess-1", "req-1"),
+        ).fetchone()
+
+    assert run_row is not None
+    assert run_row["session_id"] == "sess-1"
+    assert request_row is not None
+    assert request_row["run_id"] == 1
+
+
+def test_run_digest_with_request_id_links_only_that_request(tmp_path: Path) -> None:
+    import sqlite3
+
+    from ai_news_agent.graph.workflow import run_digest
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.sources import FakeDigestModel, build_connectors
+
+    now = datetime(2026, 5, 16, 12, 0, tzinfo=UTC)
+    req = DigestRequest(topics=["RAG"], connector_names=["github"])
+
+    db = tmp_path / "run-request-id.db"
+    store = DigestStore(db)
+    store.init_schema()
+    session_store = SessionStore(db)
+    session_store.create_session("sess-1")
+    user_message_id = session_store.insert_message("sess-1", role="user", content="First")
+    session_store.create_request(
+        "sess-1",
+        "req-origin",
+        user_message_id=user_message_id,
+        correlation_id="corr-origin",
+    )
+    cancelled_message_id = session_store.insert_message(
+        "sess-1",
+        role="assistant",
+        content="The request was cancelled.",
+    )
+    session_store.mark_cancelled_if_active(
+        "sess-1",
+        "req-origin",
+        assistant_message_id=cancelled_message_id,
+    )
+    retry_message_id = session_store.insert_message("sess-1", role="user", content="Retry")
+    session_store.create_request(
+        "sess-1",
+        "req-retry",
+        user_message_id=retry_message_id,
+        correlation_id="corr-retry",
+    )
+
+    connectors = build_connectors(fake=True, names=["github"])
+    result = asyncio.run(
+        run_digest(
+            req,
+            connectors=connectors,
+            model=FakeDigestModel(),
+            store=store,
+            session_id="sess-1",
+            request_id="req-origin",
+        )
+    )
+
+    assert result.run_id is not None
+    origin = session_store.get_request("sess-1", "req-origin")
+    retry = session_store.get_request("sess-1", "req-retry")
+    assert origin is not None
+    assert retry is not None
+    assert origin.run_id == result.run_id
+    assert origin.status == "cancelled"
+    assert retry.run_id is None
+    assert retry.status == "active"
+
+    with sqlite3.connect(db) as conn:
+        conn.row_factory = sqlite3.Row
+        run_row = conn.execute(
+            "SELECT session_id FROM runs WHERE id = ?",
+            (result.run_id,),
+        ).fetchone()
+    assert run_row is not None
+    assert run_row["session_id"] == "sess-1"
+
+
+def test_persist_results_node_leaves_no_partial_run_on_bundle_failure(tmp_path: Path) -> None:
+    import sqlite3
+
+    now = datetime(2026, 5, 16, 12, 0, tzinfo=UTC)
+    req = DigestRequest(topics=["RAG"])
+    item = _news_item("r1")
+    ghost = _news_item("ghost")
+    digest = Digest(generated_at=now, entries=[], topics=["RAG"], timeframe=None)
+    ranked = [
+        RankedItem(
+            item=ghost,
+            score_total=1.0,
+            score_breakdown={"k": 1.0},
+            selected=True,
+            selection_reason="ghost",
+        )
+    ]
+
+    store = DigestStore(tmp_path / "persist-atomic.db")
+    store.init_schema()
+    node = make_persist_results_node(store)
+    out = node(
+        {
+            "request": req,
+            "started_at": now,
+            "collected_items": [item],
+            "warnings": [],
+            "ranked_items": ranked,
+            "digest": digest,
+        }
+    )
+
+    assert "run_id" not in out
+    assert len(out["errors"]) == 1
+    assert out["errors"][0].stage == "store"
+
+    with sqlite3.connect(store.db_path) as conn:
+        run_count = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        item_count = conn.execute("SELECT COUNT(*) FROM news_items").fetchone()[0]
+    assert run_count == 0
+    assert item_count == 0
 
 
 def test_persist_results_node_catches_storage_errors(tmp_path) -> None:

@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import sys
-import threading
 import time
 from collections.abc import Callable, Sequence
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, TextIO
+
+import uvicorn
 
 from ai_news_agent.adapters.openclaw import (
     normalize_output_language_hint,
@@ -30,19 +29,12 @@ from ai_news_agent.followup_structured import (
 )
 from ai_news_agent.graph.state import DigestResult
 from ai_news_agent.graph.workflow import run_digest_instrumented
-from ai_news_agent.llm import build_chat_model, build_tool_chat_model
 from ai_news_agent.logging_setup import configure_logging, get_logger
 from ai_news_agent.models import utcnow
 from ai_news_agent.request import DigestRequest
-from ai_news_agent.sources import (
-    DEFAULT_SOURCE_NAMES,
-    FakeDigestModel,
-    build_connector_factory,
-    build_connectors,
-)
+from ai_news_agent.sources import DEFAULT_SOURCE_NAMES, FakeDigestModel, build_connectors
 from ai_news_agent.storage import DigestStore
 from ai_news_agent.telemetry import DigestStageTimer, new_correlation_id
-from ai_news_agent.tools import build_interface_tool_router
 from ai_news_agent.tools.schemas import (
     InterfaceAgentResult,
     InterfaceAgentResultKind,
@@ -97,7 +89,7 @@ def _style_hints_from_body(body: dict[str, Any]) -> dict[str, str | None]:
     }
 
 
-def _digest_request_from_json(body: dict[str, Any]) -> DigestRequest:
+def digest_request_from_json(body: dict[str, Any]) -> DigestRequest:
     style_hints = _style_hints_from_body(body)
     message = body.get("message")
     if message is not None and str(message).strip():
@@ -192,83 +184,35 @@ def build_followup_request_payload(*, message: str) -> dict[str, Any]:
 
 
 class DigestServiceRuntime:
-    """Warm digest runtime: store schema, model, and connector factory."""
+    """Warm digest runtime executing dependencies supplied by the composition root."""
 
     def __init__(
         self,
         *,
         fake: bool,
         db_path: Path,
+        store: DigestStore | None = None,
+        model: Any | None = None,
+        workflow_runner: Any | None = None,
         interface_router: Any | None = None,
     ) -> None:
         self.fake = fake
         self.db_path = db_path
-        self._store = DigestStore(db_path)
+        self._store = store if store is not None else DigestStore(db_path)
         self._store.init_schema()
-        self._interface_router: Any | None = None
-        self._workflow_runner: Any = None
         if fake:
-            self._model: Any = FakeDigestModel()
+            self._model: Any = model if model is not None else FakeDigestModel()
+            self._interface_router: Any | None = None
+            self._workflow_runner: Any = None
         else:
-            self._model = build_chat_model()
-            tool_model = build_tool_chat_model()
-
-            def build_connectors_fn(req: DigestRequest) -> Sequence[SourceConnector]:
-                names = (
-                    list(req.connector_names)
-                    if req.connector_names is not None
-                    else list(DEFAULT_SOURCE_NAMES)
+            if model is None or workflow_runner is None or interface_router is None:
+                raise ValueError(
+                    "live DigestServiceRuntime requires model, workflow_runner, "
+                    "and interface_router from the composition root"
                 )
-                return build_connectors(fake=False, names=names)
-
-            async def workflow_runner(
-                req: DigestRequest,
-                on_stage: Callable[[str], None] | None = None,
-            ) -> DigestResult:
-                load_local_env(force_reload=True)
-                configure_bilibili_network_from_env(logger)
-                names = (
-                    list(req.connector_names)
-                    if req.connector_names is not None
-                    else list(DEFAULT_SOURCE_NAMES)
-                )
-                connectors = build_connectors(fake=False, names=names)
-                try:
-                    result = await run_digest_instrumented(
-                        req,
-                        connectors=list(connectors),
-                        model=self._model,
-                        store=self._store,
-                        on_stage=on_stage,
-                    )
-                finally:
-                    await _aclose_connectors(connectors)
-                return result
-
+            self._model = model
             self._workflow_runner = workflow_runner
-            if interface_router is not None:
-                self._interface_router = interface_router
-            else:
-                self._interface_router = build_interface_tool_router(
-                    store=self._store,
-                    workflow_runner=workflow_runner,
-                    streaming_workflow_runner=None,
-                    tool_model=tool_model,
-                    digest_model=self._model,
-                    github_factory=build_connector_factory(fake=False, name="github"),
-                    bilibili_factory=build_connector_factory(
-                        fake=False,
-                        name="bilibili",
-                    ),
-                    juya_factory=build_connector_factory(fake=False, name="juya"),
-                    huggingface_factory=build_connector_factory(
-                        fake=False,
-                        name="huggingface",
-                    ),
-                    zhihu_factory=build_connector_factory(fake=False, name="zhihu"),
-                    build_connectors_fn=build_connectors_fn,
-                    interface_name="openclaw",
-                )
+            self._interface_router = interface_router
         logger.info(
             "digest service runtime ready fake=%s db_path=%s",
             fake,
@@ -332,7 +276,7 @@ class DigestServiceRuntime:
         )
         return result, dict(timer.stages), elapsed
 
-    def run_followup(
+    async def run_followup(
         self,
         *,
         message: str,
@@ -344,11 +288,9 @@ class DigestServiceRuntime:
                 store=self._store,
             )
         else:
-            outcome = asyncio.run(
-                self._run_followup_live(
-                    message=message,
-                    correlation_id=correlation_id,
-                )
+            outcome = await self._run_followup_live(
+                message=message,
+                correlation_id=correlation_id,
             )
         logger.info(
             "followup_service completed correlation_id=%s run_id=%s path=%s",
@@ -370,179 +312,6 @@ class DigestServiceRuntime:
             allow_digest=False,
         )
         return _interface_result_to_followup_outcome(agent_result)
-
-
-class DigestServiceServer:
-    """Threaded HTTP server exposing ``/health``, ``/digest``, and ``/followup``."""
-
-    def __init__(
-        self,
-        *,
-        host: str = _DEFAULT_HOST,
-        port: int = _DEFAULT_PORT,
-        db_path: Path,
-        fake: bool = False,
-        interface_router: Any | None = None,
-    ) -> None:
-        self.host = host
-        self.port: int | None = port if port != 0 else None
-        self.db_path = db_path
-        self.fake = fake
-        self._runtime = DigestServiceRuntime(
-            fake=fake,
-            db_path=db_path,
-            interface_router=interface_router,
-        )
-        self._httpd: ThreadingHTTPServer | None = None
-        self._thread: threading.Thread | None = None
-
-    def serve_forever(self) -> None:
-        handler = _make_handler(self._runtime)
-        bind_port = self.port if self.port is not None else 0
-        self._httpd = ThreadingHTTPServer((self.host, bind_port), handler)
-        self.port = int(self._httpd.server_address[1])
-        logger.info("digest service listening on http://%s:%s", self.host, self.port)
-        self._httpd.serve_forever()
-
-    def shutdown(self) -> None:
-        if self._httpd is not None:
-            self._httpd.shutdown()
-            self._httpd.server_close()
-            self._httpd = None
-
-
-def _make_handler(runtime: DigestServiceRuntime) -> type[BaseHTTPRequestHandler]:
-    class DigestServiceHandler(BaseHTTPRequestHandler):
-        server_version = "DigestService/1.0"
-
-        def log_message(self, format: str, *args: object) -> None:  # noqa: A003
-            logger.debug("http " + format, *args)
-
-        def do_GET(self) -> None:  # noqa: N802
-            if self.path.rstrip("/") == "/health":
-                self._json_response(
-                    200,
-                    {"status": "ok", "fake": runtime.fake},
-                )
-                return
-            self._json_response(404, {"error": "not found"})
-
-        def do_POST(self) -> None:  # noqa: N802
-            path = self.path.rstrip("/")
-            if path == "/followup":
-                self._handle_followup_post()
-                return
-            if path != "/digest":
-                self._json_response(404, {"error": "not found"})
-                return
-
-            self._handle_digest_post()
-
-        def _handle_digest_post(self) -> None:
-            length = int(self.headers.get("Content-Length", "0") or "0")
-            raw = self.rfile.read(length) if length else b"{}"
-            try:
-                body = json.loads(raw.decode("utf-8") or "{}")
-            except json.JSONDecodeError:
-                self._json_response(400, {"error": "invalid JSON body"})
-                return
-
-            correlation_id = str(body.get("correlation_id") or new_correlation_id())
-            use_fake = bool(body.get("fake", runtime.fake))
-            if use_fake != runtime.fake:
-                self._json_response(
-                    400,
-                    {
-                        "error": (
-                            f"service fake={runtime.fake} but request fake={use_fake}; "
-                            "restart service with matching mode"
-                        ),
-                    },
-                )
-                return
-
-            try:
-                request = _digest_request_from_json(body)
-            except ValueError as exc:
-                self._json_response(400, {"error": str(exc)})
-                return
-
-            message = str(body.get("message") or "").strip()
-            try:
-                result, stages, elapsed = asyncio.run(
-                    runtime.run_digest(
-                        request,
-                        correlation_id=correlation_id,
-                        message=message,
-                    )
-                )
-            except ValueError as exc:
-                self._json_response(400, {"error": str(exc)})
-                return
-            except Exception as exc:  # noqa: BLE001
-                logger.exception(
-                    "digest_service failed correlation_id=%s",
-                    correlation_id,
-                )
-                self._json_response(
-                    500,
-                    {
-                        "error": f"{type(exc).__name__}: {exc}",
-                        "correlation_id": correlation_id,
-                    },
-                )
-                return
-
-            text = result.text
-            self._json_response(
-                200,
-                {
-                    "text": text,
-                    "run_id": result.run_id,
-                    "correlation_id": correlation_id,
-                    "elapsed_s": round(elapsed, 3),
-                    "stages": stages,
-                },
-            )
-
-        def _handle_followup_post(self) -> None:
-            length = int(self.headers.get("Content-Length", "0") or "0")
-            raw = self.rfile.read(length) if length else b"{}"
-            try:
-                body = json.loads(raw.decode("utf-8") or "{}")
-            except json.JSONDecodeError:
-                self._json_response(400, {"error": "invalid JSON body"})
-                return
-
-            message = body.get("message")
-            if message is None or not str(message).strip():
-                self._json_response(400, {"error": "message is required"})
-                return
-
-            correlation_id = str(body.get("correlation_id") or new_correlation_id())
-            outcome = runtime.run_followup(
-                message=str(message).strip(),
-                correlation_id=correlation_id,
-            )
-            self._json_response(
-                200,
-                {
-                    "text": outcome["text"],
-                    "run_id": outcome["run_id"],
-                    "path": outcome["path"],
-                    "correlation_id": correlation_id,
-                },
-            )
-
-        def _json_response(self, status: int, payload: dict[str, Any]) -> None:
-            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-
-    return DigestServiceHandler
 
 
 def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
@@ -576,24 +345,27 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
     )
 
     ns = parser.parse_args(argv if argv is not None else sys.argv[1:])
-    server = DigestServiceServer(
-        host=ns.host,
-        port=ns.port,
-        db_path=ns.db_path,
-        fake=ns.fake,
+
+    from ai_news_agent.api.app import create_app
+    from ai_news_agent.services.composition import build_application
+
+    application = build_application(fake=ns.fake, db_path=ns.db_path)
+    app = create_app(application)
+    logger.info(
+        "digest service listening on http://%s:%s fake=%s db_path=%s",
+        ns.host,
+        ns.port,
+        ns.fake,
+        ns.db_path,
     )
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        logger.info("digest service shutting down")
-        server.shutdown()
+    uvicorn.run(app, host=ns.host, port=ns.port)
     return 0
 
 
 __all__ = [
     "DigestServiceRuntime",
-    "DigestServiceServer",
     "build_digest_request_payload",
     "build_followup_request_payload",
+    "digest_request_from_json",
     "main",
 ]

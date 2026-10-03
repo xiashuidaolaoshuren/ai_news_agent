@@ -1,0 +1,832 @@
+"""Session service tests (Milestone 8A.1 T7)."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+
+from ai_news_agent.repositories.session_store import SessionStore
+from ai_news_agent.storage import DigestStore
+
+
+def _init_db(db_path: Path) -> None:
+    DigestStore(db_path).init_schema()
+
+
+def test_services_modules_importable_with_record_types(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_records import (
+        MessageRecord,
+        SessionRecord,
+        SessionRequestRecord,
+        initial_session_title,
+    )
+    from ai_news_agent.services.session_service import SessionBusyError, SessionService
+
+    now = datetime(2026, 5, 16, 12, 0, tzinfo=UTC)
+    session = SessionRecord(
+        id="sess-1",
+        title=None,
+        connector_names=None,
+        items_per_source=None,
+        created_at=now,
+        updated_at=now,
+    )
+    message = MessageRecord(
+        id=1,
+        session_id="sess-1",
+        sequence=1,
+        role="user",
+        content="Hello",
+        run_id=None,
+        created_at=now,
+    )
+    request_record = SessionRequestRecord(
+        id="req-1",
+        session_id="sess-1",
+        status="active",
+        user_message_id=1,
+        assistant_message_id=None,
+        run_id=None,
+        correlation_id="corr-1",
+        error_code=None,
+        error_message=None,
+        started_at=now,
+        completed_at=None,
+    )
+
+    assert session.id == "sess-1"
+    assert message.role == "user"
+    assert request_record.status == "active"
+    assert callable(initial_session_title)
+    assert issubclass(SessionBusyError, Exception)
+
+    service = SessionService(SessionStore(tmp_path / "svc.db"))
+    assert service is not None
+
+
+def test_initial_session_title_first_nonblank_line_normalized() -> None:
+    from ai_news_agent.services.session_records import initial_session_title
+
+    assert initial_session_title("What is   RAG?\tand why") == "What is RAG? and why"
+    assert initial_session_title("  spaced  line  ") == "spaced line"
+    assert initial_session_title("first line\nsecond line") == "first line"
+    assert initial_session_title("\n\n  \nreal content\nmore") == "real content"
+
+
+def test_initial_session_title_blank_content_returns_none() -> None:
+    from ai_news_agent.services.session_records import initial_session_title
+
+    assert initial_session_title("") is None
+    assert initial_session_title("   ") is None
+    assert initial_session_title("  \n \t \n  ") is None
+
+
+def test_initial_session_title_truncates_to_60_unicode_chars() -> None:
+    from ai_news_agent.services.session_records import initial_session_title
+
+    exact = "a" * 60
+    assert initial_session_title(exact) == exact
+    assert len(initial_session_title("b" * 70)) == 60
+
+    cjk = "字" * 65
+    truncated = initial_session_title(cjk)
+    assert truncated is not None
+    assert len(truncated) == 60
+    assert truncated == "字" * 60
+
+
+def test_create_get_list_rename_session_round_trip(tmp_path: Path) -> None:
+    import uuid
+
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-crud.db"
+    _init_db(db_path)
+    service = SessionService(SessionStore(db_path))
+
+    created = service.create_session()
+    assert uuid.UUID(created.id)
+    assert created.title is None
+    assert created.connector_names is None
+    assert created.items_per_source is None
+    assert created.created_at <= datetime.now(tz=UTC)
+    assert created.updated_at <= datetime.now(tz=UTC)
+
+    fetched = service.get_session(created.id)
+    assert fetched == created
+    assert service.get_session("missing") is None
+
+    other = service.create_session()
+    service.rename_session(created.id, "Renamed")
+
+    listed = service.list_sessions()
+    assert [s.id for s in listed] == [created.id, other.id]
+
+    renamed = service.get_session(created.id)
+    assert renamed is not None
+    assert renamed.title == "Renamed"
+    assert renamed.updated_at > created.updated_at
+
+
+def test_get_session_decodes_stored_preferences(tmp_path: Path) -> None:
+    import json
+
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-decode.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+
+    store.create_session(
+        "sess-pref",
+        title="Prefs",
+        connector_names=["github", "zhihu"],
+        items_per_source=7,
+    )
+
+    record = service.get_session("sess-pref")
+    assert record is not None
+    assert record.connector_names == ["github", "zhihu"]
+    assert record.items_per_source == 7
+    assert record.title == "Prefs"
+    assert isinstance(record.created_at, datetime)
+
+
+def test_record_user_message_sets_initial_title_once(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-title-once.db"
+    _init_db(db_path)
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+
+    first = service.record_user_message(created.id, content="  What is   RAG? ")
+    assert first.sequence == 1
+    assert first.role == "user"
+    assert first.session_id == created.id
+    assert first.run_id is None
+
+    titled = service.get_session(created.id)
+    assert titled is not None
+    assert titled.title == "What is RAG?"
+
+    service.record_user_message(created.id, content="Second question")
+    after = service.get_session(created.id)
+    assert after is not None
+    assert after.title == "What is RAG?"
+
+    service.rename_session(created.id, "Custom name")
+    service.record_user_message(created.id, content="Third question")
+    final = service.get_session(created.id)
+    assert final is not None
+    assert final.title == "Custom name"
+
+
+def test_record_user_message_blank_content_keeps_title_null(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-blank-title.db"
+    _init_db(db_path)
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+
+    service.record_user_message(created.id, content="   \n  ")
+
+    record = service.get_session(created.id)
+    assert record is not None
+    assert record.title is None
+
+
+def test_update_preferences_round_trip_and_empty_list_rejected(tmp_path: Path) -> None:
+    import pytest
+
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-prefs.db"
+    _init_db(db_path)
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+
+    service.update_preferences(
+        created.id, connector_names=["github", "zhihu"], items_per_source=5
+    )
+    record = service.get_session(created.id)
+    assert record is not None
+    assert record.connector_names == ["github", "zhihu"]
+    assert record.items_per_source == 5
+
+    service.update_preferences(created.id, connector_names=None, items_per_source=None)
+    cleared = service.get_session(created.id)
+    assert cleared is not None
+    assert cleared.connector_names is None
+    assert cleared.items_per_source is None
+
+    with pytest.raises(ValueError, match="connector_names"):
+        service.update_preferences(created.id, connector_names=[], items_per_source=3)
+
+
+def test_build_request_applies_preferences_as_one_request_defaults(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-build-req.db"
+    _init_db(db_path)
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+    service.update_preferences(created.id, connector_names=["github"], items_per_source=5)
+
+    default_req = service.build_request(created.id, "Give me today's digest")
+    assert default_req.connector_names == ["github"]
+    assert default_req.items_per_source == 5
+    assert default_req.max_items_per_source == 20
+
+    overridden = service.build_request(created.id, "zhihu only: give me a digest")
+    assert overridden.connector_names == ["zhihu"]
+
+    stored = service.get_session(created.id)
+    assert stored is not None
+    assert stored.connector_names == ["github"]
+    assert stored.items_per_source == 5
+
+
+def test_build_request_maps_preference_to_ranking_quota_not_collection_cap(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-build-quota.db"
+    _init_db(db_path)
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+    service.update_preferences(created.id, connector_names=None, items_per_source=5)
+
+    req = service.build_request(created.id, "Give me today's digest")
+
+    assert req.items_per_source == 5
+    assert req.max_items_per_source == 20
+
+    service.update_preferences(created.id, connector_names=None, items_per_source=50)
+    raised = service.build_request(created.id, "Give me today's digest")
+
+    assert raised.items_per_source == 50
+    assert raised.max_items_per_source == 50
+    assert raised.top_n == req.top_n
+
+
+def test_build_request_missing_session_raises(tmp_path: Path) -> None:
+    import pytest
+
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-build-missing.db"
+    _init_db(db_path)
+    service = SessionService(SessionStore(db_path))
+
+    with pytest.raises(KeyError):
+        service.build_request("missing", "Give me today's digest")
+
+
+def _save_session_bundle(db_path: Path, session_id: str) -> int:
+    from datetime import UTC as _UTC
+
+    from ai_news_agent.models import Digest
+
+    store = DigestStore(db_path)
+    digest = Digest(
+        generated_at=datetime(2026, 5, 16, 12, 0, tzinfo=_UTC),
+        entries=[],
+        topics=["RAG"],
+        timeframe=None,
+    )
+    return store.save_digest_bundle(
+        requested_at=datetime(2026, 5, 16, 12, 0, tzinfo=_UTC),
+        timeframe=None,
+        topics=["RAG"],
+        connector_names=["github"],
+        items=[],
+        warnings=[],
+        ranked=[],
+        digest=digest,
+        session_id=session_id,
+    )
+
+
+def test_delete_inactive_session_cascades_and_keeps_digest(tmp_path: Path) -> None:
+    import sqlite3
+
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-delete.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.record_user_message(created.id, content="Hello")
+
+    run_id = _save_session_bundle(db_path, created.id)
+    store.create_request(
+        created.id,
+        "req-1",
+        user_message_id=1,
+        correlation_id="corr-1",
+    )
+    store.mark_terminal(created.id, "req-1", status="succeeded")
+
+    service.delete_session(created.id)
+
+    assert service.get_session(created.id) is None
+    assert store.list_messages(created.id) == []
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        run_row = conn.execute(
+            "SELECT session_id FROM runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        digest_count = conn.execute("SELECT COUNT(*) FROM digests").fetchone()[0]
+    assert run_row is not None
+    assert run_row["session_id"] is None
+    assert digest_count == 1
+
+
+def test_delete_active_session_raises_session_busy(tmp_path: Path) -> None:
+    import pytest
+
+    from ai_news_agent.services.session_service import SessionBusyError, SessionService
+
+    db_path = tmp_path / "svc-delete-busy.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.record_user_message(created.id, content="Hello")
+    store.create_request(
+        created.id,
+        "req-1",
+        user_message_id=1,
+        correlation_id="corr-1",
+    )
+
+    with pytest.raises(SessionBusyError):
+        service.delete_session(created.id)
+
+    assert service.get_session(created.id) is not None
+
+
+def test_request_lifecycle_surface_importable(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import (
+        RequestInProgressError,
+        SessionService,
+    )
+
+    service = SessionService(SessionStore(tmp_path / "svc-lifecycle.db"))
+    assert issubclass(RequestInProgressError, Exception)
+    assert callable(service.begin_request)
+    assert callable(service.interrupt_active_requests)
+
+
+def test_begin_request_creates_user_message_and_active_request(tmp_path: Path) -> None:
+    import uuid
+
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-begin.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+
+    record = service.begin_request(created.id, content="Give me today's digest")
+
+    assert uuid.UUID(record.id)
+    assert record.session_id == created.id
+    assert record.status == "active"
+    assert record.user_message_id == 1
+    assert record.assistant_message_id is None
+    assert record.run_id is None
+    assert record.correlation_id
+    assert record.error_code is None
+    assert record.error_message is None
+    assert record.completed_at is None
+
+    messages = store.list_messages(created.id)
+    assert len(messages) == 1
+    assert messages[0].content == "Give me today's digest"
+    assert messages[0].id == record.user_message_id
+
+    session = service.get_session(created.id)
+    assert session is not None
+    assert session.title == "Give me today's digest"
+
+
+def test_begin_request_uses_provided_request_id(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-begin-id.db"
+    _init_db(db_path)
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+
+    record = service.begin_request(
+        created.id,
+        content="Hello",
+        request_id="client-req-1",
+    )
+
+    assert record.id == "client-req-1"
+    assert record.status == "active"
+
+
+def test_idempotent_replay_returns_terminal_request_without_new_message(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-idempotent-terminal.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    store.create_request(
+        created.id,
+        "req-1",
+        user_message_id=store.insert_message(created.id, role="user", content="First"),
+        correlation_id="corr-1",
+    )
+    store.mark_terminal(created.id, "req-1", status="succeeded")
+
+    replay = service.begin_request(created.id, content="Retry", request_id="req-1")
+
+    assert replay.id == "req-1"
+    assert replay.status == "succeeded"
+    assert replay.user_message_id == 1
+    assert replay.assistant_message_id is None
+    assert len(store.list_messages(created.id)) == 1
+
+
+def test_idempotent_replay_returns_interrupted_request_without_new_message(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-idempotent-interrupted.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    store.create_request(
+        created.id,
+        "req-1",
+        user_message_id=store.insert_message(created.id, role="user", content="First"),
+        correlation_id="corr-1",
+    )
+    store.mark_terminal(created.id, "req-1", status="interrupted")
+
+    replay = service.begin_request(created.id, content="Retry", request_id="req-1")
+
+    assert replay.id == "req-1"
+    assert replay.status == "interrupted"
+    assert replay.user_message_id == 1
+    assert len(store.list_messages(created.id)) == 1
+
+
+def test_idempotent_duplicate_active_request_raises_request_in_progress(
+    tmp_path: Path,
+) -> None:
+    import pytest
+
+    from ai_news_agent.services.session_service import (
+        RequestInProgressError,
+        SessionService,
+    )
+
+    db_path = tmp_path / "svc-duplicate-active.db"
+    _init_db(db_path)
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+    service.begin_request(created.id, content="First", request_id="req-1")
+
+    with pytest.raises(RequestInProgressError):
+        service.begin_request(created.id, content="Retry", request_id="req-1")
+
+    assert len(SessionStore(db_path).list_messages(created.id)) == 1
+
+
+def test_begin_request_raises_session_busy_for_different_active_id(
+    tmp_path: Path,
+) -> None:
+    import pytest
+
+    from ai_news_agent.services.session_service import (
+        SessionBusyError,
+        SessionService,
+    )
+
+    db_path = tmp_path / "svc-session-busy.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(created.id, content="First", request_id="req-1")
+
+    with pytest.raises(SessionBusyError):
+        service.begin_request(created.id, content="Second", request_id="req-2")
+
+    assert len(store.list_messages(created.id)) == 1
+
+
+def test_interrupt_active_requests_marks_leftover_active_as_interrupted(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-interrupt.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    first = service.create_session()
+    second = service.create_session()
+    service.begin_request(first.id, content="First", request_id="req-1")
+    service.begin_request(second.id, content="Second", request_id="req-2")
+    store.mark_terminal(first.id, "req-1", status="succeeded")
+
+    interrupted_count = service.interrupt_active_requests()
+
+    assert interrupted_count == 1
+    row = store.get_request(second.id, "req-2")
+    assert row is not None
+    assert row.status == "interrupted"
+    assert row.completed_at is not None
+
+
+def test_interrupt_replay_returns_interrupted_outcome_without_rerun(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-interrupt-replay.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(created.id, content="First", request_id="req-1")
+
+    service.interrupt_active_requests()
+
+    replay = service.begin_request(created.id, content="Retry", request_id="req-1")
+    assert replay.status == "interrupted"
+    assert len(store.list_messages(created.id)) == 1
+
+
+def test_cancel_request_surface(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    service = SessionService(SessionStore(tmp_path / "svc-cancel-surface.db"))
+    assert callable(service.cancel_request)
+
+
+def test_cancel_before_persistence_marks_cancelled_with_safe_message(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import (
+        CANCELLED_ASSISTANT_MESSAGE,
+        SessionService,
+    )
+
+    db_path = tmp_path / "svc-cancel-win.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(created.id, content="Please cancel me", request_id="req-1")
+
+    accepted = service.cancel_request(created.id, "req-1")
+
+    assert accepted is True
+    row = store.get_request(created.id, "req-1")
+    assert row is not None
+    assert row.status == "cancelled"
+    assert row.error_code == "cancelled"
+    assert row.error_message is None
+    assert row.completed_at is not None
+    assert row.assistant_message_id is not None
+
+    messages = store.list_messages(created.id)
+    assert len(messages) == 2
+    assistant = messages[-1]
+    assert assistant.role == "assistant"
+    assert assistant.content == CANCELLED_ASSISTANT_MESSAGE
+    assert assistant.id == row.assistant_message_id
+
+
+def test_cancel_loses_race_when_digest_bundle_commits_first(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-cancel-race.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    digest_store = DigestStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(created.id, content="Racing", request_id="req-race")
+
+    state: dict[str, object] = {"triggered": False, "run_id": None}
+    original_get_request = SessionStore.get_request
+
+    def racing_get_request(self: SessionStore, session_id: str, request_id: str):
+        row = original_get_request(self, session_id, request_id)
+        if not state["triggered"] and request_id == "req-race" and row is not None:
+            state["triggered"] = True
+            run_id = digest_store.save_run(
+                requested_at=datetime(2026, 5, 7, 10, 0, 0, tzinfo=UTC),
+                timeframe="today",
+                topics=["RAG"],
+                connector_names=["github"],
+            )
+            SessionStore(db_path).update_request_run_id(session_id, request_id, run_id)
+            state["run_id"] = run_id
+        return row
+
+    monkeypatch.setattr(SessionStore, "get_request", racing_get_request)
+
+    accepted = service.cancel_request(created.id, "req-race")
+
+    assert accepted is False
+    row = store.get_request(created.id, "req-race")
+    assert row is not None
+    assert row.status == "active"
+    assert row.run_id == state["run_id"]
+    assert row.assistant_message_id is None
+
+    messages = store.list_messages(created.id)
+    assert len(messages) == 1
+    assert all(message.role != "assistant" for message in messages)
+
+    service.complete_request(
+        created.id,
+        "req-race",
+        status="succeeded",
+        content="Digest complete",
+        run_id=int(state["run_id"]),  # type: ignore[arg-type]
+    )
+    completed = store.get_request(created.id, "req-race")
+    assert completed is not None
+    assert completed.status == "succeeded"
+
+
+def test_complete_request_loses_race_when_cancel_commits_first(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_news_agent.services.session_service import (
+        CANCELLED_ASSISTANT_MESSAGE,
+        SessionService,
+    )
+
+    db_path = tmp_path / "svc-complete-cancel-race.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(created.id, content="Racing", request_id="req-race")
+
+    state: dict[str, object] = {"triggered": False}
+    original_get_request = SessionStore.get_request
+
+    def racing_get_request(self: SessionStore, session_id: str, request_id: str):
+        row = original_get_request(self, session_id, request_id)
+        if not state["triggered"] and request_id == "req-race" and row is not None:
+            state["triggered"] = True
+            with SessionStore(db_path)._conn() as conn:
+                assistant_message_id = SessionStore(db_path, conn=conn).insert_message(
+                    session_id,
+                    role="assistant",
+                    content=CANCELLED_ASSISTANT_MESSAGE,
+                )
+                SessionStore(db_path, conn=conn).mark_cancelled_if_active(
+                    session_id,
+                    request_id,
+                    assistant_message_id=assistant_message_id,
+                )
+        return row
+
+    monkeypatch.setattr(SessionStore, "get_request", racing_get_request)
+
+    with pytest.raises(KeyError, match="active request not found"):
+        service.complete_request(
+            created.id,
+            "req-race",
+            status="succeeded",
+            content="Too late",
+        )
+
+    row = store.get_request(created.id, "req-race")
+    assert row is not None
+    assert row.status == "cancelled"
+    assert row.error_code == "cancelled"
+    messages = store.list_messages(created.id)
+    assert len(messages) == 2
+    assert messages[-1].content == CANCELLED_ASSISTANT_MESSAGE
+
+
+def test_cancel_returns_false_without_writes_for_post_persistence_terminal_and_unknown(
+    tmp_path: Path,
+) -> None:
+    from datetime import UTC, datetime
+
+    from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "svc-cancel-guards.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    digest_store = DigestStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(created.id, content="Post persistence", request_id="req-active")
+
+    collected = datetime(2026, 5, 7, 10, 0, 0, tzinfo=UTC)
+    run_id = digest_store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=["RAG"],
+        connector_names=["github"],
+    )
+    store.update_request_run_id(created.id, "req-active", run_id)
+    messages_before = len(store.list_messages(created.id))
+
+    assert service.cancel_request(created.id, "req-active") is False
+    post_persistence = store.get_request(created.id, "req-active")
+    assert post_persistence is not None
+    assert post_persistence.status == "active"
+    assert post_persistence.run_id == run_id
+    assert len(store.list_messages(created.id)) == messages_before
+
+    store.mark_terminal(created.id, "req-active", status="succeeded")
+    succeeded_before = store.get_request(created.id, "req-active")
+    assert succeeded_before is not None
+    messages_before = len(store.list_messages(created.id))
+
+    assert service.cancel_request(created.id, "req-active") is False
+    succeeded_after = store.get_request(created.id, "req-active")
+    assert succeeded_after is not None
+    assert succeeded_after.status == "succeeded"
+    assert succeeded_after.completed_at == succeeded_before.completed_at
+    assert len(store.list_messages(created.id)) == messages_before
+
+    messages_before = len(store.list_messages(created.id))
+    assert service.cancel_request(created.id, "req-unknown") is False
+    assert store.get_request(created.id, "req-unknown") is None
+    assert len(store.list_messages(created.id)) == messages_before
+
+
+def test_complete_request_persists_assistant_message_with_run_link(
+    tmp_path: Path,
+) -> None:
+    from datetime import UTC, datetime
+
+    from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "svc-complete.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    digest_store = DigestStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(created.id, content="Give me digest", request_id="req-1")
+
+    collected = datetime(2026, 5, 7, 10, 0, 0, tzinfo=UTC)
+    run_id = digest_store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=["RAG"],
+        connector_names=["github"],
+    )
+    store.update_request_run_id(created.id, "req-1", run_id)
+
+    message_id = service.complete_request(
+        created.id,
+        "req-1",
+        status="succeeded",
+        content="Digest complete.",
+        run_id=run_id,
+    )
+
+    row = store.get_request(created.id, "req-1")
+    assert row is not None
+    assert row.status == "succeeded"
+    assert row.assistant_message_id == message_id
+    assert row.run_id == run_id
+    assert row.completed_at is not None
+
+    messages = store.list_messages(created.id)
+    assistant = messages[-1]
+    assert assistant.role == "assistant"
+    assert assistant.content == "Digest complete."
+    assert assistant.run_id == run_id
+    assert assistant.id == message_id

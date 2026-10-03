@@ -20,6 +20,7 @@ source = { editable = "." }
 dependencies = [
     { name = "bilibili-api-python" },
     { name = "curl-cffi" },
+    { name = "fastapi" },
     { name = "gradio" },
     { name = "httpx" },
     { name = "huggingface-hub" },
@@ -29,6 +30,7 @@ dependencies = [
     { name = "openai" },
     { name = "pydantic" },
     { name = "python-dotenv" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -40,6 +42,7 @@ dev = [
 requires-dist = [
     { name = "bilibili-api-python", specifier = ">=17.0" },
     { name = "curl-cffi", specifier = ">=0.15.0" },
+    { name = "fastapi", specifier = ">=0.115" },
     { name = "gradio", specifier = ">=4.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "huggingface-hub", specifier = ">=0.25" },
@@ -49,6 +52,7 @@ requires-dist = [
     { name = "openai", specifier = ">=1.40" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 
 [package.metadata.requires-dev]

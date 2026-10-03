@@ -7,7 +7,10 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from datetime import datetime
 from typing import Any
 
-from ai_news_agent.chat import _apply_session_items_per_source, _message_requests_digest
+from ai_news_agent.services.chat import (
+    _apply_session_items_per_source,
+    _message_requests_digest,
+)
 from ai_news_agent.digest_request_builder import resolve_digest_request
 from ai_news_agent.followup_structured import (
     NO_SAVED_DIGEST,
@@ -28,6 +31,25 @@ from ai_news_agent.tools.schemas import (
 )
 
 logger = get_logger("interface_router")
+
+
+class _SessionScopedStore:
+    """Store view whose shared follow-up context is one session's own digest.
+
+    Everything else delegates to the real store so tool calls, digests, and
+    history reads behave identically. Used to keep browser-session follow-ups
+    isolated from shared-interface (CLI/Gradio/OpenClaw) context.
+    """
+
+    def __init__(self, store: Any, session_id: str) -> None:
+        self._store = store
+        self._session_id = session_id
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._store, name)
+
+    def get_latest_followup_context(self) -> Any:
+        return self._store.get_followup_context_for_session(self._session_id)
 
 _OPEN_ENDED_GUIDANCE = (
     "I need a configured language model to answer that question. "
@@ -387,6 +409,59 @@ class InterfaceToolRouter:
             registry=registry,
             model=self._tool_model,
             fallback_text=self._fallback_text,
+        )
+
+    async def run_session_followup(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        correlation_id: str | None = None,
+    ) -> InterfaceAgentResult:
+        """Answer an open-ended follow-up using only this session's digest context."""
+        scoped_store = _SessionScopedStore(self._store, session_id)
+        registry = build_tool_registry(
+            store=scoped_store,
+            github_factory=self._github_factory,
+            bilibili_factory=self._bilibili_factory,
+            juya_factory=self._juya_factory,
+            huggingface_factory=self._huggingface_factory,
+            zhihu_factory=self._zhihu_factory,
+        )
+        runner = build_tool_agent_runner(
+            registry=registry,
+            model=self._tool_model,
+            fallback_text=self._fallback_text,
+        )
+
+        agent_result: InterfaceAgentResult | None = None
+        fallback_reason = "model_failure"
+        try:
+            agent_result = await runner.run(message)
+        except Exception as exc:
+            logger.error(
+                "session follow-up agent failed session_id=%s interface=%s error=%r",
+                session_id,
+                self._interface_name,
+                exc,
+            )
+        else:
+            if self._agent_result_matches_intent(
+                _RouteIntent.OPEN_ENDED_FOLLOWUP,
+                agent_result,
+            ):
+                return self._with_correlation(agent_result, correlation_id)
+            fallback_reason = agent_result.fallback_reason or "agent_mismatch"
+
+        return self._with_correlation(
+            await self._deterministic_fallback(
+                intent=_RouteIntent.OPEN_ENDED_FOLLOWUP,
+                message=message,
+                digest_request=None,
+                agent_result=agent_result,
+                fallback_reason=fallback_reason,
+            ),
+            correlation_id,
         )
 
     def _agent_result_matches_intent(

@@ -261,6 +261,56 @@ Gradio and CLI share structured logging to **terminal** and a rotating file (def
 
 On failures, the Gradio UI shows a short user-friendly message; full stack traces are written to the terminal and log file.
 
+## Local web API (Milestone 8A.1)
+
+**8A.1 is local-only.** There is no authentication, visitor isolation, quota, or public deployment. Browser CORS allows only `http://127.0.0.1:5173` and `http://localhost:5173`. Do not expose this process beyond loopback.
+
+`ai-news-agent service` starts one FastAPI app. It serves the unversioned OpenClaw routes (`/health`, `/digest`, `/followup`) and the browser API under `/api/v1`. Gradio is unchanged and still launches separately (`python -m ai_news_agent.app.gradio_app`). OpenClaw client commands (`openclaw-digest`, `openclaw-followup`) are unchanged.
+
+Offline (no network, no API key):
+
+```bash
+uv run ai-news-agent service --fake --host 127.0.0.1 --port 8765 --db-path ./digest.sqlite
+```
+
+Live (requires `OPENAI_API_KEY`, same as CLI and Gradio):
+
+```bash
+uv run ai-news-agent service --port 8765 --db-path ./digest.sqlite
+```
+
+Flags: `--host` (default `127.0.0.1`), `--port` (default `8765`), `--db-path` (default `./digest.sqlite`), `--fake`.
+
+OpenAPI is the generated FastAPI document at `http://127.0.0.1:8765/docs`.
+
+Browser routes:
+
+| Method and path | Purpose |
+|---|---|
+| `GET /api/v1/health` | `{"status": "ok", "fake": bool}` |
+| `GET /api/v1/sources` | Canonical sources, defaults, and opt-in metadata |
+| `POST /api/v1/sessions` | Create a session |
+| `GET /api/v1/sessions` | List sessions, newest activity first, opaque cursor |
+| `GET /api/v1/sessions/{id}` | Session metadata |
+| `PATCH /api/v1/sessions/{id}` | Rename or update source preferences |
+| `DELETE /api/v1/sessions/{id}` | Delete an inactive session (`409` while a request is active) |
+| `GET /api/v1/sessions/{id}/messages` | Transcript page; digest-linked assistant messages include `DigestView` |
+| `POST /api/v1/sessions/{id}/messages` | Send a message; response is `text/event-stream` |
+| `GET /api/v1/sessions/{id}/requests/{request_id}` | Durable request status (reconnect without resuming the byte stream) |
+| `POST /api/v1/sessions/{id}/requests/{request_id}/cancel` | `202` only before digest persistence; `204` afterward |
+| `GET /api/v1/sessions/search?q=` | Lexical session search, one hit per session, opaque cursor |
+| `GET /api/v1/history/search` | Existing historical digest search |
+| `GET /api/v1/history/{dN:rN}` | Persist-only historical item (`markdown` plus the `dN:rN` token) |
+
+Chat SSE (`POST /api/v1/sessions/{id}/messages`) uses `fetch` and a `ReadableStream`, not `EventSource`. Frames are `event: <name>` plus one JSON `data:` line. Event names, in order: `started`, `progress`, `delta`, `digest` (digest results only), then terminal `done` or `error`. A dropped client does not stop persistence: the assistant message is still saved. Reconnect by polling request status and reloading the transcript; the server does not resume a partial byte stream. Reusing a finished `client_request_id` replays the stored outcome and does not start a new run.
+
+Example (service already running in fake mode):
+
+```bash
+curl -s http://127.0.0.1:8765/api/v1/health
+curl -s -X POST http://127.0.0.1:8765/api/v1/sessions
+```
+
 ## OpenClaw integration (Milestone 3)
 
 Use [OpenClaw](https://docs.openclaw.ai/) as an outer gateway to trigger digest generation through natural-language prompts. OpenClaw handles channels and sessions; this project still runs retrieval, ranking, summarization, and persistence through the existing CLI workflow.
@@ -279,7 +329,7 @@ Design: [OpenClaw integration design](docs/superpowers/specs/2026-06-08-openclaw
 
 The skill definitions live in this repo at [`openclaw/skills/ai-news-digest/SKILL.md`](openclaw/skills/ai-news-digest/SKILL.md) and [`openclaw/skills/ai-news-followup/SKILL.md`](openclaw/skills/ai-news-followup/SKILL.md).
 
-**Start the warm digest service** (once per session; keeps model and connectors warm):
+**Start the warm digest service** (once per session; same process as the local `/api/v1` API):
 
 ```bash
 uv run ai-news-agent service --port 8765
@@ -434,8 +484,16 @@ Set `BILIBILI_SESSDATA`, `BILIBILI_BILI_JCT`, and `BILIBILI_BUVID3` in `.env` if
 - Digest generation only via CLI delegation; no gateway-native TypeScript plugin.
 - OpenClaw supports structured follow-up via `openclaw-followup`; open-ended Q&A in channels uses Gradio.
 
+**Milestone 8A.1 web API:**
+
+- Local loopback only. No accounts, quotas, or public fake backend.
+- Session search is lexical. Embeddings and memory RAG are later work.
+- Gradio and the OpenClaw client commands stay as documented above.
+
 ## Documentation
 
+- [Milestone 8A.1 web API and sessions plan](docs/superpowers/plans/2026-09-11-milestone-8a1-web-api-and-sessions-plan.md)
+- [Milestone 8A.1 web API and sessions design](docs/superpowers/specs/2026-09-11-milestone-8a1-web-api-and-sessions-design.md)
 - [Implementation plan (T1–T14, Milestone 1)](docs/superpowers/plans/2026-05-02-ai-news-research-agent-plan.md)
 - [Milestone 2 LLM tool usage layer plan](docs/superpowers/plans/2026-05-21-llm-tool-usage-layer-plan.md)
 - [Milestone 3 OpenClaw integration plan](docs/superpowers/plans/2026-06-08-openclaw-integration-plan.md)

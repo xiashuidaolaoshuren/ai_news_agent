@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
 
 import gradio as gr
 
@@ -16,20 +15,8 @@ from ai_news_agent.env import (
     load_local_env,
     log_bilibili_env_diagnostics,
 )
-from ai_news_agent.connectors.base import SourceConnector
-from ai_news_agent.graph.state import DigestResult
-from ai_news_agent.graph.workflow import run_digest, run_digest_streaming
-from ai_news_agent.llm import build_chat_model, build_tool_chat_model
 from ai_news_agent.logging_setup import configure_logging, get_logger
-from ai_news_agent.request import DigestRequest
-from ai_news_agent.sources import (
-    DEFAULT_SOURCE_NAMES,
-    FakeDigestModel,
-    build_connector_factory,
-    build_connectors,
-)
-from ai_news_agent.storage import DigestStore
-from ai_news_agent.tools import build_interface_tool_router
+from ai_news_agent.sources import DEFAULT_SOURCE_NAMES
 
 _UI_ERROR_MESSAGE = (
     "Something went wrong while processing your request. "
@@ -72,33 +59,6 @@ _EXAMPLE_ROWS: list[list] = [
 
 logger = get_logger("gradio")
 
-_FAKE_TOOL_AGENT_REPLY = (
-    "Offline fake tool agent: use structured prompts like "
-    '"show sources", "study first", or "show caveats".'
-)
-
-
-class _FakeToolAgentRunner:
-    """Deterministic tool agent for Gradio --fake mode (no tool-calling model)."""
-
-    async def run(self, question: str) -> str:  # noqa: ARG002
-        return _FAKE_TOOL_AGENT_REPLY
-
-    async def run_streaming(
-        self, question: str
-    ) -> AsyncIterator[tuple[str, bool, str | None]]:
-        del question
-        yield "Calling load_latest_digest…", False, None
-        yield "Done load_latest_digest: Loaded latest digest.", False, None
-        yield "", True, _FAKE_TOOL_AGENT_REPLY
-
-
-async def _aclose_connectors(connectors: Sequence[SourceConnector]) -> None:
-    for c in connectors:
-        closer = getattr(c, "aclose", None)
-        if closer is not None:
-            await closer()
-
 
 def _coerce_items_per_source(raw: object) -> int | None:
     """Return validated session N, or ``None`` when the UI value is invalid."""
@@ -113,128 +73,11 @@ def _coerce_items_per_source(raw: object) -> int | None:
     return value
 
 
-async def _run_digest_async(
-    req: DigestRequest,
-    *,
-    store: DigestStore,
-    connectors: Sequence[SourceConnector],
-    model: Any,
-    on_stage: Callable[[str], None] | None = None,
-) -> DigestResult:
-    del on_stage
-    try:
-        return await run_digest(
-            req,
-            connectors=list(connectors),
-            model=model,
-            store=store,
-        )
-    finally:
-        await _aclose_connectors(connectors)
-
-
-async def _run_digest_streaming_async(
-    req: DigestRequest,
-    *,
-    store: DigestStore,
-    connectors: Sequence[SourceConnector],
-    model: Any,
-    on_stage: Callable[[str], None] | None = None,
-) -> AsyncIterator[tuple[str, bool, DigestResult | None]]:
-    del on_stage
-    try:
-        async for event in run_digest_streaming(
-            req,
-            connectors=list(connectors),
-            model=model,
-            store=store,
-        ):
-            yield event
-    finally:
-        await _aclose_connectors(connectors)
-
-
 def _build_service(*, fake: bool, db_path: Path) -> ChatService:
-    store = DigestStore(db_path)
-    store.init_schema()
+    """Build the Gradio chat service from the shared composition root."""
+    from ai_news_agent.services import composition
 
-    if fake:
-        model: Any = FakeDigestModel()
-        tool_agent_runner: Any = _FakeToolAgentRunner()
-        interface_router: Any = None
-    else:
-        model = build_chat_model()
-        tool_model = build_tool_chat_model()
-        tool_agent_runner = None
-        interface_router = None  # set after workflow closures are defined
-
-    def _names_from(req: DigestRequest) -> list[str]:
-        return (
-            list(req.connector_names)
-            if req.connector_names is not None
-            else list(DEFAULT_SOURCE_NAMES)
-        )
-
-    def build_connectors_fn(req: DigestRequest) -> Sequence[SourceConnector]:
-        return build_connectors(fake=fake, names=_names_from(req))
-
-    async def workflow_runner(
-        req: DigestRequest,
-        on_stage: Callable[[str], None] | None = None,
-    ) -> DigestResult:
-        if not fake:
-            load_local_env(force_reload=True)
-            configure_bilibili_network_from_env(logger)
-        connectors = build_connectors(fake=fake, names=_names_from(req))
-        return await _run_digest_async(
-            req,
-            store=store,
-            connectors=connectors,
-            model=model,
-            on_stage=on_stage,
-        )
-
-    async def streaming_workflow_runner(
-        req: DigestRequest,
-        on_stage: Callable[[str], None] | None = None,
-    ) -> AsyncIterator[tuple[str, bool, DigestResult | None]]:
-        if not fake:
-            load_local_env(force_reload=True)
-            configure_bilibili_network_from_env(logger)
-        connectors = build_connectors(fake=fake, names=_names_from(req))
-        async for event in _run_digest_streaming_async(
-            req,
-            store=store,
-            connectors=connectors,
-            model=model,
-            on_stage=on_stage,
-        ):
-            yield event
-
-    if not fake:
-        interface_router = build_interface_tool_router(
-            store=store,
-            workflow_runner=workflow_runner,
-            streaming_workflow_runner=streaming_workflow_runner,
-            tool_model=tool_model,
-            digest_model=model,
-            github_factory=build_connector_factory(fake=fake, name="github"),
-            bilibili_factory=build_connector_factory(fake=fake, name="bilibili"),
-            juya_factory=build_connector_factory(fake=fake, name="juya"),
-            huggingface_factory=build_connector_factory(fake=fake, name="huggingface"),
-            zhihu_factory=build_connector_factory(fake=fake, name="zhihu"),
-            build_connectors_fn=build_connectors_fn,
-            interface_name="gradio",
-        )
-
-    return ChatService(
-        store=store,
-        workflow_runner=workflow_runner,
-        streaming_workflow_runner=streaming_workflow_runner,
-        chat_model=model,
-        tool_agent_runner=tool_agent_runner,
-        interface_router=interface_router,
-    )
+    return composition.build_application(fake=fake, db_path=db_path).chat_service
 
 
 def create_app(service: ChatService) -> gr.Blocks:

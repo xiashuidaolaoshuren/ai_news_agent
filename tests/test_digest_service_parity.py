@@ -5,29 +5,18 @@ from __future__ import annotations
 import io
 import json
 import re
-import threading
-import time
 from http.client import HTTPConnection
 from pathlib import Path
 
 from ai_news_agent.cli import main as cli_main
+from _service_server import UvicornTestServer
 
 
-def _start_fake_service(tmp_path: Path) -> tuple[int, object]:
-    from ai_news_agent.app.digest_service import DigestServiceServer
-
-    server = DigestServiceServer(
-        host="127.0.0.1",
-        port=0,
-        db_path=tmp_path / "parity.db",
+def _start_fake_service(tmp_path: Path) -> tuple[int, UvicornTestServer]:
+    server = UvicornTestServer(
         fake=True,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 5.0
-    while server.port is None and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.port is not None
+        db_path=tmp_path / "parity.db",
+    ).start()
     return server.port, server
 
 
@@ -77,7 +66,7 @@ def test_service_fake_digest_matches_cli_fake_digest(tmp_path: Path) -> None:
     assert resp.status == 200
     service_text = json.loads(resp.read().decode())["text"]
 
-    server.shutdown()
+    server.stop()
 
     assert "AI News Digest" in cli_text
     assert "Fake GitHub repo" in cli_text

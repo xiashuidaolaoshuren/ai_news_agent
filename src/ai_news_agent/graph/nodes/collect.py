@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable, Sequence
 
 from ai_news_agent.connectors.base import ConnectorRequest, ConnectorResult, SourceConnector
 from ai_news_agent.graph.state import DigestGraphState, WorkflowError
 from ai_news_agent.sources import resolve_connector_names
 from ai_news_agent.progress import emit_progress
+
+logger = logging.getLogger(__name__)
 
 
 def _format_connector_call_start(name: str) -> str:
@@ -20,8 +23,8 @@ def _format_connector_call_done(name: str, item_count: int) -> str:
     return f"Done {name}: Found {item_count} {name} {suffix}."
 
 
-def _format_connector_call_failed(name: str, exc: BaseException) -> str:
-    return f"Tool failed {name}: {exc}"
+def _format_connector_call_failed(name: str) -> str:
+    return f"Tool failed {name}: collection failed."
 
 
 def make_collect_sources_node(
@@ -45,11 +48,13 @@ def make_collect_sources_node(
                 _report(_format_connector_call_done(name, len(result.items)))
                 return connector, result, None
             if isinstance(result, Exception):
-                _report(_format_connector_call_failed(name, result))
+                logger.exception("%s collect returned exception", name)
+                _report(_format_connector_call_failed(name))
                 return connector, None, result
             raise TypeError(f"{name} collect returned unexpected type")
         except Exception as exc:
-            _report(_format_connector_call_failed(name, exc))
+            logger.exception("%s collect failed", name)
+            _report(_format_connector_call_failed(name))
             return connector, None, exc
 
     async def collect_sources_node(state: DigestGraphState) -> dict[str, object]:

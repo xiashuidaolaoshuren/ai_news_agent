@@ -1088,6 +1088,126 @@ def _open_ended_conversational_model() -> _FakeToolCallModel:
     )
 
 
+class _ScriptedSessionRunner:
+    """Tool-agent runner double recording calls or raising on demand."""
+
+    def __init__(self, *, text: str = "session tool answer", error: Exception | None = None) -> None:
+        self.text = text
+        self.error = error
+        self.calls: list[str] = []
+
+    async def run(self, message: str) -> InterfaceAgentResult:
+        self.calls.append(message)
+        if self.error is not None:
+            raise self.error
+        return InterfaceAgentResult(
+            kind=InterfaceAgentResultKind.CONVERSATIONAL,
+            text=self.text,
+        )
+
+
+def _seed_session_linked_digest(tmp_path: Path, session_id: str) -> tuple[DigestStore, int]:
+    import sqlite3
+
+    from ai_news_agent.repositories.session_store import SessionStore
+
+    store, run_id = _seed_full_followup_store(tmp_path)
+    session_store = SessionStore(store.db_path)
+    session_store.create_session(session_id)
+    user_message_id = session_store.insert_message(
+        session_id,
+        role="user",
+        content="digest please",
+    )
+    session_store.create_request(
+        session_id,
+        "req-session-scope",
+        user_message_id=user_message_id,
+        correlation_id="corr-session-scope",
+    )
+    session_store.update_request_run_id(session_id, "req-session-scope", run_id)
+    session_store.mark_terminal(session_id, "req-session-scope", status="succeeded")
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE runs SET session_id = ? WHERE id = ?",
+            (session_id, run_id),
+        )
+        conn.commit()
+    return store, run_id
+
+
+def test_run_session_followup_uses_session_scoped_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_news_agent.tools import interface_router as router_module
+
+    session_id = "sess-scope-1"
+    store, run_id = _seed_session_linked_digest(tmp_path, session_id)
+    assert store.get_latest_followup_context().run_id is None
+
+    captured: dict[str, Any] = {}
+    real_build_registry = router_module.build_tool_registry
+
+    def spy_build_registry(**kwargs: Any) -> Any:
+        captured["store"] = kwargs["store"]
+        return real_build_registry(**kwargs)
+
+    runner = _ScriptedSessionRunner()
+    monkeypatch.setattr(router_module, "build_tool_registry", spy_build_registry)
+    monkeypatch.setattr(
+        router_module,
+        "build_tool_agent_runner",
+        lambda **kwargs: runner,
+    )
+
+    router = _build_router(tmp_path, store=store)
+    result = asyncio.run(
+        router.run_session_followup(
+            session_id=session_id,
+            message="Why does this matter?",
+        )
+    )
+
+    assert result.kind is InterfaceAgentResultKind.CONVERSATIONAL
+    assert result.text == "session tool answer"
+    assert runner.calls == ["Why does this matter?"]
+
+    scoped_store = captured["store"]
+    assert scoped_store is not store
+    scoped_ctx = scoped_store.get_latest_followup_context()
+    assert scoped_ctx.run_id == run_id
+    assert scoped_ctx.digest is not None
+    assert store.get_latest_followup_context().run_id is None
+
+
+def test_run_session_followup_falls_back_to_guidance_on_runner_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_news_agent.tools import interface_router as router_module
+
+    session_id = "sess-scope-fail"
+    store, _run_id = _seed_session_linked_digest(tmp_path, session_id)
+
+    monkeypatch.setattr(
+        router_module,
+        "build_tool_agent_runner",
+        lambda **kwargs: _ScriptedSessionRunner(error=RuntimeError("tool agent exploded")),
+    )
+
+    router = _build_router(tmp_path, store=store)
+    result = asyncio.run(
+        router.run_session_followup(
+            session_id=session_id,
+            message="Why does this matter?",
+        )
+    )
+
+    assert result.kind is InterfaceAgentResultKind.FALLBACK
+    assert "Try a concrete request" in result.text
+
+
 def test_open_ended_agent_conversational_passthrough(tmp_path: Path) -> None:
     store, _run_id = _seed_full_followup_store(tmp_path)
 

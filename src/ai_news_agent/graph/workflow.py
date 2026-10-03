@@ -88,6 +88,8 @@ async def run_digest(
     model: Any,
     store: DigestStore,
     now_provider: Callable[[], datetime] | None = None,
+    session_id: str | None = None,
+    request_id: str | None = None,
 ) -> DigestResult:
     """Run the full digest graph and return the final user-facing result."""
     graph = build_digest_graph(
@@ -97,7 +99,14 @@ async def run_digest(
         now_provider=now_provider,
     )
     start_ts = now_provider() if now_provider is not None else utcnow()
-    final_state = await graph.ainvoke(initial_state(request, now=start_ts))
+    final_state = await graph.ainvoke(
+        initial_state(
+            request,
+            now=start_ts,
+            session_id=session_id,
+            request_id=request_id,
+        )
+    )
     return state_to_result(final_state)
 
 
@@ -108,6 +117,8 @@ async def run_digest_streaming(
     model: Any,
     store: DigestStore,
     now_provider: Callable[[], datetime] | None = None,
+    session_id: str | None = None,
+    request_id: str | None = None,
 ) -> AsyncIterator[tuple[str, bool, DigestResult | None]]:
     """Run the digest graph, yielding progress text then the final result."""
     progress_queue: asyncio.Queue[str | None] = asyncio.Queue()
@@ -133,7 +144,12 @@ async def run_digest_streaming(
         nonlocal final_state
         try:
             async for mode, chunk in graph.astream(
-                initial_state(request, now=start_ts),
+                initial_state(
+                    request,
+                    now=start_ts,
+                    session_id=session_id,
+                    request_id=request_id,
+                ),
                 stream_mode=["updates", "values"],
             ):
                 if mode == "values":

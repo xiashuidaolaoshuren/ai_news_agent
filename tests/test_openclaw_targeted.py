@@ -15,8 +15,9 @@ from ai_news_agent.adapters.openclaw import (
     validate_source_selector_consistency,
 )
 from ai_news_agent.adapters.openclaw_client import request_digest_markdown
-from ai_news_agent.app.digest_service import DigestServiceServer, build_digest_request_payload
+from ai_news_agent.app.digest_service import build_digest_request_payload
 from ai_news_agent.request import DigestRequest
+from _service_server import UvicornTestServer
 
 
 def test_resolve_openclaw_digest_request_parses_bilibili_bv_from_message() -> None:
@@ -176,25 +177,14 @@ def test_build_digest_request_payload_includes_message() -> None:
 
 
 @pytest.fixture
-def service_server(tmp_path: Path) -> DigestServiceServer:
-    server = DigestServiceServer(
-        host="127.0.0.1",
-        port=0,
-        db_path=tmp_path / "targeted.db",
-        fake=True,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 5.0
-    while server.port is None and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.port is not None
+def service_server(tmp_path: Path) -> UvicornTestServer:
+    server = UvicornTestServer(fake=True, db_path=tmp_path / "targeted.db").start()
     yield server
-    server.shutdown()
+    server.stop()
 
 
 def test_digest_endpoint_accepts_targeted_bilibili_message(
-    service_server: DigestServiceServer,
+    service_server: UvicornTestServer,
 ) -> None:
     conn = HTTPConnection("127.0.0.1", service_server.port, timeout=30)
     body = json.dumps(
@@ -215,7 +205,7 @@ def test_digest_endpoint_accepts_targeted_bilibili_message(
     assert "AI News Digest" in data["text"]
 
 
-def test_request_digest_markdown_with_message(service_server: DigestServiceServer) -> None:
+def test_request_digest_markdown_with_message(service_server: UvicornTestServer) -> None:
     url = f"http://127.0.0.1:{service_server.port}"
     text = request_digest_markdown(
         url,
