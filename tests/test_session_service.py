@@ -275,6 +275,26 @@ def test_build_request_maps_preference_to_ranking_quota_not_collection_cap(
     assert raised.top_n == req.top_n
 
 
+def test_build_request_forwards_juya_item_mode_per_message(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "juya-mode.db"
+    _init_db(db_path)
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+    service.update_preferences(created.id, connector_names=["juya"], items_per_source=None)
+
+    default_req = service.build_request(created.id, "Give me today's digest")
+    assert default_req.juya_item_mode is None
+
+    story_req = service.build_request(
+        created.id,
+        "Give me today's digest",
+        juya_item_mode="stories",
+    )
+    assert story_req.juya_item_mode == "stories"
+
+
 def test_build_request_missing_session_raises(tmp_path: Path) -> None:
     import pytest
 

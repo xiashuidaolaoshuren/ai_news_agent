@@ -58,18 +58,32 @@ def is_juya_news_item(item: NewsItem) -> bool:
     return item.source_id.startswith("juya-rss-")
 
 
+def is_juya_story_item(item: NewsItem) -> bool:
+    evidence = item.source_evidence or {}
+    return evidence.get("juya_item_type") == "story"
+
+
 def match_news_item_for_digest_entry(
     entry: DigestEntry,
     news_items: list[NewsItem],
 ) -> NewsItem | None:
     """Resolve the persisted NewsItem backing a digest entry."""
     for item in news_items:
+        if item.source is entry.source_kind and item.source_id == entry.source_id:
+            return item
+    for item in news_items:
         if item.source_id == entry.source_id:
             return item
+    if is_juya_story_item_candidate(entry):
+        return None
     for item in news_items:
         if item.url == entry.source_url:
             return item
     return None
+
+
+def is_juya_story_item_candidate(entry: DigestEntry) -> bool:
+    return entry.source_id.startswith("juya-story-")
 
 
 def parse_juya_sub_news(raw_snippet: str) -> list[JuyaSubNews]:
@@ -86,6 +100,40 @@ def parse_juya_sub_news(raw_snippet: str) -> list[JuyaSubNews]:
     for section, body in section_spans:
         items.extend(_extract_section_items(body, section))
     return items
+
+
+def format_juya_story_deep_dive(
+    entry: DigestEntry,
+    news_item: NewsItem,
+    *,
+    rank: int,
+) -> str:
+    """Render a single persisted Juya bulletin story."""
+    evidence = news_item.source_evidence or {}
+    lines = [
+        f"第 {rank} 条：{entry.title}",
+        f"来源：{entry.source_url}",
+    ]
+    section = evidence.get("story_section")
+    if section:
+        heading = _section_heading(str(section))
+        if heading:
+            lines.extend(["", heading, ""])
+    story_number = evidence.get("story_number")
+    if story_number is not None:
+        lines.append(f"简报 #{story_number}")
+    if news_item.raw_snippet:
+        lines.extend(["", news_item.raw_snippet.strip(), ""])
+    original_url = evidence.get("story_original_url")
+    if original_url:
+        lines.append(f"原文：{original_url}")
+    if entry.summary:
+        lines.append(f"摘要：{entry.summary}")
+    if entry.why_it_matters:
+        lines.append(f"要点：{entry.why_it_matters}")
+    if entry.confidence_caveat:
+        lines.append(f"注意：{entry.confidence_caveat}")
+    return "\n".join(lines).rstrip()
 
 
 def format_juya_issue_deep_dive(
@@ -221,7 +269,9 @@ def _split_sentences_as_sub_news(
 __all__ = [
     "JuyaSubNews",
     "format_juya_issue_deep_dive",
+    "format_juya_story_deep_dive",
     "is_juya_news_item",
+    "is_juya_story_item",
     "match_news_item_for_digest_entry",
     "parse_juya_sub_news",
 ]

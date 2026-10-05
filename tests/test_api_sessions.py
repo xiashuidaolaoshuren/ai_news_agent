@@ -20,6 +20,66 @@ def _build_test_client(*, fake: bool, db_path: Path):
     return TestClient(create_app(application))
 
 
+def _parse_sse_events(body: str) -> list[tuple[str, dict]]:
+    events: list[tuple[str, dict]] = []
+    for block in body.split("\n\n"):
+        if not block.strip():
+            continue
+        event_name: str | None = None
+        data: dict | None = None
+        for line in block.split("\n"):
+            if line.startswith("event: "):
+                event_name = line[len("event: ") :]
+            elif line.startswith("data: "):
+                data = json.loads(line[len("data: ") :])
+        if event_name is not None and data is not None:
+            events.append((event_name, data))
+    return events
+
+
+def test_post_message_rejects_invalid_juya_item_mode(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "juya-mode-invalid.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    response = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "Give me today's AI digest", "juya_item_mode": "chapters"},
+    )
+
+    assert response.status_code in (400, 422)
+
+
+def test_post_message_juya_stories_mode_returns_story_digest_entries(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "juya-stories.db")
+    session_id = client.post(
+        "/api/v1/sessions",
+        json={"connector_names": ["juya"]},
+    ).json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Give me today's AI digest",
+            "client_request_id": "req-juya-stories",
+            "juya_item_mode": "stories",
+        },
+    ) as response:
+        assert response.status_code == 200
+        body = response.read().decode()
+
+    digest_payload = next(payload for name, payload in _parse_sse_events(body) if name == "digest")
+    entries = digest_payload["digest"]["entries"]
+    assert len(entries) >= 2
+    assert entries[0]["item_type"] == "story"
+    assert entries[0]["story"]["number"] == 1
+    assert entries[1]["story"]["number"] == 2
+
+    transcript = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    assistant = next(m for m in transcript["messages"] if m["role"] == "assistant")
+    assert assistant["digest"]["entries"][0]["item_type"] == "story"
+
+
 def test_post_message_unknown_field_returns_400(tmp_path: Path) -> None:
     client = _build_test_client(fake=True, db_path=tmp_path / "validation-400.db")
     session_id = client.post("/api/v1/sessions").json()["id"]
@@ -156,23 +216,6 @@ def test_encode_sse_formats_event_frame() -> None:
     assert frame == (
         'event: started\ndata: {"request_id":"req-1","user_message_id":7}\n\n'
     )
-
-
-def _parse_sse_events(body: str) -> list[tuple[str, dict]]:
-    events: list[tuple[str, dict]] = []
-    for block in body.split("\n\n"):
-        if not block.strip():
-            continue
-        event_name: str | None = None
-        data: dict | None = None
-        for line in block.split("\n"):
-            if line.startswith("event: "):
-                event_name = line[len("event: ") :]
-            elif line.startswith("data: "):
-                data = json.loads(line[len("data: ") :])
-        if event_name is not None and data is not None:
-            events.append((event_name, data))
-    return events
 
 
 def test_post_and_get_session(tmp_path: Path) -> None:

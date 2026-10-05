@@ -6,6 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from ai_news_agent.api.schemas.digests import DigestEntryViewUnion
 from ai_news_agent.models import SourceKind
 
 
@@ -45,3 +46,4 @@ class HistoryItemShowOut(BaseModel):
 
     token: str
     markdown: str
+    entry: DigestEntryViewUnion | None = None

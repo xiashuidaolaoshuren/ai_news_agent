@@ -13,6 +13,13 @@ from xml.etree import ElementTree as ET
 import httpx
 
 from ai_news_agent.connectors.base import ConnectorRequest, ConnectorResult
+from ai_news_agent.juya_content import (
+    build_juya_issue_evidence,
+    build_juya_story_evidence,
+    parse_juya_issue_markdown,
+    story_anchor,
+    story_source_id,
+)
 from ai_news_agent.models import ConfidenceLevel, ConnectorWarning, NewsItem, SourceKind
 
 JUYA_OWNER = "jujuyaya"
@@ -172,6 +179,7 @@ class JuyaConnector:
             max_items=request.max_items,
             collected_at=now,
             connector_name=self.name(),
+            juya_item_mode=request.juya_item_mode or "issue",
         )
         return ConnectorResult(items=items, warnings=warnings, raw_count=raw_count)
 
@@ -182,6 +190,7 @@ async def fetch_juya_daily_items(
     max_items: int,
     collected_at: datetime,
     connector_name: str = "juya",
+    juya_item_mode: str = "issue",
 ) -> tuple[list[NewsItem], int, list[ConnectorWarning]]:
     warnings: list[ConnectorWarning] = []
     bounded = max(1, min(max_items, JUYA_RSS_MAX_ENTRIES))
@@ -250,6 +259,8 @@ async def fetch_juya_daily_items(
         client,
         rows,
         connector_name=connector_name,
+        juya_item_mode=juya_item_mode,
+        max_items=max_items,
     )
     warnings.extend(enrich_warnings)
     return enriched, len(enriched), warnings
@@ -260,25 +271,56 @@ async def enrich_juya_items_with_markdown(
     rows: list[_ParsedJuyaRssRow],
     *,
     connector_name: str = "juya",
+    juya_item_mode: str = "issue",
+    max_items: int | None = None,
 ) -> tuple[list[NewsItem], list[ConnectorWarning]]:
     """Prefer per-issue markdown; fall back to RSS content:encoded."""
     warnings: list[ConnectorWarning] = []
     enriched: list[NewsItem] = []
+    story_cap = max_items if juya_item_mode == "stories" and max_items is not None else None
 
     for row in rows:
         item = row.item
         md_url = markdown_url_for_issue(item.title, item.url)
+        raw_md: str | None = None
         cleaned = ""
         source_tag = "juya-markdown"
+        parsed_issue = None
 
         if md_url:
             raw_md = await _fetch_issue_markdown(client, md_url)
             if raw_md:
+                parsed_issue = parse_juya_issue_markdown(raw_md)
                 cleaned = clean_issue_markdown(raw_md)
 
         if not cleaned and row.content_encoded:
+            parsed_issue = parse_juya_issue_markdown(row.content_encoded)
             cleaned = clean_encoded_html(row.content_encoded)
             source_tag = "juya-rss-content"
+
+        if juya_item_mode == "stories":
+            story_items, story_warnings = _collect_story_items_from_parsed_issue(
+                item,
+                parsed_issue,
+                raw_snippet_fallback=cleaned,
+                connector_name=connector_name,
+                story_cap=story_cap,
+            )
+            if story_items:
+                enriched.extend(story_items)
+                warnings.extend(story_warnings)
+                if story_cap is not None:
+                    story_cap = max(0, story_cap - len(story_items))
+                continue
+            if parsed_issue is None or not parsed_issue.stories:
+                warnings.append(
+                    ConnectorWarning(
+                        connector=connector_name,
+                        code="juya_stories_unavailable",
+                        message=f"Story mode unavailable for {item.title!r}",
+                    )
+                )
+                continue
 
         if not cleaned:
             warnings.append(
@@ -291,6 +333,16 @@ async def enrich_juya_items_with_markdown(
             enriched.append(item)
             continue
 
+        issue_evidence = (
+            build_juya_issue_evidence(
+                parsed_issue,
+                issue_id=item.source_id,
+                issue_url=item.url,
+            )
+            if parsed_issue is not None
+            else {"juya_item_type": "issue", "issue_id": item.source_id, "issue_url": item.url}
+        )
+
         enriched.append(
             item.model_copy(
                 update={
@@ -298,10 +350,55 @@ async def enrich_juya_items_with_markdown(
                     "content_confidence": ConfidenceLevel.HIGH,
                     "metadata_completeness": max(item.metadata_completeness, 0.9),
                     "tags": [*item.tags, source_tag],
+                    "source_evidence": issue_evidence,
                 }
             )
         )
     return enriched, warnings
+
+
+def _collect_story_items_from_parsed_issue(
+    item: NewsItem,
+    parsed_issue,
+    *,
+    raw_snippet_fallback: str,
+    connector_name: str,
+    story_cap: int | None,
+) -> tuple[list[NewsItem], list[ConnectorWarning]]:
+    if parsed_issue is None or not parsed_issue.stories:
+        return [], []
+
+    warnings: list[ConnectorWarning] = []
+    stories = list(parsed_issue.stories)
+    if story_cap is not None:
+        stories = stories[: max(0, story_cap)]
+
+    story_items: list[NewsItem] = []
+    for story in stories:
+        evidence = build_juya_story_evidence(
+            parsed_issue,
+            story,
+            issue_id=item.source_id,
+            issue_url=item.url,
+        )
+        anchor = story_anchor(story.number)
+        story_url = item.url.rstrip("/") + f"#{anchor}"
+        snippet = story.evidence_text or story.summary or raw_snippet_fallback
+        story_items.append(
+            item.model_copy(
+                update={
+                    "source_id": story_source_id(item.source_id, story.number),
+                    "url": story_url,
+                    "title": story.title,
+                    "raw_snippet": snippet[:_CONTENT_MAX],
+                    "content_confidence": ConfidenceLevel.HIGH,
+                    "metadata_completeness": max(item.metadata_completeness, 0.9),
+                    "tags": [*item.tags, "juya-story", "juya-markdown"],
+                    "source_evidence": evidence,
+                }
+            )
+        )
+    return story_items, warnings
 
 
 async def enrich_juya_items_with_backup(

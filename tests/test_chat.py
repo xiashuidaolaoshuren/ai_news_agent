@@ -2312,6 +2312,7 @@ def test_stream_events_digest_deltas_and_persistence_use_markdown(
             connector_names=list(req.connector_names or ["github"]),
             session_id=session_id,
         )
+        store.save_digest(run_id, digest)
         yield "", True, DigestResult(
             request=req,
             digest=digest,

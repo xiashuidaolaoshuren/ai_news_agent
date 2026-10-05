@@ -61,6 +61,7 @@ class PostMessageBody(BaseModel):
 
     content: str
     client_request_id: str | None = Field(default=None)
+    juya_item_mode: Literal["issue", "stories"] = "issue"
 
 
 MatchKind = Literal["title", "user", "assistant"]

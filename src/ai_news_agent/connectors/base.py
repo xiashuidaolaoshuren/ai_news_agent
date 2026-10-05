@@ -35,6 +35,8 @@ class ConnectorRequest:
     huggingface_search: str | None = None
     #: Pipeline-task filter for Hugging Face filtered trending.
     huggingface_pipeline_tag: str | None = None
+    #: Juya collection mode: ``issue`` (default) or ``stories``.
+    juya_item_mode: str | None = None
 
 
 @dataclass

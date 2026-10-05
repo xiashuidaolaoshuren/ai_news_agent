@@ -68,12 +68,49 @@ class FakeJuyaConnector:
 
     async def collect(self, request) -> ConnectorResult:  # noqa: ANN001
         now = datetime(2026, 5, 18, 12, 0, 0, tzinfo=UTC)
+        if getattr(request, "juya_item_mode", None) == "stories":
+            issue_id = "fake-juya-issue-1"
+            issue_url = "https://daily.juya.uk/fake-juya"
+            stories = []
+            for number, title in (
+                (1, "Fake Juya story one"),
+                (2, "Fake Juya story two"),
+            ):
+                stories.append(
+                    NewsItem(
+                        source=SourceKind.JUYA,
+                        source_id=f"juya-story-{issue_id}-{number}",
+                        url=f"{issue_url}#story-{number}",
+                        title=title,
+                        collected_at=now,
+                        raw_snippet=f"Evidence for {title}",
+                        tags=["juya", "juya-story"],
+                        source_evidence={
+                            "juya_item_type": "story",
+                            "story_number": number,
+                            "story_section": "要闻",
+                            "story_identity": f"{issue_id}:{number}",
+                            "issue_id": issue_id,
+                            "issue_url": issue_url,
+                            "issue_date": "2026-05-18",
+                            "issue_cover_url": "https://assets.juya.uk/cover/fake.png",
+                        },
+                    )
+                )
+            return ConnectorResult(items=stories, warnings=[], raw_count=len(stories))
+
         item = NewsItem(
             source=SourceKind.JUYA,
             source_id="fake-juya-1",
             url="https://daily.juya.uk/fake-juya",
             title="Fake Juya bulletin",
             collected_at=now,
+            source_evidence={
+                "juya_item_type": "issue",
+                "issue_id": "fake-juya-1",
+                "issue_url": "https://daily.juya.uk/fake-juya",
+                "issue_date": "2026-05-18",
+            },
         )
         return ConnectorResult(items=[item], warnings=[], raw_count=1)
 
@@ -155,9 +192,9 @@ def build_connectors(*, fake: bool, names: Sequence[str]) -> list[SourceConnecto
     else:
         factories = {
             "juya": JuyaConnector(),
-            "github": GitHubConnector(),
+            "github": GitHubConnector(preview_enrichment=True),
             "bilibili": BilibiliConnector(),
-            "huggingface": HuggingFaceConnector(),
+            "huggingface": HuggingFaceConnector(owner_enrichment=True),
             "zhihu": ZhihuConnector(),
         }
     return [factories[name] for name in selected]

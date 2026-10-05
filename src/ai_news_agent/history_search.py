@@ -153,6 +153,30 @@ def search_digest_history(
     )
 
 
+def project_historical_entry(store: Any, token: str) -> dict[str, Any] | None:
+    """Return a DigestView entry payload for one historical rank, if available."""
+    from ai_news_agent.services.digest_views import build_digest_view_payload
+
+    try:
+        ref = parse_historical_item_ref(token)
+    except ValueError:
+        return None
+
+    ctx = store.get_followup_context_for_digest(ref.digest_id)
+    if ctx is None or ctx.digest is None or not ctx.digest.entries:
+        return None
+
+    rank = ref.rank
+    if rank < 1 or rank > len(ctx.digest.entries):
+        return None
+
+    payload = build_digest_view_payload(ctx.digest, news_items=ctx.news_items)
+    entries = payload.get("entries") or []
+    if rank > len(entries):
+        return None
+    return entries[rank - 1]
+
+
 def show_historical_item(store: Any, token: str) -> str | None:
     """Load and format one historical digest entry by dN:rN token."""
     try:

@@ -55,7 +55,7 @@ def _github_entry() -> DigestEntry:
 
 
 def test_digest_view_dto_surface_importable_and_round_trips_generic_entry() -> None:
-    from ai_news_agent.api.schemas.digests import DigestEntryView, DigestView
+    from ai_news_agent.api.schemas.digests import GitHubDigestEntryView, DigestView
 
     entry = _github_entry()
     view = DigestView(
@@ -63,7 +63,7 @@ def test_digest_view_dto_surface_importable_and_round_trips_generic_entry() -> N
         timeframe="last_7_days",
         topics=["AI agents"],
         entries=[
-            DigestEntryView(
+            GitHubDigestEntryView(
                 source_kind=entry.source_kind,
                 source_id=entry.source_id,
                 title=entry.title,
@@ -138,7 +138,11 @@ def test_huggingface_entry_view_exposes_family_metrics_and_variants() -> None:
 
 
 def test_build_digest_view_maps_common_fields_and_display_rank() -> None:
-    from ai_news_agent.api.schemas.digests import DigestEntryView, build_digest_view
+    from ai_news_agent.api.schemas.digests import (
+        GitHubDigestEntryView,
+        JuyaDigestEntryView,
+        build_digest_view,
+    )
 
     github = _github_entry()
     juya = _juya_entry()
@@ -155,11 +159,12 @@ def test_build_digest_view_maps_common_fields_and_display_rank() -> None:
     assert view.timeframe == "last_7_days"
     assert view.topics == ["AI agents"]
     assert len(view.entries) == 2
-    assert isinstance(view.entries[0], DigestEntryView)
+    assert isinstance(view.entries[0], GitHubDigestEntryView)
     assert view.entries[0].display_rank == 1
     assert view.entries[0].source_kind == SourceKind.GITHUB
     assert view.entries[0].title == github.title
     assert view.entries[0].summary == github.summary
+    assert isinstance(view.entries[1], JuyaDigestEntryView)
     assert view.entries[1].display_rank == 2
     assert view.entries[1].source_kind == SourceKind.JUYA
     assert view.entries[1].title == juya.title
@@ -167,7 +172,7 @@ def test_build_digest_view_maps_common_fields_and_display_rank() -> None:
 
 def test_build_digest_view_wires_huggingface_evidence_via_news_item_lookup() -> None:
     from ai_news_agent.api.schemas.digests import (
-        DigestEntryView,
+        GitHubDigestEntryView,
         HuggingFaceDigestEntryView,
         build_digest_view,
     )
@@ -209,7 +214,7 @@ def test_build_digest_view_wires_huggingface_evidence_via_news_item_lookup() -> 
 
     view = build_digest_view(digest, news_items=news_items)
 
-    assert isinstance(view.entries[0], DigestEntryView)
+    assert isinstance(view.entries[0], GitHubDigestEntryView)
     assert not isinstance(view.entries[0], HuggingFaceDigestEntryView)
     hf_view = view.entries[1]
     assert isinstance(hf_view, HuggingFaceDigestEntryView)
@@ -263,6 +268,118 @@ def test_build_digest_view_does_not_leak_raw_source_evidence_keys() -> None:
         "source_evidence",
     ):
         assert forbidden not in dumped
+
+
+def test_build_digest_view_github_entry_projects_owner_and_preview() -> None:
+    from ai_news_agent.api.schemas.digests import GitHubDigestEntryView, build_digest_view
+
+    github = _github_entry()
+    digest = Digest(generated_at=_fixture_dt(), entries=[github])
+    news_items = [
+        NewsItem(
+            source=SourceKind.GITHUB,
+            source_id=github.source_id,
+            url=github.source_url,
+            title=github.title,
+            stars_or_views=1280,
+            language="Python",
+            source_evidence={
+                "owner_name": "NVIDIA",
+                "owner_profile_url": "https://github.com/NVIDIA",
+                "owner_avatar_url": "https://avatars.githubusercontent.com/u/1",
+                "owner_type": "organisation",
+                "preview_image_url": "https://opengraph.githubassets.com/1/repo.png",
+            },
+        )
+    ]
+
+    view = build_digest_view(digest, news_items=news_items)
+    entry = view.entries[0]
+    assert isinstance(entry, GitHubDigestEntryView)
+    assert entry.owner is not None
+    assert entry.owner.name == "NVIDIA"
+    assert entry.owner.type == "organisation"
+    assert entry.preview_image_url.startswith("https://")
+    assert entry.stars == 1280
+    assert entry.language == "Python"
+
+
+def test_build_digest_view_juya_issue_metadata_and_legacy_nulls() -> None:
+    from ai_news_agent.api.schemas.digests import JuyaDigestEntryView, build_digest_view
+
+    juya = _juya_entry()
+    digest = Digest(generated_at=_fixture_dt(), entries=[juya])
+    enriched = NewsItem(
+        source=SourceKind.JUYA,
+        source_id=juya.source_id,
+        url=juya.source_url,
+        title=juya.title,
+        source_evidence={
+            "juya_item_type": "issue",
+            "issue_id": juya.source_id,
+            "issue_date": "2026-05-13",
+            "issue_url": juya.source_url,
+            "issue_cover_url": "https://assets.juya.uk/cover/2026-05-13.png",
+            "issue_lead_title": "Lead headline",
+        },
+    )
+    legacy = Digest(
+        generated_at=_fixture_dt(),
+        entries=[_github_entry()],
+    )
+
+    view = build_digest_view(digest, news_items=[enriched])
+    entry = view.entries[0]
+    assert isinstance(entry, JuyaDigestEntryView)
+    assert entry.item_type == "issue"
+    assert entry.issue is not None
+    assert entry.issue.cover_url.startswith("https://assets.juya.uk/cover/")
+    assert entry.issue.lead_title == "Lead headline"
+    assert entry.story is None
+
+    legacy_view = build_digest_view(legacy, news_items=[])
+    assert legacy_view.entries[0].source_kind == SourceKind.GITHUB
+
+
+def test_build_digest_view_juya_story_entry() -> None:
+    from ai_news_agent.api.schemas.digests import JuyaDigestEntryView, build_digest_view
+
+    entry = DigestEntry(
+        source_kind=SourceKind.JUYA,
+        source_id="juya-story-issue-1",
+        title="DeepSeek vision",
+        source_name="Juya",
+        source_url="https://daily.juya.uk/2026/05/13/#story-1",
+        summary="Story summary",
+        why_it_matters="Why",
+        background_knowledge="",
+        follow_up_action=FollowUpAction.READ,
+    )
+    digest = Digest(generated_at=_fixture_dt(), entries=[entry])
+    news_items = [
+        NewsItem(
+            source=SourceKind.JUYA,
+            source_id=entry.source_id,
+            url=entry.source_url,
+            title=entry.title,
+            source_evidence={
+                "juya_item_type": "story",
+                "issue_id": "issue-2026-05-13",
+                "issue_date": "2026-05-13",
+                "issue_url": "https://daily.juya.uk/2026/05/13",
+                "story_number": 1,
+                "story_section": "要闻",
+                "story_original_url": "https://www.deepseek.com",
+            },
+        )
+    ]
+    view = build_digest_view(digest, news_items=news_items)
+    juya_view = view.entries[0]
+    assert isinstance(juya_view, JuyaDigestEntryView)
+    assert juya_view.item_type == "story"
+    assert juya_view.story is not None
+    assert juya_view.story.number == 1
+    assert juya_view.story.original_url == "https://www.deepseek.com"
 
 
 def test_build_digest_view_huggingface_entry_without_matching_news_item() -> None:

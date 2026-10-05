@@ -488,6 +488,7 @@ async def post_message(
         body.content,
         session_id=session_id,
         request_id=body.client_request_id,
+        juya_item_mode=body.juya_item_mode,
     )
 
     try:
