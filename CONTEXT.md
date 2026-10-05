@@ -80,6 +80,18 @@ _Avoid_: A digest-renderer “follow-up section”, giving Also variants their o
 The Juya rank deep-dive — one daily issue expanded into sub-news from persisted website markdown. Chinese chrome.
 _Avoid_: Inventing sub-items not in persisted evidence, using this shape for Hugging Face families or Zhihu search snippets
 
+**Juya daily issue**:
+The default Juya digest item — one row per daily bulletin (RSS/markdown issue), with optional cover and lead metadata in the API view.
+_Avoid_: Treating every Juya row as a single bulletin story, assuming story mode without an explicit web request
+
+**Juya bulletin story**:
+An opt-in Juya digest item — one numbered story from a daily issue when the web client requests story mode. It has its own display rank, history reference, and story-specific summary.
+_Avoid_: Silent story mode on CLI/Gradio/OpenClaw, inferring story identity from title alone, giving Also variants their own story ranks
+
+**Digest presentation metadata**:
+Whitelisted API fields derived from persisted connector evidence: publisher owner (name, profile, avatar, account type), GitHub preview image, Juya issue cover, and Juya story/issue structure. Not raw `source_evidence`.
+_Avoid_: Exposing raw evidence, inventing daily star deltas or issue numbers, treating UI initials as a backend field
+
 **Hugging Face family card**:
 The Hugging Face rank deep-dive — the **model family** at that display rank: representative, comparison-table Hub stats, Also variants, publisher, card snippet, and the popularity-not-quality caveat. English chrome matching the comparison table. Snippet may come from collect-time card data or a once-fetched live model-card README (ADR-0006).
 _Avoid_: Repeating only the table with no snippet, dumping every Hub key, git clone, Also-variant READMEs, treating the row as a raw weights repo rather than a family, inventing description from HTML
