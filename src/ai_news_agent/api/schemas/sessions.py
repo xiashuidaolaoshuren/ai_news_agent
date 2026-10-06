@@ -20,6 +20,8 @@ class SessionOut(BaseModel):
     items_per_source: int | None
     created_at: datetime
     updated_at: datetime
+    digest_count: int = 0
+    active_request_id: str | None = None
 
 
 class SessionListPage(BaseModel):

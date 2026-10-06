@@ -14,6 +14,7 @@ from ai_news_agent.services.session_records import (
     MessageRecord,
     SessionRecord,
     SessionRequestRecord,
+    SessionRequestStats,
     initial_session_title,
 )
 
@@ -51,6 +52,12 @@ class SessionService:
 
     def list_sessions(self) -> list[SessionRecord]:
         return self._store.list_sessions()
+
+    def get_session_request_stats(
+        self,
+        session_ids: list[str] | None = None,
+    ) -> dict[str, SessionRequestStats]:
+        return self._store.get_session_request_stats(session_ids)
 
     def list_messages(self, session_id: str) -> list[MessageRecord]:
         return self._store.list_messages(session_id)

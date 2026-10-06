@@ -379,6 +379,105 @@ def test_delete_session_rules(tmp_path: Path) -> None:
     assert missing.status_code == 404
 
 
+def test_session_responses_include_digest_count_and_active_request_id(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.composition import build_application
+
+    db_path = tmp_path / "sessions-stats.db"
+    application = build_application(fake=True, db_path=db_path)
+    client = _build_test_client(fake=True, db_path=db_path)
+
+    created = client.post("/api/v1/sessions")
+    assert created.status_code == 201
+    created_body = created.json()
+    session_id = created_body["id"]
+    assert created_body["digest_count"] == 0
+    assert created_body["active_request_id"] is None
+
+    application.session_service.begin_request(
+        session_id,
+        content="first digest",
+        request_id="req-stats-1",
+    )
+    active = client.get(f"/api/v1/sessions/{session_id}").json()
+    assert active["digest_count"] == 0
+    assert active["active_request_id"] == "req-stats-1"
+
+    run_id = application.digest_store.save_run(
+        requested_at=datetime(2026, 5, 17, 12, 0, tzinfo=UTC),
+        timeframe="today",
+        topics=["ai"],
+        connector_names=["github"],
+    )
+    application.session_service.complete_request(
+        session_id,
+        "req-stats-1",
+        status="succeeded",
+        content="digest text",
+        run_id=run_id,
+    )
+    completed = client.get(f"/api/v1/sessions/{session_id}").json()
+    assert completed["digest_count"] == 1
+    assert completed["active_request_id"] is None
+
+    application.session_service.begin_request(
+        session_id,
+        content="tell me more",
+        request_id="req-stats-2",
+    )
+    application.session_service.complete_request(
+        session_id,
+        "req-stats-2",
+        status="succeeded",
+        content="follow-up text",
+    )
+    application.session_service.begin_request(
+        session_id,
+        content="something failing",
+        request_id="req-stats-3",
+    )
+    application.session_service.complete_request(
+        session_id,
+        "req-stats-3",
+        status="failed",
+        content="error text",
+        error_code="provider_error",
+    )
+    application.session_service.begin_request(
+        session_id,
+        content="cancel this",
+        request_id="req-stats-4",
+    )
+    assert application.session_service.cancel_request(session_id, "req-stats-4") is True
+
+    non_digest = client.get(f"/api/v1/sessions/{session_id}").json()
+    assert non_digest["digest_count"] == 1
+    assert non_digest["active_request_id"] is None
+
+    application.session_service.begin_request(
+        session_id,
+        content="another digest",
+        request_id="req-stats-5",
+    )
+    listed = client.get("/api/v1/sessions").json()
+    entry = next(item for item in listed["sessions"] if item["id"] == session_id)
+    assert entry["digest_count"] == 1
+    assert entry["active_request_id"] == "req-stats-5"
+
+    application.session_service.interrupt_active_requests()
+    interrupted = client.get(f"/api/v1/sessions/{session_id}").json()
+    assert interrupted["digest_count"] == 1
+    assert interrupted["active_request_id"] is None
+
+    patched = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={"title": "Stats"},
+    ).json()
+    assert patched["digest_count"] == 1
+    assert patched["active_request_id"] is None
+
+
 def _seed_digest_transcript(tmp_path: Path) -> tuple[object, str, int]:
     from ai_news_agent.models import Digest, DigestEntry, FollowUpAction, SourceKind
     from ai_news_agent.repositories.session_store import SessionStore

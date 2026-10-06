@@ -110,7 +110,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B2 — Session digest count and active request (F3)
 
-- [ ] **Do:** Add per-session `digest_count` and `active_request_id` to every session response.
+- [x] **Do:** Add per-session `digest_count` and `active_request_id` to every session response.
 - **Consumes:** `session_requests` (status, run_id), `SessionRecord`, `_session_out`.
 - **Produces:** `SessionOut.digest_count: int`, `SessionOut.active_request_id: str | None`; store query returning both for one or many sessions in a single pass.
 - **Acceptance:** `digest_count` counts only `succeeded` requests that have a `run_id`; failed, cancelled, interrupted, and follow-up-only requests do not count. `active_request_id` is set only while a request is `active` and `null` after any terminal status or startup interruption. `GET /sessions` computes both without a query per session. Create, get, patch, and list return the same shape.

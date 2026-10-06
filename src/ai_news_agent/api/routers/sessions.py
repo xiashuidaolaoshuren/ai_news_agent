@@ -53,10 +53,12 @@ from ai_news_agent.services.session_records import (
     MessageRecord,
     SessionRecord,
     SessionRequestRecord,
+    SessionRequestStats,
 )
 from ai_news_agent.services.session_service import (
     RequestInProgressError,
     SessionBusyError,
+    SessionService,
 )
 from ai_news_agent.sources import ALLOWED_SOURCES
 from ai_news_agent.storage import DigestStore
@@ -70,7 +72,10 @@ _DEFAULT_PAGE_LIMIT = 20
 _MAX_PAGE_LIMIT = 100
 
 
-def _session_out(record: SessionRecord) -> SessionOut:
+_EMPTY_SESSION_STATS = SessionRequestStats(digest_count=0, active_request_id=None)
+
+
+def _session_out(record: SessionRecord, stats: SessionRequestStats) -> SessionOut:
     return SessionOut(
         id=record.id,
         title=record.title,
@@ -78,6 +83,14 @@ def _session_out(record: SessionRecord) -> SessionOut:
         items_per_source=record.items_per_source,
         created_at=record.created_at,
         updated_at=record.updated_at,
+        digest_count=stats.digest_count,
+        active_request_id=stats.active_request_id,
+    )
+
+
+def _stats_for_session(service: SessionService, session_id: str) -> SessionRequestStats:
+    return service.get_session_request_stats([session_id]).get(
+        session_id, _EMPTY_SESSION_STATS
     )
 
 
@@ -289,7 +302,7 @@ def _page_messages(
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=SessionOut)
 def create_session(application: Application = Depends(get_application)) -> SessionOut:
     record = application.session_service.create_session()
-    return _session_out(record)
+    return _session_out(record, _EMPTY_SESSION_STATS)
 
 
 @router.get("", response_model=SessionListPage)
@@ -307,8 +320,14 @@ def list_sessions(
     next_cursor = (
         _encode_session_cursor(page[-1]) if len(sessions) > len(page) else None
     )
+    stats_by_id = application.session_service.get_session_request_stats(
+        [record.id for record in page]
+    )
     return SessionListPage(
-        sessions=[_session_out(record) for record in page],
+        sessions=[
+            _session_out(record, stats_by_id.get(record.id, _EMPTY_SESSION_STATS))
+            for record in page
+        ],
         next_cursor=next_cursor,
     )
 
@@ -344,7 +363,10 @@ def get_session(
     record = application.session_service.get_session(session_id)
     if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
-    return _session_out(record)
+    return _session_out(
+        record,
+        _stats_for_session(application.session_service, session_id),
+    )
 
 
 @router.patch("/{session_id}", response_model=SessionOut)
@@ -396,7 +418,10 @@ def patch_session(
 
     record = application.session_service.get_session(session_id)
     assert record is not None
-    return _session_out(record)
+    return _session_out(
+        record,
+        _stats_for_session(application.session_service, session_id),
+    )
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
