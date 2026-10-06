@@ -631,6 +631,52 @@ def test_list_messages_digest_without_warnings_returns_empty_list(tmp_path: Path
     assert assistant["warnings"] == []
 
 
+def test_post_message_progress_structured_fields_on_sse(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "sse-progress-structured.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Give me today's AI digest",
+            "client_request_id": "req-progress-structured",
+        },
+    ) as response:
+        assert response.status_code == 200
+        body = response.read().decode()
+
+    progress_payloads = [
+        payload for name, payload in _parse_sse_events(body) if name == "progress"
+    ]
+    assert progress_payloads
+
+    calling = next(
+        payload
+        for payload in progress_payloads
+        if payload["stage"].startswith("Calling ")
+    )
+    assert calling["source"] is not None
+    assert calling["status"] == "running"
+    assert calling["count"] is None
+
+    done = next(
+        payload
+        for payload in progress_payloads
+        if payload["stage"].startswith("Done ")
+    )
+    assert done["source"] is not None
+    assert done["status"] == "done"
+    assert isinstance(done["count"], int)
+
+    parsing = next(
+        payload for payload in progress_payloads if payload["stage"] == "Parsing request…"
+    )
+    assert parsing["source"] is None
+    assert parsing["status"] is None
+    assert parsing["count"] is None
+
+
 def test_post_message_streams_sse_and_persists_transcript(tmp_path: Path) -> None:
     client = _build_test_client(fake=True, db_path=tmp_path / "sse-happy.db")
     session_id = client.post("/api/v1/sessions").json()["id"]

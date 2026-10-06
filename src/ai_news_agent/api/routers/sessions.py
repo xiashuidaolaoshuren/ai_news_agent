@@ -37,6 +37,7 @@ from ai_news_agent.api.schemas.streaming import (
     session_message_stream_openapi_schema,
 )
 from ai_news_agent.api.sse import encode_sse
+from ai_news_agent.graph.nodes.collect import parse_connector_progress
 from ai_news_agent.models import ConnectorWarning
 from ai_news_agent.services.chat import (
     ChatEvent,
@@ -167,7 +168,16 @@ def _chat_event_payload(event: ChatEvent, digest_store: DigestStore) -> tuple[st
             user_message_id=event.user_message_id,
         ).model_dump(mode="json")
     if isinstance(event, ProgressEvent):
-        return "progress", ProgressPayload(stage=event.stage).model_dump(mode="json")
+        parsed = parse_connector_progress(event.stage)
+        if parsed is None:
+            return "progress", ProgressPayload(stage=event.stage).model_dump(mode="json")
+        source, status, count = parsed
+        return "progress", ProgressPayload(
+            stage=event.stage,
+            source=source,
+            status=status,
+            count=count,
+        ).model_dump(mode="json")
     if isinstance(event, DeltaEvent):
         return "delta", DeltaPayload(text=event.text).model_dump(mode="json")
     if isinstance(event, DigestEvent):
