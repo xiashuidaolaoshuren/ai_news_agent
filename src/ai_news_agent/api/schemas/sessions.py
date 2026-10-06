@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from ai_news_agent.api.schemas.digests import DigestView
+from ai_news_agent.models import ConnectorWarning
 
 
 class SessionOut(BaseModel):
@@ -46,6 +47,8 @@ class MessageOut(BaseModel):
     content: str
     run_id: int | None
     created_at: datetime
+    digest_id: int | None = None
+    warnings: list[ConnectorWarning] = Field(default_factory=list)
     digest: DigestView | None = None
 
 

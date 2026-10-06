@@ -98,7 +98,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B1 — Digest message metadata (F1 + F2)
 
-- [ ] **Do:** Expose the digest id and persisted connector warnings for digest messages and the live digest event.
+- [x] **Do:** Expose the digest id and persisted connector warnings for digest messages and the live digest event.
 - **Consumes:** `DigestStore.get_connector_warnings_for_run(run_id)`; `digests.id`/`digests.run_id`; `_message_out`; `DigestPayload`.
 - **Produces:** `DigestStore.get_digest_id_for_run(run_id) -> int | None`; `MessageOut.digest_id: int | None`; `MessageOut.warnings: list[ConnectorWarning]` (empty list when none); `DigestPayload.digest_id: int` on the SSE `digest` event.
 - **Acceptance:** A digest assistant message returns its `digest_id` and the warnings saved for its run. User messages and non-digest assistant messages return `null` and `[]`. A reloaded transcript shows the same warnings the live `digest` event carried. Replay SSE `digest` includes `digest_id`. `GET /messages` for a pre-existing digest with no warnings returns `[]`, not an error.

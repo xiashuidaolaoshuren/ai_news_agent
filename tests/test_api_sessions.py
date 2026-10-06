@@ -458,6 +458,80 @@ def test_list_messages_page_includes_digest_view(tmp_path: Path) -> None:
     assert missing.status_code == 404
 
 
+def test_list_messages_digest_message_exposes_digest_id_and_warnings(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.models import ConnectorWarning
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.storage import DigestStore
+
+    client, session_id, run_id = _seed_digest_transcript(tmp_path)
+    db_path = tmp_path / "messages-digest.db"
+    store = DigestStore(db_path)
+    store.save_connector_warnings(
+        run_id,
+        [
+            ConnectorWarning(
+                connector="github",
+                code="rate_limited",
+                message="github rate limited",
+                detail="retry later",
+            )
+        ],
+    )
+    SessionStore(db_path).insert_message(
+        session_id,
+        role="assistant",
+        content="Follow-up answer",
+    )
+
+    response = client.get(f"/api/v1/sessions/{session_id}/messages")
+    assert response.status_code == 200
+    messages = response.json()["messages"]
+
+    assistant = next(
+        message
+        for message in messages
+        if message["role"] == "assistant" and message["digest"] is not None
+    )
+    assert assistant["digest_id"] == store.get_digest_id_for_run(run_id)
+    assert assistant["warnings"] == [
+        {
+            "connector": "github",
+            "code": "rate_limited",
+            "message": "github rate limited",
+            "detail": "retry later",
+        }
+    ]
+
+    user = next(message for message in messages if message["role"] == "user")
+    assert user["digest_id"] is None
+    assert user["warnings"] == []
+
+    non_digest = next(
+        message
+        for message in messages
+        if message["role"] == "assistant" and message["digest"] is None
+    )
+    assert non_digest["digest_id"] is None
+    assert non_digest["warnings"] == []
+
+
+def test_list_messages_digest_without_warnings_returns_empty_list(tmp_path: Path) -> None:
+    client, session_id, _run_id = _seed_digest_transcript(tmp_path)
+
+    response = client.get(f"/api/v1/sessions/{session_id}/messages")
+    assert response.status_code == 200
+    assistant = next(
+        message
+        for message in response.json()["messages"]
+        if message["role"] == "assistant"
+    )
+
+    assert assistant["digest_id"] is not None
+    assert assistant["warnings"] == []
+
+
 def test_post_message_streams_sse_and_persists_transcript(tmp_path: Path) -> None:
     client = _build_test_client(fake=True, db_path=tmp_path / "sse-happy.db")
     session_id = client.post("/api/v1/sessions").json()["id"]
@@ -488,6 +562,36 @@ def test_post_message_streams_sse_and_persists_transcript(tmp_path: Path) -> Non
     roles = [message["role"] for message in transcript["messages"]]
     assert roles.count("user") == 1
     assert roles.count("assistant") == 1
+
+
+def test_post_message_digest_sse_event_includes_digest_id(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "sse-digest-id.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Give me today's AI digest",
+            "client_request_id": "req-digest-id",
+        },
+    ) as response:
+        assert response.status_code == 200
+        body = response.read().decode()
+
+    digest_payload = next(
+        payload for name, payload in _parse_sse_events(body) if name == "digest"
+    )
+    transcript = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    assistant = next(
+        message
+        for message in transcript["messages"]
+        if message["role"] == "assistant"
+    )
+
+    assert isinstance(digest_payload["digest_id"], int)
+    assert digest_payload["digest_id"] == assistant["digest_id"]
+    assert digest_payload["warnings"] == assistant["warnings"]
 
 
 def test_session_digest_links_run_and_request_to_session(tmp_path: Path) -> None:
@@ -655,6 +759,7 @@ def test_post_message_terminal_digest_replay_emits_digest_sse_event(
     assert "run_id" in digest_payload
     assert "digest" in digest_payload
     assert "markdown" in digest_payload
+    assert isinstance(digest_payload["digest_id"], int)
 
 
 def test_shielded_sse_pump_persists_after_consumer_disconnect(tmp_path: Path) -> None:

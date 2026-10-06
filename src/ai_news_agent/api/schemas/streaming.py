@@ -41,6 +41,7 @@ class DigestPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     run_id: int
+    digest_id: int
     digest: DigestView
     markdown: str
     warnings: list[ConnectorWarning] = Field(default_factory=list)

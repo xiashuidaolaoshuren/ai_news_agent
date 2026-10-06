@@ -37,6 +37,7 @@ from ai_news_agent.api.schemas.streaming import (
     session_message_stream_openapi_schema,
 )
 from ai_news_agent.api.sse import encode_sse
+from ai_news_agent.models import ConnectorWarning
 from ai_news_agent.services.chat import (
     ChatEvent,
     DeltaEvent,
@@ -161,8 +162,11 @@ def _chat_event_payload(event: ChatEvent, digest_store: DigestStore) -> tuple[st
             event.digest,
             news_items=digest_store.get_news_items_for_run(event.run_id),
         )
+        digest_id = digest_store.get_digest_id_for_run(event.run_id)
+        assert digest_id is not None
         return "digest", DigestPayload(
             run_id=event.run_id,
+            digest_id=digest_id,
             digest=digest_view,
             markdown=event.markdown,
             warnings=event.warnings,
@@ -233,9 +237,13 @@ async def shielded_event_stream(
 
 def _message_out(message: MessageRecord, digest_store: DigestStore) -> MessageOut:
     digest = None
+    digest_id = None
+    warnings: list[ConnectorWarning] = []
     if message.role == "assistant" and message.run_id is not None:
         stored = digest_store.get_digest_by_run_id(message.run_id)
         if stored is not None:
+            digest_id = digest_store.get_digest_id_for_run(message.run_id)
+            warnings = digest_store.get_connector_warnings_for_run(message.run_id)
             digest = build_digest_view(
                 stored,
                 news_items=digest_store.get_news_items_for_run(message.run_id),
@@ -248,6 +256,8 @@ def _message_out(message: MessageRecord, digest_store: DigestStore) -> MessageOu
         content=message.content,
         run_id=message.run_id,
         created_at=message.created_at,
+        digest_id=digest_id,
+        warnings=warnings,
         digest=digest,
     )
 
