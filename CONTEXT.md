@@ -39,8 +39,12 @@ The atomic Zhihu digest item — one traceable search result framed for its prac
 _Avoid_: Uncited multi-result synthesis, treating a relevance score as popularity, inferring claims not supported by the returned content
 
 **Trending repo**:
-The atomic GitHub digest item — a repository under a topic that scores as notable momentum via a transparent heuristic (e.g. stars combined with recent activity), not true star-delta until that exists.
-_Avoid_: Release-as-primary-item, README snippet as the story, treating every matching repo as equally newsworthy, claiming precise “stars gained in N days” without that data
+The atomic GitHub digest item — a repository under a topic that scores as notable momentum via a transparent heuristic (e.g. stars combined with recent activity).
+_Avoid_: Release-as-primary-item, README snippet as the story, treating every matching repo as equally newsworthy, claiming a star delta the source did not report
+
+**Stars today**:
+The star gain GitHub prints for a repository on its daily trending list. A GitHub digest row shows it only when that list includes the repository.
+_Avoid_: A delta computed from total stars, a change since the last digest labeled as today, showing it on every GitHub row
 
 **Trending model**:
 The atomic Hugging Face digest item — one **model family** with notable current Hub momentum, represented by the family’s highest-trending Hub repository. It may be global or constrained to a user-named topic or task.

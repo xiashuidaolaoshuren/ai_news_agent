@@ -14,7 +14,7 @@ Port the approved OpenDesign prototype (`research-chat-prototype.html`, project 
 - Redesigning screens, adding screens, or inventing a second brand.
 - Authentication, deployment, public hosting, media proxying.
 - Semantic session search (8A.2).
-- Daily GitHub star deltas, Zhihu/Bilibili author avatars.
+- Zhihu/Bilibili author avatars.
 - Translating prototype CSS/JS motion into `motion/react` or another animation library.
 - Removing Gradio (stays until 8B is accepted).
 
@@ -116,7 +116,7 @@ Messages come from `GET /sessions/{id}/messages` (newest page first, rendered ch
 - Sections follow `entries` order, grouped by contiguous `source_kind`, each showing the continuous `display_rank` range. Header: source tile, source name, subtitle, item count, `#a-b` range.
 - Juya: group stories under one issue cover (`juya-issue-cover`) keyed by `issue.id`. Cover image from `issue.cover_url`, alt text from `issue.lead_title`. Eyebrow shows "AI 早报 · {issue.date}" with no issue number. Story rows show `story.section` as the topic and a link to `story.original_url`.
 - Entry rows (`entry-{kind}-{rank}`): rank, avatar, linked title, source tag, host link, Summary / Why it matters definition pair, "Ask a follow-up" (`followup-{kind}-{rank}`).
-- GitHub: `owner.avatar_url`, meta line `language · stars ★`, hover or focus preview card from `preview_image_url` (400 ms delay, 320px, hidden on scroll and Escape).
+- GitHub: `owner.avatar_url`, meta line `language · stars ★ · +stars_today today`, hover or focus preview card from `preview_image_url` (400 ms delay, 320px, hidden on scroll and Escape). Omit any null segment, including `+N today` when `stars_today` is null.
 - Hugging Face: comparison table (`hf-comparison-table`) with Rank, Model, Link, Trending (`trending_score`), 30-day downloads, Likes, Pipeline, Variants. Variants column shows `base_model` (additive field) and `family_variants`. The note line is kept.
 - Avatars: image from `owner.avatar_url`. When null, `owner.type == "person"` shows a monospace initials tile (title "Personal account"). Organisation without an image shows a neutral tile.
 - Zhihu and Bilibili: generic entry rows.
@@ -192,6 +192,21 @@ Additive only. No SQLite migration, no breaking change to v1. Each item needs te
 | F4 | Optional structured fields on the `progress` event: `source`, `status` (`running` \| `done` \| `failed`), `count`. The `stage` string stays | Collect node already emits per-source start, done and failure lines |
 | F5 | `HuggingFaceDigestEntryView.base_model: str \| null` | Already stored in connector evidence, not projected |
 | F6 | `HistorySearchMatchOut.topics: list[str]` (digest-level topics) | Search already filters on digest topics |
+| F7 | `GitHubDigestEntryView.stars_today: int \| null` | Joined from GitHub's daily trending list; see below |
+
+### GitHub stars today (F7)
+
+This reverses the "GitHub daily star deltas" non-goal in the 2026-10-05 alignment design. That design kept the figure out because the REST payload does not have it. This slice adds it from the one public page that does.
+
+`GET /search/repositories` and `GET /repos/{owner}/{repo}` return `stargazers_count`, a lifetime total. They have no field for stars gained today. Listing stargazers (`Accept: application/vnd.github.star+json`) is oldest-first, has no date filter, and pages 100 at a time, so a popular repository would cost hundreds of requests. A delta against a previously saved `stars_or_views` is "since the last digest", and the first sighting has no prior value. Neither may be labeled "today".
+
+GitHub prints the figure on `https://github.com/trending?since=daily` ("N stars today"). One unauthenticated GET of that page per GitHub collect, using the same bounds as `github_previews.py` (short timeout, response size cap, limited redirects). Parse each trending row for `owner/repo` and the integer in "N stars today". Ignore "this week" and "this month". Join onto collected items by full name and store `stars_today` in `source_evidence`. `extract_github_evidence` projects it. A repository that is not on the list, a parse miss, or a failed fetch leaves the field null. A failed fetch adds a non-fatal connector warning and still returns the items.
+
+Do not change `rendering.py`. CLI, Gradio, and OpenClaw markdown stay without this phrase. Fake mode may set the evidence key on fixture items and must not call GitHub. Saved digests that lack the key stay null. No backfill.
+
+The card meta line is `{language} · {stars} ★ · +{stars_today} today`, dropping any null part. The word "today" is used only because that is the `since=daily` label.
+
+Backend tests, in the existing GitHub and digest-view files: a fixture page with thousands-separators, a row that is not "today", a repository absent from the page, a failed fetch that warns and leaves items unchanged, and projection of both an integer and null.
 
 ## Prototype-vs-API gap table
 
@@ -205,7 +220,7 @@ Additive only. No SQLite migration, no breaking change to v1. Each item needs te
 | Per-source progress steps and segmented bar | `progress.stage` string only | F4, with `stage` text fallback |
 | HF "Quantized from / Fine-tune of" | not projected | F5. Show the base model id; the "Quantized from / Fine-tune of" label is dropped unless the backend adds the relation |
 | History result topic and topic dropdown | no per-result topic, no vocabulary | F6 for display; filter becomes free text |
-| GitHub "+N today" | not collected | Dropped (prior non-goal); show language and stars only |
+| GitHub "+N today" | not on the REST repo payload | F7. Show `+N today` only when `stars_today` is set |
 | Juya "No. 34" issue number | `issue.id` is a source id | Dropped; CONTEXT.md forbids inventing issue numbers |
 | Source chips on user messages after reload | not persisted | Shown only for messages sent in the current page session |
 | Mono initials avatar | `owner.type`, null `avatar_url` | Client-side fallback only; not a backend field |
@@ -225,12 +240,12 @@ Additive only. No SQLite migration, no breaking change to v1. Each item needs te
 
 TDD applies (Vitest, strict RED/GREEN) to:
 
-- `toVm` mappers: null handling, avatar fallback, Juya story grouping, display-rank sections, HF base model and variants.
+- `toVm` mappers: null handling, avatar fallback, Juya story grouping, display-rank sections, HF base model and variants, and the GitHub meta line with and without `stars_today`.
 - The SSE frame parser: split chunks, multiple events per chunk, CRLF, unknown events ignored.
 - The request state machine: transitions in the diagram, cancel 202/204, reconnect backoff and exhaustion, 409 handling.
 - Composer validation and the PATCH-on-change behavior.
 
-Layout fidelity, spacing, type and motion are checked by browser comparison against the OpenDesign preview and have no TDD cycle. The backend slice (F1-F6) follows the existing TDD rules in the API test files. A fake-mode end-to-end smoke test runs the UI against `ai-news-agent service --fake`.
+Layout fidelity, spacing, type and motion are checked by browser comparison against the OpenDesign preview and have no TDD cycle. The backend slice (F1-F7) follows the existing TDD rules in the API test files. A fake-mode end-to-end smoke test runs the UI against `ai-news-agent service --fake`.
 
 Acceptance:
 
@@ -244,6 +259,6 @@ Acceptance:
 
 - Semantic session search and long-term memory (8A.2).
 - A Juya issues/stories toggle.
-- GitHub star deltas, Zhihu/Bilibili avatars.
+- Zhihu/Bilibili avatars.
 - Authentication and deployment.
 - Persisting per-message source selections.
