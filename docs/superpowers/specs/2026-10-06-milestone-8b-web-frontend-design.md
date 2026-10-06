@@ -186,7 +186,7 @@ Additive only. No SQLite migration, no breaking change to v1. Each item needs te
 
 | ID | Change | Basis |
 |---|---|---|
-| F1 | `MessageOut.digest_id: int \| null` on digest messages | Digest id is already persisted and used for `dN:rN` tokens |
+| F1 | `MessageOut.digest_id: int \| null` on digest messages, and `digest_id` on the SSE `digest` event | Digest id is already persisted and used for `dN:rN` tokens; the live event needs it before any reload |
 | F2 | `MessageOut.warnings: ConnectorWarning[]` on digest messages | `get_connector_warnings_for_run` exists |
 | F3 | `SessionOut.digest_count: int` and `active_request_id: str \| null` | Derived from existing `session_requests` and `runs` rows |
 | F4 | Optional structured fields on the `progress` event: `source`, `status` (`running` \| `done` \| `failed`), `count`. The `stage` string stays | Collect node already emits per-source start, done and failure lines |
