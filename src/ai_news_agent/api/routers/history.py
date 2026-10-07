@@ -68,6 +68,7 @@ def search_history(
                 url=match.url,
                 excerpt=match.excerpt,
                 score=match.score,
+                topics=match.topics,
             )
             for match in result.matches
         ],

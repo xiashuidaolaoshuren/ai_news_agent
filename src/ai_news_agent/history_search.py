@@ -70,6 +70,7 @@ def _candidate_to_match(
         url=str(candidate["source_url"]),
         excerpt=extract_historical_excerpt(query=query, candidate=candidate),
         score=score,
+        topics=list(candidate.get("digest_topics") or []),
     )
 
 

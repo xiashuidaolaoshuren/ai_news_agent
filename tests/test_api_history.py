@@ -140,6 +140,34 @@ def test_history_search_returns_matches_envelope(tmp_path: Path) -> None:
     assert match["score"] > 0
 
 
+def test_history_search_match_topics_preserves_saved_order(tmp_path: Path) -> None:
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "history-match-topics.db"
+    client = _build_test_client(fake=True, db_path=db_path)
+    store = DigestStore(db_path)
+    _seed_run_with_digest(
+        store,
+        generated_at=datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+        topics=["agents", "RAG"],
+        entries=[
+            _make_digest_entry(
+                source_kind=SourceKind.GITHUB,
+                source_id="repo-topics",
+                title="Gamma unique agents repo",
+                url="https://example.com/repo-topics",
+                summary="Agents framework",
+            )
+        ],
+    )
+
+    response = client.get("/api/v1/history/search", params={"text": "Gamma unique"})
+
+    assert response.status_code == 200
+    match = response.json()["matches"][0]
+    assert match["topics"] == ["agents", "RAG"]
+
+
 def test_history_search_validation_maps_value_errors_to_400(tmp_path: Path) -> None:
     client = _build_test_client(fake=True, db_path=tmp_path / "history-validate.db")
 
