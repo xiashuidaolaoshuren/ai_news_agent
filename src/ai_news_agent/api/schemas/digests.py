@@ -84,6 +84,7 @@ class HuggingFaceDigestEntryView(DigestEntryView):
 
     source_kind: Literal[SourceKind.HUGGINGFACE] = SourceKind.HUGGINGFACE
     owner: PublisherOwnerView | None = None
+    base_model: str | None = None
     trending_score: float | int | None = None
     downloads_30d: int | None = None
     likes: int | None = None

@@ -151,6 +151,7 @@ def extract_huggingface_evidence(source_evidence: dict[str, Any]) -> dict[str, A
             )
 
     return {
+        "base_model": _optional_str(source_evidence.get("base_model")),
         "trending_score": source_evidence.get("trending_score"),
         "downloads_30d": _optional_int(source_evidence.get("downloads_30d")),
         "likes": _optional_int(source_evidence.get("likes")),

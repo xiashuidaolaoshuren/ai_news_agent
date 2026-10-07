@@ -137,6 +137,48 @@ def test_huggingface_entry_view_exposes_family_metrics_and_variants() -> None:
     ]
 
 
+def test_extract_huggingface_evidence_projects_base_model() -> None:
+    from ai_news_agent.services.digest_views import extract_huggingface_evidence
+
+    assert (
+        extract_huggingface_evidence({"base_model": "Qwen/Qwen3.8-27B"})["base_model"]
+        == "Qwen/Qwen3.8-27B"
+    )
+    assert extract_huggingface_evidence({})["base_model"] is None
+    assert extract_huggingface_evidence({"base_model": ""})["base_model"] is None
+    assert extract_huggingface_evidence({"base_model": "   "})["base_model"] is None
+
+    assert (
+        extract_huggingface_evidence(
+            {
+                "base_model": "Qwen/Qwen3.8-27B",
+                "family_variants": [
+                    {
+                        "source_id": "Someone/Qwen3.8-27B-GGUF",
+                        "title": "Qwen3.8-27B-GGUF",
+                        "base_model": "Other/Model",
+                    }
+                ],
+            }
+        )["base_model"]
+        == "Qwen/Qwen3.8-27B"
+    )
+    assert (
+        extract_huggingface_evidence(
+            {
+                "family_variants": [
+                    {
+                        "source_id": "Someone/Qwen3.8-27B-GGUF",
+                        "title": "Qwen3.8-27B-GGUF",
+                        "base_model": "Other/Model",
+                    }
+                ]
+            }
+        )["base_model"]
+        is None
+    )
+
+
 def test_build_digest_view_maps_common_fields_and_display_rank() -> None:
     from ai_news_agent.api.schemas.digests import (
         GitHubDigestEntryView,
@@ -227,6 +269,49 @@ def test_build_digest_view_wires_huggingface_evidence_via_news_item_lookup() -> 
     assert hf_view.family_variants[0].source_id == "Someone/Qwen3.8-27B-GGUF"
 
 
+def test_build_digest_view_projects_huggingface_base_model() -> None:
+    from ai_news_agent.api.schemas.digests import (
+        HuggingFaceDigestEntryView,
+        build_digest_view,
+    )
+
+    hf = _huggingface_entry()
+    digest = Digest(generated_at=_fixture_dt(), entries=[hf])
+    news_items = [
+        NewsItem(
+            source=SourceKind.HUGGINGFACE,
+            source_id=hf.source_id,
+            url=hf.source_url,
+            title=hf.title,
+            source_evidence={
+                "base_model": "Qwen/Qwen3.8-27B",
+                "family_variants": [
+                    {
+                        "source_id": "Someone/Qwen3.8-27B-GGUF",
+                        "title": "Qwen3.8-27B-GGUF",
+                        "base_model": "Other/Model",
+                    }
+                ],
+            },
+        )
+    ]
+
+    view = build_digest_view(digest, news_items=news_items)
+    entry = view.entries[0]
+    assert isinstance(entry, HuggingFaceDigestEntryView)
+    assert entry.base_model == "Qwen/Qwen3.8-27B"
+
+    blank = NewsItem(
+        source=SourceKind.HUGGINGFACE,
+        source_id=hf.source_id,
+        url=hf.source_url,
+        title=hf.title,
+        source_evidence={"base_model": "   "},
+    )
+    blank_view = build_digest_view(digest, news_items=[blank])
+    assert blank_view.entries[0].base_model is None
+
+
 def test_build_digest_view_does_not_leak_raw_source_evidence_keys() -> None:
     from ai_news_agent.api.schemas.digests import build_digest_view
 
@@ -261,7 +346,6 @@ def test_build_digest_view_does_not_leak_raw_source_evidence_keys() -> None:
     payload = build_digest_view(digest, news_items=news_items).model_dump(mode="json")
     dumped = str(payload)
     for forbidden in (
-        "base_model",
         "model_card_live_fetched",
         "source_label",
         "query_lens",
@@ -392,6 +476,7 @@ def test_build_digest_view_huggingface_entry_without_matching_news_item() -> Non
 
     entry = view.entries[0]
     assert isinstance(entry, HuggingFaceDigestEntryView)
+    assert entry.base_model is None
     assert entry.trending_score is None
     assert entry.downloads_30d is None
     assert entry.likes is None
