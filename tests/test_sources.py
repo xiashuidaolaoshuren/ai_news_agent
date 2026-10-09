@@ -51,7 +51,12 @@ def test_fake_juya_connector() -> None:
     async def _collect() -> None:
         result = await connector.collect(None)  # noqa: ARG002
         assert len(result.items) == 1
-        assert result.items[0].source is SourceKind.JUYA
+        item = result.items[0]
+        assert item.source is SourceKind.JUYA
+        evidence = item.source_evidence
+        assert evidence["juya_item_type"] == "issue"
+        assert evidence["issue_cover_url"].startswith("https://")
+        assert evidence["issue_lead_title"] == "Fake Juya lead headline"
 
     asyncio.run(_collect())
 
@@ -62,8 +67,63 @@ def test_fake_huggingface_connector() -> None:
 
     async def _collect() -> None:
         result = await connector.collect(None)  # noqa: ARG002
-        assert len(result.items) == 1
-        assert result.items[0].source is SourceKind.HUGGINGFACE
+        by_id = {item.source_id: item for item in result.items}
+        assert result.raw_count == 2
+        assert set(by_id) == {"fake-huggingface-1", "fake-huggingface-2"}
+        assert all(item.source is SourceKind.HUGGINGFACE for item in result.items)
+
+        enriched = by_id["fake-huggingface-1"]
+        assert enriched.title == "Fake Hugging Face model"
+        evidence = enriched.source_evidence
+        assert evidence["owner_name"] == "demo-org"
+        assert evidence["owner_type"] == "organisation"
+        assert evidence["owner_profile_url"].startswith("https://")
+        assert evidence["base_model"] == "meta-llama/Llama-3.1-8B"
+        assert evidence["pipeline_tag"] == "text-generation"
+        assert evidence["downloads_30d"] == 1234
+        assert evidence["likes"] == 56
+
+        bare = by_id["fake-huggingface-2"]
+        assert bare.source_evidence == {}
+
+    asyncio.run(_collect())
+
+
+def test_fake_github_connector_exposes_presentation_evidence() -> None:
+    connector = FakeGitHubConnector()
+    assert connector.name() == "github"
+
+    async def _collect() -> None:
+        result = await connector.collect(None)  # noqa: ARG002
+        by_id = {item.source_id: item for item in result.items}
+        assert result.raw_count == 3
+        assert set(by_id) == {"fake-github-1", "fake-github-2", "fake-github-3"}
+
+        enriched = by_id["fake-github-1"]
+        assert enriched.title == "Fake GitHub repo"
+        assert enriched.stars_or_views == 1280
+        assert enriched.language == "Python"
+        evidence = enriched.source_evidence
+        assert evidence["owner_name"] == "demo-org"
+        assert evidence["owner_type"] == "organisation"
+        assert evidence["owner_profile_url"].startswith("https://")
+        assert evidence["owner_avatar_url"].startswith("https://")
+        assert evidence["preview_image_url"].startswith("https://")
+        assert evidence["stars_today"] == 42
+
+        partial = by_id["fake-github-2"]
+        assert partial.stars_or_views == 97
+        assert partial.language == "TypeScript"
+        assert partial.source_evidence["owner_name"] == "octocat"
+        assert partial.source_evidence["owner_type"] == "person"
+        assert "owner_avatar_url" not in partial.source_evidence
+        assert "preview_image_url" not in partial.source_evidence
+        assert "stars_today" not in partial.source_evidence
+
+        bare = by_id["fake-github-3"]
+        assert bare.source_evidence == {}
+        assert bare.stars_or_views is None
+        assert bare.language is None
 
     asyncio.run(_collect())
 

@@ -80,6 +80,73 @@ def test_post_message_juya_stories_mode_returns_story_digest_entries(tmp_path: P
     assert assistant["digest"]["entries"][0]["item_type"] == "story"
 
 
+def test_post_message_fake_mode_all_sources_returns_presentation_evidence(
+    tmp_path: Path,
+) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "fake-all-sources.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+    patched = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={
+            "connector_names": ["juya", "github", "huggingface", "zhihu", "bilibili"],
+            "items_per_source": 5,
+        },
+    )
+    assert patched.status_code == 200
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "Give me today's AI digest", "client_request_id": "req-all-sources"},
+    ) as response:
+        assert response.status_code == 200
+        body = response.read().decode()
+
+    digest_payload = next(
+        payload for name, payload in _parse_sse_events(body) if name == "digest"
+    )
+    entries = digest_payload["digest"]["entries"]
+    by_source_id = {entry["source_id"]: entry for entry in entries}
+
+    # GitHub: an enriched repo, a partial repo, and a bare repo cover values and nulls.
+    enriched = by_source_id["fake-github-1"]
+    assert enriched["stars_today"] == 42
+    assert enriched["stars"] == 1280
+    assert enriched["language"] == "Python"
+    assert enriched["owner"]["name"] == "demo-org"
+    assert enriched["owner"]["type"] == "organisation"
+    assert enriched["owner"]["avatar_url"].startswith("https://")
+    assert enriched["preview_image_url"].startswith("https://")
+
+    partial = by_source_id["fake-github-2"]
+    assert partial["owner"]["name"] == "octocat"
+    assert partial["owner"]["type"] == "person"
+    assert partial["owner"]["avatar_url"] is None
+    assert partial["preview_image_url"] is None
+    assert partial["stars_today"] is None
+
+    bare = by_source_id["fake-github-3"]
+    assert bare["owner"] is None
+    assert bare["stars"] is None
+    assert bare["language"] is None
+    assert bare["stars_today"] is None
+
+    # Hugging Face: one model with an owner and base model, one bare null case.
+    hf_enriched = by_source_id["fake-huggingface-1"]
+    assert hf_enriched["base_model"] == "meta-llama/Llama-3.1-8B"
+    assert hf_enriched["owner"]["name"] == "demo-org"
+
+    hf_bare = by_source_id["fake-huggingface-2"]
+    assert hf_bare["base_model"] is None
+    assert hf_bare["owner"] is None
+
+    # Juya bulletin carries the issue cover and lead.
+    juya = by_source_id["fake-juya-1"]
+    assert juya["item_type"] == "issue"
+    assert juya["issue"]["cover_url"].startswith("https://")
+    assert juya["issue"]["lead_title"] == "Fake Juya lead headline"
+
+
 def test_post_message_unknown_field_returns_400(tmp_path: Path) -> None:
     client = _build_test_client(fake=True, db_path=tmp_path / "validation-400.db")
     session_id = client.post("/api/v1/sessions").json()["id"]

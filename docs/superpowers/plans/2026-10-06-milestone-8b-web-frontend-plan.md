@@ -171,7 +171,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B7 — Fake-mode presentation fixtures
 
-- [ ] **Do:** Make fake connectors return the new evidence so every UI feature is visible offline.
+- [x] **Do:** Make fake connectors return the new evidence so every UI feature is visible offline.
 - **Consumes:** B4 `base_model`, B6 `stars_today`, existing owner and preview evidence keys; `FakeGitHubConnector`, `FakeHuggingFaceConnector`, `FakeJuyaConnector`.
 - **Produces:** fake GitHub items with owner (org and person), `stars`, `language`, `preview_image_url`, `stars_today`; fake HF items with owner and one `base_model`; fake Juya issue cover and lead (stories already supported).
 - **Acceptance:** A fake-mode digest over all sources returns non-null values for each new field and at least one null case per field (for example one repo without `stars_today`). Fake mode makes no network call. Existing fake-item ids and counts still satisfy current tests.
