@@ -210,6 +210,8 @@ def test_build_digest_view_maps_common_fields_and_display_rank() -> None:
     assert view.entries[1].display_rank == 2
     assert view.entries[1].source_kind == SourceKind.JUYA
     assert view.entries[1].title == juya.title
+    # A GitHub entry without matching evidence keeps a null daily figure.
+    assert view.entries[0].stars_today is None
 
 
 def test_build_digest_view_wires_huggingface_evidence_via_news_item_lookup() -> None:
@@ -384,6 +386,41 @@ def test_build_digest_view_github_entry_projects_owner_and_preview() -> None:
     assert entry.owner.name == "NVIDIA"
     assert entry.owner.type == "organisation"
     assert entry.preview_image_url.startswith("https://")
+    assert entry.stars == 1280
+    assert entry.language == "Python"
+
+
+def test_extract_github_evidence_projects_stars_today() -> None:
+    from ai_news_agent.services.digest_views import extract_github_evidence
+
+    assert extract_github_evidence({"stars_today": 1234}, None)["stars_today"] == 1234
+    assert extract_github_evidence({"stars_today": 0}, None)["stars_today"] == 0
+    assert extract_github_evidence({}, None)["stars_today"] is None
+    assert extract_github_evidence({"stars_today": True}, None)["stars_today"] is None
+    assert extract_github_evidence({"stars_today": "1,234"}, None)["stars_today"] is None
+
+
+def test_build_digest_view_projects_github_stars_today() -> None:
+    from ai_news_agent.api.schemas.digests import GitHubDigestEntryView, build_digest_view
+
+    github = _github_entry()
+    digest = Digest(generated_at=_fixture_dt(), entries=[github])
+    news_items = [
+        NewsItem(
+            source=SourceKind.GITHUB,
+            source_id=github.source_id,
+            url=github.source_url,
+            title=github.title,
+            stars_or_views=1280,
+            language="Python",
+            source_evidence={"owner_name": "demo-org", "stars_today": 1234},
+        )
+    ]
+
+    view = build_digest_view(digest, news_items=news_items)
+    entry = view.entries[0]
+    assert isinstance(entry, GitHubDigestEntryView)
+    assert entry.stars_today == 1234
     assert entry.stars == 1280
     assert entry.language == "Python"
 

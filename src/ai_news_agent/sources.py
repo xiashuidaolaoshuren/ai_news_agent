@@ -192,7 +192,7 @@ def build_connectors(*, fake: bool, names: Sequence[str]) -> list[SourceConnecto
     else:
         factories = {
             "juya": JuyaConnector(),
-            "github": GitHubConnector(preview_enrichment=True),
+            "github": GitHubConnector(preview_enrichment=True, trending_enrichment=True),
             "bilibili": BilibiliConnector(),
             "huggingface": HuggingFaceConnector(owner_enrichment=True),
             "zhihu": ZhihuConnector(),

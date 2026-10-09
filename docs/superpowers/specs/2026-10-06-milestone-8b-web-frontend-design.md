@@ -200,13 +200,13 @@ This reverses the "GitHub daily star deltas" non-goal in the 2026-10-05 alignmen
 
 `GET /search/repositories` and `GET /repos/{owner}/{repo}` return `stargazers_count`, a lifetime total. They have no field for stars gained today. Listing stargazers (`Accept: application/vnd.github.star+json`) is oldest-first, has no date filter, and pages 100 at a time, so a popular repository would cost hundreds of requests. A delta against a previously saved `stars_or_views` is "since the last digest", and the first sighting has no prior value. Neither may be labeled "today".
 
-GitHub prints the figure on `https://github.com/trending?since=daily` ("N stars today"). One unauthenticated GET of that page per GitHub collect, using the same bounds as `github_previews.py` (short timeout, response size cap, limited redirects). Parse each trending row for `owner/repo` and the integer in "N stars today". Ignore "this week" and "this month". Join onto collected items by full name and store `stars_today` in `source_evidence`. `extract_github_evidence` projects it. A repository that is not on the list, a parse miss, or a failed fetch leaves the field null. A failed fetch adds a non-fatal connector warning and still returns the items.
+GitHub prints the figure on `https://github.com/trending?since=daily` ("N stars today"). One unauthenticated GET of that page per GitHub collect, using a short timeout and a limited number of manual redirects from `github_previews.py`, but a separate response-size cap: the page is a whole HTML document (585,999 bytes when observed on 2026-10-09), so it is capped at 2,000,000 bytes, enforced while streaming. Parse each trending row for `owner/repo` and the integer in "N stars today". Ignore "this week" and "this month". Join onto collected items by full name and store `stars_today` in `source_evidence`. `extract_github_evidence` projects it. A repository that is not on the list, a parse miss, or a failed fetch leaves the field null. A failed fetch adds a non-fatal connector warning and still returns the items.
 
 Do not change `rendering.py`. CLI, Gradio, and OpenClaw markdown stay without this phrase. Fake mode may set the evidence key on fixture items and must not call GitHub. Saved digests that lack the key stay null. No backfill.
 
 The card meta line is `{language} · {stars} ★ · +{stars_today} today`, dropping any null part. The word "today" is used only because that is the `since=daily` label.
 
-Backend tests, in the existing GitHub and digest-view files: a fixture page with thousands-separators, a row that is not "today", a repository absent from the page, a failed fetch that warns and leaves items unchanged, and projection of both an integer and null.
+Backend tests, in the existing GitHub and digest-view files, plus a new trending test file and an offline HTML fixture: a fixture page with thousands-separators, a row that is not "today", a repository absent from the page, a failed fetch that warns and leaves items unchanged, and projection of both an integer and null.
 
 ## Prototype-vs-API gap table
 

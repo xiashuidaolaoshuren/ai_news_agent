@@ -660,3 +660,216 @@ def test_github_connector_name() -> None:
             assert GitHubConnector(client=client).name() == "github"
 
     asyncio.run(main())
+
+
+def _load_trending_fixture() -> str:
+    path = FIXTURES / "github_trending_daily_sample.html"
+    assert path.is_file(), f"missing fixture {path}"
+    return path.read_text(encoding="utf-8")
+
+
+def _record(inner: httpx.MockTransport, seen: list[str]) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return inner.handler(request)
+
+    return httpx.MockTransport(handler)
+
+
+def _sparse_search_json() -> dict:
+    data = _load_fixture("github_search_sample.json")
+    items = list(data["items"]) + [
+        {
+            "id": 9003,
+            "full_name": "demo-org/absent-repo",
+            "html_url": "https://github.com/demo-org/absent-repo",
+            "description": "Not on the trending page",
+            "owner": {"login": "demo-org", "id": 1},
+            "stargazers_count": 17,
+            "language": "Go",
+            "pushed_at": "2026-05-01T08:30:00Z",
+        }
+    ]
+    return {"total_count": len(items), "incomplete_results": False, "items": items}
+
+
+def test_collect_default_connector_makes_no_web_request() -> None:
+    seen: list[str] = []
+
+    async def main() -> None:
+        api_transport = _record(
+            _make_transport(search_json=_load_fixture("github_search_sample.json")),
+            seen,
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+        ) as api_client:
+            conn = GitHubConnector(token=None, client=api_client)
+            out = await conn.collect(ConnectorRequest(topics=["RAG"], max_items=5))
+
+            assert conn._preview_client is None
+
+        assert len(out.items) == 2
+        assert all("stars_today" not in item.source_evidence for item in out.items)
+        assert not any("/trending" in url for url in seen)
+
+    asyncio.run(main())
+
+
+def test_collect_trending_enrichment_adds_daily_stars_once() -> None:
+    api_seen: list[str] = []
+    web_seen: list[str] = []
+
+    async def main() -> None:
+        api_transport = _record(_make_transport(search_json=_sparse_search_json()), api_seen)
+        web_transport = _record(
+            _make_preview_transport(pages={"/trending": (200, _load_trending_fixture())}),
+            web_seen,
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+        ) as api_client, httpx.AsyncClient(
+            transport=web_transport,
+            base_url="https://github.com",
+            follow_redirects=False,
+        ) as web_client:
+            conn = GitHubConnector(
+                token=None,
+                client=api_client,
+                trending_client=web_client,
+                trending_enrichment=True,
+            )
+            out = await conn.collect(ConnectorRequest(topics=["RAG"], max_items=5))
+
+        assert len(web_seen) == 1
+        assert "/trending" in web_seen[0]
+        assert "since=daily" in web_seen[0]
+
+        by_title = {item.title: item for item in out.items}
+        matched = by_title["demo-org/awesome-agents"]
+        assert matched.source_evidence["stars_today"] == 1234
+        assert isinstance(matched.source_evidence["stars_today"], int)
+        assert matched.stars_or_views == 1280
+        assert matched.source_evidence["owner_name"] == "demo-org"
+        # Case-different spelling on the page still matches.
+        assert by_title["demo-org/rag-cookbook"].source_evidence["stars_today"] == 5925
+        # Collected repo missing from the page keeps no daily figure.
+        assert "stars_today" not in by_title["demo-org/absent-repo"].source_evidence
+
+    asyncio.run(main())
+
+
+def test_collect_trending_enrichment_skips_web_request_without_items() -> None:
+    web_seen: list[str] = []
+
+    async def main() -> None:
+        api_transport = _make_transport(
+            search_json={"total_count": 0, "incomplete_results": False, "items": []}
+        )
+        web_transport = _record(
+            _make_preview_transport(pages={"/trending": (200, _load_trending_fixture())}),
+            web_seen,
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+        ) as api_client, httpx.AsyncClient(
+            transport=web_transport,
+            base_url="https://github.com",
+            follow_redirects=False,
+        ) as web_client:
+            conn = GitHubConnector(
+                token=None,
+                client=api_client,
+                trending_client=web_client,
+                trending_enrichment=True,
+            )
+            out = await conn.collect(ConnectorRequest(topics=["RAG"], max_items=5))
+
+        assert out.items == []
+        assert web_seen == []
+
+    asyncio.run(main())
+
+
+def test_collect_trending_enrichment_makes_no_request_without_input() -> None:
+    web_seen: list[str] = []
+
+    async def main() -> None:
+        api_transport = _make_transport(search_json={"items": []})
+        web_transport = _record(
+            _make_preview_transport(pages={"/trending": (200, _load_trending_fixture())}),
+            web_seen,
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+        ) as api_client, httpx.AsyncClient(
+            transport=web_transport,
+            base_url="https://github.com",
+            follow_redirects=False,
+        ) as web_client:
+            conn = GitHubConnector(
+                token=None,
+                client=api_client,
+                trending_client=web_client,
+                trending_enrichment=True,
+            )
+            out = await conn.collect(ConnectorRequest(topics=[], max_items=5))
+
+        assert out.items == []
+        assert any(w.code == "no_input" for w in out.warnings)
+        assert web_seen == []
+
+    asyncio.run(main())
+
+
+def test_collect_preview_and_trending_share_one_unauthenticated_web_client() -> None:
+    preview_html = (
+        '<html><head><meta property="og:image" '
+        'content="https://opengraph.githubassets.com/9001/demo-org/awesome-agents" />'
+        "</head></html>"
+    )
+    headers_seen: list[dict[str, str]] = []
+    web_seen: list[str] = []
+
+    async def main() -> None:
+        api_transport = _make_transport(search_json=_sparse_search_json())
+        web_transport = _make_preview_transport(
+            pages={
+                "/demo-org/awesome-agents": (200, preview_html),
+                "/demo-org/rag-cookbook": (200, preview_html),
+                "/demo-org/absent-repo": (200, preview_html),
+                "/trending": (200, _load_trending_fixture()),
+            },
+            request_headers=headers_seen,
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+            headers={"Authorization": "Bearer secret-token"},
+        ) as api_client, httpx.AsyncClient(
+            transport=_record(web_transport, web_seen),
+            base_url="https://github.com",
+            follow_redirects=False,
+        ) as web_client:
+            conn = GitHubConnector(
+                token="secret-token",
+                client=api_client,
+                preview_client=web_client,
+                trending_enrichment=True,
+            )
+            out = await conn.collect(ConnectorRequest(topics=["RAG"], max_items=5))
+
+        by_title = {item.title: item for item in out.items}
+        matched = by_title["demo-org/awesome-agents"]
+        assert matched.source_evidence["preview_image_url"].startswith("https://")
+        assert matched.source_evidence["stars_today"] == 1234
+        assert sum(1 for url in web_seen if "/trending" in url) == 1
+        assert headers_seen
+        for headers in headers_seen:
+            assert "authorization" not in {key.lower() for key in headers}
+
+    asyncio.run(main())

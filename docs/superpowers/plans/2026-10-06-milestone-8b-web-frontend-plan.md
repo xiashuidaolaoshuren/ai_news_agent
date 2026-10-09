@@ -42,7 +42,7 @@ Phase 1 (B1-B8) extends the Python API additively: message and session metadata,
 | `src/ai_news_agent/history.py` | modify | `HistorySearchMatch.topics: list[str] = []` | model | verified |
 | `src/ai_news_agent/history_search.py` | modify | Fill `topics` from `candidate["digest_topics"]` | `_candidate_to_match` | verified |
 | `src/ai_news_agent/services/digest_views.py` | modify | Project `base_model`, `stars_today` | extractors | verified |
-| `src/ai_news_agent/github_trending.py` | create | Fetch and parse `github.com/trending?since=daily`, join `stars_today` into evidence | `parse_trending_stars_today(html)`, `enrich_github_stars_today(items, client=)` | provisional (mirrors `github_previews.py`) |
+| `src/ai_news_agent/github_trending.py` | create | Fetch and parse `github.com/trending?since=daily`, join `stars_today` into evidence | `parse_trending_stars_today(html)`, `enrich_github_stars_today(items, client=)` | verified (mirrors `github_previews.py`; separate 2 MB streamed cap) |
 | `src/ai_news_agent/connectors/github.py` | modify | Opt-in trending enrichment after previews; non-fatal warning | `GitHubConnector(trending_enrichment=)` | verified |
 | `src/ai_news_agent/sources.py` | modify | Enable trending for live GitHub; enrich fake GitHub and fake HF fixtures | connector wiring | verified |
 | `tests/test_api_sessions.py` | modify | Message and session fields, SSE digest and progress payloads | pytest | verified |
@@ -52,8 +52,9 @@ Phase 1 (B1-B8) extends the Python API additively: message and session metadata,
 | `tests/test_history_search.py` | modify | Match carries digest topics | pytest | verified |
 | `tests/test_api_history.py` | modify | `topics` on the HTTP result | pytest | verified |
 | `tests/test_connectors_github.py` | modify | Trending enrichment behavior | pytest | verified |
-| `tests/test_github_trending.py` | create | Trending HTML parsing and bounds | pytest | provisional |
-| `tests/test_sources.py` | modify | Fake fixtures expose new evidence | pytest | verified |
+| `tests/test_github_trending.py` | create | Trending HTML parsing, fetch bounds, and warning behavior | pytest | verified |
+| `tests/fixtures/github_trending_daily_sample.html` | create | Offline excerpt of the daily trending page for parser tests | fixture | verified |
+| `tests/test_sources.py` | modify | Fake fixtures expose new evidence; live GitHub enables trending while fake stays offline | pytest | verified |
 | `README.md` | modify | Document new fields in the local web API section | docs | verified |
 
 ### Goal B: Frontend (Phase 2), all under `frontend/` (all paths provisional)
@@ -122,7 +123,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B3 — Structured progress fields (F4)
 
-- [ ] **Do:** Add optional `source`, `status`, `count` to the SSE `progress` event while keeping `stage` exactly as sent today.
+- [x] **Do:** Add optional `source`, `status`, `count` to the SSE `progress` event while keeping `stage` exactly as sent today.
 - **Consumes:** the formatters in `collect.py` (`Calling {name}…`, `Done {name}: Found {n} {name} result(s).`, `Tool failed {name}: collection failed.`); `ProgressEvent`; `_chat_event_payload`.
 - **Produces:** `parse_connector_progress(line) -> tuple[source, status, count | None] | None` kept beside the formatters; `ProgressPayload.source: str | None`, `status: "running" | "done" | "failed" | None`, `count: int | None`.
 - **Acceptance:** `Calling X…` gives `running`; `Done X: Found n …` gives `done` with `count=n` (singular and plural forms); `Tool failed X…` gives `failed`. Non-connector lines (`Parsing request…`, `Ranking candidates…`, `Collecting from sources…`) give all three fields `null` and still send `stage`. A round-trip test builds each line with the formatter and parses it, so a wording change fails the test. The Gradio and tool-agent strings are unchanged.
@@ -134,7 +135,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B4 — Hugging Face base model (F5)
 
-- [ ] **Do:** Project the stored `base_model` on Hugging Face digest entries.
+- [x] **Do:** Project the stored `base_model` on Hugging Face digest entries.
 - **Consumes:** `source_evidence["base_model"]` from `connectors/huggingface.py`; `extract_huggingface_evidence`.
 - **Produces:** `HuggingFaceDigestEntryView.base_model: str | None`.
 - **Acceptance:** A representative with `base_model` evidence returns it; missing or blank returns `null`; the family representative's value wins (not an `Also` variant's). Old saved digests return `null`.
@@ -145,7 +146,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B5 — History result topics (F6)
 
-- [ ] **Do:** Return the digest-level topics on each history search match.
+- [x] **Do:** Return the digest-level topics on each history search match.
 - **Consumes:** `candidate["digest_topics"]` in `_candidate_to_match`; `HistorySearchMatch`.
 - **Produces:** `HistorySearchMatch.topics: list[str]` (default `[]`); `HistorySearchMatchOut.topics: list[str]`.
 - **Acceptance:** A match from a digest with topics returns them in saved order; a digest without topics returns `[]`. Topic filtering, scoring, refs, ordering, and rendered history text are identical to before.
@@ -157,9 +158,10 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B6 — GitHub stars today (F7)
 
-- [ ] **Do:** Collect `stars_today` from GitHub's daily trending page and project it on GitHub digest entries.
-- **Consumes:** `github_previews.py` bounds (timeout, size cap, redirect limit, concurrency pattern); `GitHubConnector.collect`; `extract_github_evidence`.
+- [x] **Do:** Collect `stars_today` from GitHub's daily trending page and project it on GitHub digest entries.
+- **Consumes:** `github_previews.py` fetch bounds (short timeout, redirect limit, off-host check); `GitHubConnector.collect`; `extract_github_evidence`.
 - **Produces:** `github_trending.parse_trending_stars_today(html) -> dict[str, int]` (full name to count); `enrich_github_stars_today(items, client=) -> (items, warnings)`; evidence key `stars_today`; `GitHubConnector(trending_enrichment: bool = False)`; `GitHubDigestEntryView.stars_today: int | None`.
+- **Fetch bounds:** the trending page is one whole HTML document, not one small repo page, so response size is capped separately at `TRENDING_MAX_RESPONSE_BYTES = 2_000_000` and enforced while streaming. The 5-second timeout and 3-redirect limit carry over from `github_previews.py`. The observed daily page was 585,999 bytes, which exceeds the 512,000-byte preview cap. `PREVIEW_MAX_CONCURRENT` does not apply: one page per collect.
 - **Acceptance:** Parsing handles thousands separators, ignores "this week" and "this month" rows, and tolerates extra whitespace and missing rows. A collected repo on the page gets `stars_today`; one absent from the page stays `null`. A failed or oversized fetch adds one non-fatal warning and returns items unchanged. One trending GET per collect, regardless of item count. The default connector and all existing tests make no extra request. Names match case-insensitively. Stars-today never overwrites `stars` or changes ranking.
 - **Compatibility:** `rendering.py` output, CLI, Gradio, and OpenClaw text unchanged.
 - **Blocked by:** —
@@ -333,3 +335,4 @@ Per subtask, obey `TDD suitable`: `yes` means strict RED/GREEN (scoped `uv run p
 | 2026-10-06 | Initial plan. Backend slice (B1-B8) ordered before the frontend (T1-T11) | — |
 | 2026-10-06 | B1 also adds `digest_id` to the SSE `digest` event (spec F1 said `MessageOut` only); the `dN` ref is needed before any reload. Spec F1 row patched to match | equivalent |
 | 2026-10-06 | Added B7 (fake-mode fixtures): fake GitHub and HF connectors carry no presentation evidence, so spec acceptance 1 could not be met without it | equivalent |
+| 2026-10-09 | B6 uses a separate streamed 2,000,000-byte cap; observed daily page is 585,999 bytes. Keep 5-second timeout/3 redirects and add offline HTML fixture | material (approved) |

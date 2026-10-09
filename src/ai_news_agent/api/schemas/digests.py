@@ -76,6 +76,7 @@ class GitHubDigestEntryView(DigestEntryView):
     owner: PublisherOwnerView | None = None
     preview_image_url: str | None = None
     stars: int | None = None
+    stars_today: int | None = None
     language: str | None = None
 
 

@@ -36,6 +36,7 @@ from ai_news_agent.github_previews import (
     PREVIEW_TIMEOUT,
     enrich_github_previews,
 )
+from ai_news_agent.github_trending import enrich_github_stars_today
 from ai_news_agent.models import ConfidenceLevel, ConnectorWarning, NewsItem, SourceKind
 
 DEFAULT_BASE_URL = "https://api.github.com"
@@ -66,6 +67,8 @@ class GitHubConnector:
         base_url: str = DEFAULT_BASE_URL,
         preview_client: httpx.AsyncClient | None = None,
         preview_enrichment: bool = False,
+        trending_client: httpx.AsyncClient | None = None,
+        trending_enrichment: bool = False,
     ) -> None:
         self._token = token if token is not None else os.environ.get("GITHUB_TOKEN")
         self._owns_client = client is None
@@ -83,6 +86,8 @@ class GitHubConnector:
         self._preview_client = preview_client
         self._owns_preview_client = preview_client is None
         self._preview_enrichment = preview_enrichment or preview_client is not None
+        self._trending_client = trending_client
+        self._trending_enrichment = trending_enrichment
 
     def name(self) -> str:
         return "github"
@@ -96,6 +101,11 @@ class GitHubConnector:
                 follow_redirects=False,
             )
         return self._preview_client
+
+    def _get_trending_client(self) -> httpx.AsyncClient:
+        if self._trending_client is not None:
+            return self._trending_client
+        return self._get_preview_client()
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -157,6 +167,12 @@ class GitHubConnector:
                 client=preview_client,
             )
             warnings.extend(preview_warnings)
+        if self._trending_enrichment:
+            merged, trending_warnings = await enrich_github_stars_today(
+                merged,
+                client=self._get_trending_client(),
+            )
+            warnings.extend(trending_warnings)
         return ConnectorResult(items=merged, warnings=warnings, raw_count=raw_total)
 
     async def _row_to_item(

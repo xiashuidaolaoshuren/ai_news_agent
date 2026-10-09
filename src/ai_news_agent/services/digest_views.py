@@ -94,6 +94,7 @@ def extract_github_evidence(
     payload["preview_image_url"] = _safe_http_url(
         source_evidence.get("preview_image_url")
     )
+    payload["stars_today"] = _optional_int(source_evidence.get("stars_today"))
     stars = news_item.stars_or_views if news_item is not None else None
     payload["stars"] = _optional_int(stars)
     language = news_item.language if news_item is not None else None

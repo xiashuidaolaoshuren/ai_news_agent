@@ -7,12 +7,14 @@ import asyncio
 import pytest
 
 from ai_news_agent.models import SourceKind
+from ai_news_agent.connectors.github import GitHubConnector
 from ai_news_agent.connectors.huggingface import HuggingFaceConnector
 from ai_news_agent.connectors.juya import JuyaConnector
 from ai_news_agent.connectors.zhihu import ZhihuConnector
 from ai_news_agent.sources import (
     ALLOWED_SOURCES,
     DEFAULT_SOURCE_NAMES,
+    FakeGitHubConnector,
     FakeHuggingFaceConnector,
     FakeJuyaConnector,
     FakeZhihuConnector,
@@ -148,3 +150,22 @@ def test_build_connector_factory_returns_fresh_connector_per_call() -> None:
 def test_build_connector_factory_rejects_unknown_source() -> None:
     with pytest.raises(ValueError, match="Unknown source 'arxiv'"):
         build_connector_factory(fake=True, name="arxiv")
+
+
+def test_build_connectors_live_github_enables_preview_and_trending() -> None:
+    async def main() -> None:
+        connector = build_connectors(fake=False, names=["github"])[0]
+        assert isinstance(connector, GitHubConnector)
+        assert connector._preview_enrichment is True
+        assert connector._trending_enrichment is True
+        await connector.aclose()
+
+    asyncio.run(main())
+
+
+def test_build_connectors_fake_github_stays_offline() -> None:
+    connector = build_connectors(fake=True, names=["github"])[0]
+
+    assert isinstance(connector, FakeGitHubConnector)
+    assert not hasattr(connector, "_trending_enrichment")
+    assert not hasattr(connector, "_preview_enrichment")
