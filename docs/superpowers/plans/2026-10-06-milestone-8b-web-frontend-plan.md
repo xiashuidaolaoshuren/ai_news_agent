@@ -183,7 +183,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B8 — Contract check and docs
 
-- [ ] **Do:** Prove the final OpenAPI document contains F1-F7 and document the fields.
+- [x] **Do:** Prove the final OpenAPI document contains F1-F7 and document the fields.
 - **Consumes:** B1-B7.
 - **Produces:** README local web API section updated; a test that the OpenAPI schema contains each new property; a full-suite green run.
 - **Acceptance:** `GET /openapi.json` lists `digest_id`, `warnings`, `digest_count`, `active_request_id`, the progress fields, `base_model`, `stars_today`, and history `topics`. README describes them and notes which are nullable. The full offline suite passes with no network.

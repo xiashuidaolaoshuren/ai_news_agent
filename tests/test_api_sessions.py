@@ -180,6 +180,22 @@ def test_openapi_documents_session_message_stream_as_sse(tmp_path: Path) -> None
     assert any("DigestView" in json.dumps(schema_names[name]) for name in schema_names)
 
 
+def test_openapi_lists_milestone_8b_contract_fields(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "openapi-8b.db")
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+
+    def properties(name: str) -> set[str]:
+        return set(schemas[name]["properties"])
+
+    assert {"digest_id", "warnings"} <= properties("MessageOut")
+    assert {"digest_id", "warnings"} <= properties("DigestPayload")
+    assert {"digest_count", "active_request_id"} <= properties("SessionOut")
+    assert {"source", "status", "count"} <= properties("ProgressPayload")
+    assert "stars_today" in properties("GitHubDigestEntryView")
+    assert "base_model" in properties("HuggingFaceDigestEntryView")
+    assert "topics" in properties("HistorySearchMatchOut")
+
+
 def test_fastapi_shell_surface_importable() -> None:
     from ai_news_agent.api.app import create_app
     from ai_news_agent.services.composition import Application, build_application

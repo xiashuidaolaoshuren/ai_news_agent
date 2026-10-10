@@ -305,8 +305,20 @@ Browser routes:
 **DigestView presentation metadata** (additive, nullable on old digests):
 
 - GitHub / Hugging Face entries may include `owner` (`name`, `profile_url`, `avatar_url`, `type` where `type` is `organisation` or `person`).
-- GitHub entries may include `preview_image_url`, `stars`, and `language`.
+- GitHub entries may include `preview_image_url`, `stars`, `language`, and `stars_today` (`int` or `null` when the repo is absent from the daily trending page or the fetch failed).
+- Hugging Face entries may include `base_model` (`string` or `null` when missing or blank). The family representative's value is used.
 - Juya entries include `item_type` (`issue` or `story`), optional `issue` block (`id`, `date`, `url`, `cover_url`, `lead_title`), and optional `story` block (`number`, `section`, `original_url`) when in story mode.
+
+**Milestone 8B additive fields** (old clients ignore them):
+
+| Field | Where | Nullability |
+|---|---|---|
+| `digest_id` | `MessageOut`; SSE `digest` event (`DigestPayload`) | `null` on user messages and non-digest assistant messages. Required integer on the live `digest` event. |
+| `warnings` | `MessageOut`; SSE `digest` event | Always a list. `[]` when the run saved none. |
+| `digest_count` | `SessionOut` | Integer, never null. Counts only succeeded requests that have a `run_id`. |
+| `active_request_id` | `SessionOut` | `string` or `null`. Set only while a request is `active`. |
+| `source`, `status`, `count` | SSE `progress` event (`ProgressPayload`) | All three are `null` for non-connector lines. `status` is `running`, `done`, or `failed` when set. `count` is an integer on `done`. `stage` is always sent. |
+| `topics` | `HistorySearchMatchOut` | Always a list, in saved digest order. `[]` when the digest has no topics. |
 
 **Juya story mode (web only):** `POST .../messages` accepts optional `"juya_item_mode": "stories"` (default `"issue"`). This applies to that message only; CLI, Gradio, and OpenClaw stay issue mode. Replaying a finished `client_request_id` returns the saved digest regardless of new options.
 
