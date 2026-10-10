@@ -197,6 +197,46 @@ def test_topic_and_match_is_casefold_digest_topics_not_entry_matches(tmp_path: P
     assert result.matches[0].title == "RAG digest item"
 
 
+def test_search_match_topics_preserves_saved_digest_order(tmp_path: Path) -> None:
+    store = DigestStore(tmp_path / "match-topics.db")
+    store.init_schema()
+    entry = _make_digest_entry(
+        source_kind=SourceKind.GITHUB,
+        source_id="topics-1",
+        title="Alpha unique digest item",
+        url="https://github.com/a/topics",
+        summary="Topics summary",
+    )
+    _seed_run_with_digest(
+        store,
+        generated_at=datetime(2026, 8, 3, 12, 0, 0, tzinfo=UTC),
+        topics=["RAG", "agents"],
+        entries=[entry],
+    )
+    empty_topics_entry = _make_digest_entry(
+        source_kind=SourceKind.GITHUB,
+        source_id="empty-topics-1",
+        title="Beta unique digest item",
+        url="https://github.com/a/empty-topics",
+        summary="Empty topics summary",
+    )
+    _seed_run_with_digest(
+        store,
+        generated_at=datetime(2026, 8, 2, 12, 0, 0, tzinfo=UTC),
+        topics=[],
+        entries=[empty_topics_entry],
+    )
+    from ai_news_agent.history_search import search_digest_history
+
+    result = search_digest_history(store, HistorySearchQuery(text="Alpha unique"))
+    assert len(result.matches) == 1
+    assert result.matches[0].topics == ["RAG", "agents"]
+
+    empty_result = search_digest_history(store, HistorySearchQuery(text="Beta unique"))
+    assert len(empty_result.matches) == 1
+    assert empty_result.matches[0].topics == []
+
+
 def test_lexical_scores_sorts_and_respects_limit(tmp_path: Path) -> None:
     store = DigestStore(tmp_path / "lexical.db")
     store.init_schema()

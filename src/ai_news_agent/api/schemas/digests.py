@@ -10,17 +10,41 @@ from pydantic import BaseModel, ConfigDict, Field
 from ai_news_agent.models import Digest, FollowUpAction, NewsItem, SourceKind
 
 
+class PublisherOwnerView(BaseModel):
+    """Publisher account metadata for GitHub and Hugging Face entries."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    profile_url: str | None = None
+    avatar_url: str | None = None
+    type: Literal["organisation", "person"] | None = None
+
+
+class JuyaIssueView(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    date: str | None = None
+    url: str | None = None
+    cover_url: str | None = None
+    lead_title: str | None = None
+
+
+class JuyaStoryView(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    number: int | None = None
+    section: str | None = None
+    original_url: str | None = None
+
+
 class DigestEntryView(BaseModel):
     """Common digest entry fields exposed to the API."""
 
     model_config = ConfigDict(extra="ignore")
 
-    source_kind: Literal[
-        SourceKind.GITHUB,
-        SourceKind.BILIBILI,
-        SourceKind.JUYA,
-        SourceKind.ZHIHU,
-    ]
+    source_kind: Literal[SourceKind.BILIBILI, SourceKind.ZHIHU]
     source_id: str
     title: str
     source_name: str
@@ -45,10 +69,23 @@ class FamilyVariant(BaseModel):
     likes: int | None = None
 
 
+class GitHubDigestEntryView(DigestEntryView):
+    """GitHub digest entry with repository presentation metadata."""
+
+    source_kind: Literal[SourceKind.GITHUB] = SourceKind.GITHUB
+    owner: PublisherOwnerView | None = None
+    preview_image_url: str | None = None
+    stars: int | None = None
+    stars_today: int | None = None
+    language: str | None = None
+
+
 class HuggingFaceDigestEntryView(DigestEntryView):
     """Hugging Face digest entry with whitelisted family metrics."""
 
     source_kind: Literal[SourceKind.HUGGINGFACE] = SourceKind.HUGGINGFACE
+    owner: PublisherOwnerView | None = None
+    base_model: str | None = None
     trending_score: float | int | None = None
     downloads_30d: int | None = None
     likes: int | None = None
@@ -56,8 +93,20 @@ class HuggingFaceDigestEntryView(DigestEntryView):
     family_variants: list[FamilyVariant] = Field(default_factory=list)
 
 
+class JuyaDigestEntryView(DigestEntryView):
+    """Juya digest entry with issue/story presentation metadata."""
+
+    source_kind: Literal[SourceKind.JUYA] = SourceKind.JUYA
+    item_type: Literal["issue", "story"] | None = None
+    issue: JuyaIssueView | None = None
+    story: JuyaStoryView | None = None
+
+
 DigestEntryViewUnion = Annotated[
-    DigestEntryView | HuggingFaceDigestEntryView,
+    GitHubDigestEntryView
+    | HuggingFaceDigestEntryView
+    | JuyaDigestEntryView
+    | DigestEntryView,
     Field(discriminator="source_kind"),
 ]
 

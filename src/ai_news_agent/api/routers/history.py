@@ -18,7 +18,11 @@ from ai_news_agent.history import (
     format_historical_item_ref,
     parse_historical_item_ref,
 )
-from ai_news_agent.history_search import search_digest_history, show_historical_item
+from ai_news_agent.history_search import (
+    project_historical_entry,
+    search_digest_history,
+    show_historical_item,
+)
 from ai_news_agent.services.composition import Application
 from ai_news_agent.sources import parse_sources_csv
 
@@ -64,6 +68,7 @@ def search_history(
                 url=match.url,
                 excerpt=match.excerpt,
                 score=match.score,
+                topics=match.topics,
             )
             for match in result.matches
         ],
@@ -95,4 +100,9 @@ def show_history(
             status.HTTP_404_NOT_FOUND,
             detail="historical item not found",
         )
-    return HistoryItemShowOut(token=historical_item_ref, markdown=markdown)
+    entry_payload = project_historical_entry(application.digest_store, historical_item_ref)
+    return HistoryItemShowOut(
+        token=historical_item_ref,
+        markdown=markdown,
+        entry=entry_payload,
+    )

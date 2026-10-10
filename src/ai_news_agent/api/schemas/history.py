@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from ai_news_agent.api.schemas.digests import DigestEntryViewUnion
 from ai_news_agent.models import SourceKind
 
 
@@ -29,6 +30,7 @@ class HistorySearchMatchOut(BaseModel):
     url: str
     excerpt: str | None
     score: float
+    topics: list[str] = Field(default_factory=list)
 
 
 class HistorySearchResultOut(BaseModel):
@@ -45,3 +47,4 @@ class HistoryItemShowOut(BaseModel):
 
     token: str
     markdown: str
+    entry: DigestEntryViewUnion | None = None

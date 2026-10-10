@@ -8,8 +8,15 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+import httpx
+
 from ai_news_agent.connectors.base import ConnectorRequest, ConnectorResult
 from ai_news_agent.huggingface_families import group_huggingface_families, huggingface_collect_limit
+from ai_news_agent.huggingface_profiles import (
+    HF_PROFILE_BASE,
+    OWNER_PROFILE_TIMEOUT,
+    enrich_hf_owner_profiles,
+)
 from ai_news_agent.models import ConfidenceLevel, ConnectorWarning, NewsItem, SourceKind
 
 if TYPE_CHECKING:
@@ -27,10 +34,15 @@ class HuggingFaceConnector:
         api: HfApi | None = None,
         token: str | None = None,
         load_model_card: Callable[[str], Any] | None = None,
+        profile_client: httpx.AsyncClient | None = None,
+        owner_enrichment: bool = False,
     ) -> None:
         self._token = token if token is not None else os.environ.get("HUGGINGFACE_TOKEN") or None
         self._api = api
         self._load_model_card = load_model_card
+        self._profile_client = profile_client
+        self._owns_profile_client = profile_client is None
+        self._owner_enrichment = owner_enrichment or profile_client is not None
 
     def name(self) -> str:
         return "huggingface"
@@ -41,6 +53,20 @@ class HuggingFaceConnector:
 
             self._api = HfApi(token=self._token)
         return self._api
+
+    def _get_profile_client(self) -> httpx.AsyncClient:
+        if self._profile_client is None:
+            self._profile_client = httpx.AsyncClient(
+                base_url=HF_PROFILE_BASE,
+                timeout=OWNER_PROFILE_TIMEOUT,
+                headers={"User-Agent": "ai-news-agent/0.1"},
+            )
+        return self._profile_client
+
+    async def aclose(self) -> None:
+        if self._owns_profile_client and self._profile_client is not None:
+            await self._profile_client.aclose()
+            self._profile_client = None
 
     async def collect(self, request: ConnectorRequest) -> ConnectorResult:
         mode = request.huggingface_discovery_mode or "global"
@@ -105,6 +131,13 @@ class HuggingFaceConnector:
             items.append(_model_to_news_item(model, discovery_mode, collected_at, request.topics))
 
         grouped_items = group_huggingface_families(items, limit=display_limit)
+        if self._owner_enrichment:
+            profile_client = self._get_profile_client()
+            grouped_items, profile_warnings = await enrich_hf_owner_profiles(
+                grouped_items,
+                client=profile_client,
+            )
+            warnings.extend(profile_warnings)
         return ConnectorResult(items=grouped_items, warnings=warnings, raw_count=len(models))
 
     async def enrich_news_item(

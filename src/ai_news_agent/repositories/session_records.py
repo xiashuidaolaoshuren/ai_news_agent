@@ -95,10 +95,19 @@ def request_record_from_row(row: sqlite3.Row) -> SessionRequestRecord:
     )
 
 
+@dataclass(frozen=True)
+class SessionRequestStats:
+    """Per-session digest count and in-flight request id."""
+
+    digest_count: int
+    active_request_id: str | None
+
+
 __all__ = [
     "MessageRecord",
     "SessionRecord",
     "SessionRequestRecord",
+    "SessionRequestStats",
     "message_record_from_row",
     "request_record_from_row",
     "session_record_from_row",

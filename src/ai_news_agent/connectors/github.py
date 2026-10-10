@@ -31,6 +31,12 @@ from urllib.parse import urlparse
 import httpx
 
 from ai_news_agent.connectors.base import ConnectorRequest, ConnectorResult
+from ai_news_agent.github_previews import (
+    GITHUB_WEB_BASE,
+    PREVIEW_TIMEOUT,
+    enrich_github_previews,
+)
+from ai_news_agent.github_trending import enrich_github_stars_today
 from ai_news_agent.models import ConfidenceLevel, ConnectorWarning, NewsItem, SourceKind
 
 DEFAULT_BASE_URL = "https://api.github.com"
@@ -59,6 +65,10 @@ class GitHubConnector:
         token: str | None = None,
         client: httpx.AsyncClient | None = None,
         base_url: str = DEFAULT_BASE_URL,
+        preview_client: httpx.AsyncClient | None = None,
+        preview_enrichment: bool = False,
+        trending_client: httpx.AsyncClient | None = None,
+        trending_enrichment: bool = False,
     ) -> None:
         self._token = token if token is not None else os.environ.get("GITHUB_TOKEN")
         self._owns_client = client is None
@@ -73,13 +83,36 @@ class GitHubConnector:
                 headers=headers,
                 timeout=httpx.Timeout(30.0),
             )
+        self._preview_client = preview_client
+        self._owns_preview_client = preview_client is None
+        self._preview_enrichment = preview_enrichment or preview_client is not None
+        self._trending_client = trending_client
+        self._trending_enrichment = trending_enrichment
 
     def name(self) -> str:
         return "github"
 
+    def _get_preview_client(self) -> httpx.AsyncClient:
+        if self._preview_client is None:
+            self._preview_client = httpx.AsyncClient(
+                base_url=GITHUB_WEB_BASE,
+                timeout=PREVIEW_TIMEOUT,
+                headers={"User-Agent": "ai-news-agent/0.1"},
+                follow_redirects=False,
+            )
+        return self._preview_client
+
+    def _get_trending_client(self) -> httpx.AsyncClient:
+        if self._trending_client is not None:
+            return self._trending_client
+        return self._get_preview_client()
+
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()
+        if self._owns_preview_client and self._preview_client is not None:
+            await self._preview_client.aclose()
+            self._preview_client = None
 
     async def collect(self, request: ConnectorRequest) -> ConnectorResult:
         warnings: list[ConnectorWarning] = []
@@ -127,6 +160,19 @@ class GitHubConnector:
                 by_repo_id[item.source_id] = item
 
         merged = list(by_repo_id.values())[: request.max_items]
+        if self._preview_enrichment:
+            preview_client = self._get_preview_client()
+            merged, preview_warnings = await enrich_github_previews(
+                merged,
+                client=preview_client,
+            )
+            warnings.extend(preview_warnings)
+        if self._trending_enrichment:
+            merged, trending_warnings = await enrich_github_stars_today(
+                merged,
+                client=self._get_trending_client(),
+            )
+            warnings.extend(trending_warnings)
         return ConnectorResult(items=merged, warnings=warnings, raw_count=raw_total)
 
     async def _row_to_item(
@@ -568,6 +614,36 @@ def _metadata_completeness(
     return min(score, 1.0)
 
 
+def _normalize_github_owner_type(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    key = str(raw).strip().lower()
+    if key in ("organization", "organisation"):
+        return "organisation"
+    if key == "user":
+        return "person"
+    return None
+
+
+def _extract_github_owner_evidence(owner_raw: Any) -> dict[str, Any]:
+    if not isinstance(owner_raw, dict):
+        return {}
+    login = str(owner_raw.get("login") or "").strip()
+    if not login:
+        return {}
+    evidence: dict[str, Any] = {"owner_name": login}
+    profile_url = owner_raw.get("html_url")
+    if profile_url:
+        evidence["owner_profile_url"] = str(profile_url).strip()
+    avatar_url = owner_raw.get("avatar_url")
+    if avatar_url:
+        evidence["owner_avatar_url"] = str(avatar_url).strip()
+    owner_type = _normalize_github_owner_type(owner_raw.get("type"))
+    if owner_type is not None:
+        evidence["owner_type"] = owner_type
+    return evidence
+
+
 def _repo_to_news_item(
     row: dict[str, Any],
     request_topics: list[str],
@@ -582,7 +658,9 @@ def _repo_to_news_item(
         desc = str(desc).strip() or None
 
     stars = row.get("stargazers_count")
-    owner = (row.get("owner") or {}).get("login") if isinstance(row.get("owner"), dict) else None
+    owner_raw = row.get("owner")
+    owner = owner_raw.get("login") if isinstance(owner_raw, dict) else None
+    owner_evidence = _extract_github_owner_evidence(owner_raw)
     pushed = row.get("pushed_at") or row.get("updated_at")
     published_at: datetime | None = None
     if isinstance(pushed, str):
@@ -627,6 +705,7 @@ def _repo_to_news_item(
         tags=tags,
         topic_matches=topic_matches,
         content_confidence=content_confidence,
+        source_evidence=owner_evidence,
     )
 
 

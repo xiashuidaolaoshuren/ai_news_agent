@@ -46,6 +46,8 @@ class DigestRequest:
     huggingface_discovery_mode: str | None = None
     huggingface_search: str | None = None
     huggingface_pipeline_tag: str | None = None
+    #: Web-only Juya collection mode: ``issue`` (default) or ``stories``.
+    juya_item_mode: str | None = None
 
     def __post_init__(self) -> None:
         if self.max_items_per_source < 1:

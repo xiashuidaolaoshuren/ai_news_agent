@@ -432,3 +432,108 @@ def test_interrupt_active_requests_marks_leftover_interrupted(tmp_path: Path) ->
     assert active_1.completed_at is not None
     assert active_2.completed_at is not None
     assert terminal.status == "succeeded"
+
+
+def test_get_session_request_stats_counts_digests_and_active(tmp_path: Path) -> None:
+    db_path = tmp_path / "sessions.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    digest_store = DigestStore(db_path)
+    store.create_session("sess-1")
+    store.create_session("sess-empty")
+    user_message_id = store.insert_message("sess-1", role="user", content="Hello")
+
+    collected = datetime(2026, 5, 7, 10, 0, 0, tzinfo=UTC)
+    run_one = digest_store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=["RAG"],
+        connector_names=["github"],
+    )
+    run_two = digest_store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=["RAG"],
+        connector_names=["github"],
+    )
+
+    def add_terminal(
+        request_id: str,
+        *,
+        status: str,
+        run_id: int | None = None,
+    ) -> None:
+        store.create_request(
+            "sess-1",
+            request_id,
+            user_message_id=user_message_id,
+            correlation_id=f"corr-{request_id}",
+        )
+        if run_id is not None:
+            store.update_request_run_id("sess-1", request_id, run_id)
+        store.mark_terminal("sess-1", request_id, status=status)
+
+    add_terminal("req-ok-1", status="succeeded", run_id=run_one)
+    add_terminal("req-ok-2", status="succeeded", run_id=run_two)
+    add_terminal("req-followup", status="succeeded")
+    add_terminal("req-failed", status="failed", run_id=run_one)
+    add_terminal("req-cancelled", status="cancelled")
+    add_terminal("req-interrupted", status="interrupted")
+    store.create_request(
+        "sess-1",
+        "req-active",
+        user_message_id=user_message_id,
+        correlation_id="corr-active",
+    )
+
+    stats = store.get_session_request_stats()
+
+    assert set(stats) == {"sess-1"}
+    assert stats["sess-1"].digest_count == 2
+    assert stats["sess-1"].active_request_id == "req-active"
+
+
+def test_get_session_request_stats_filters_to_requested_sessions(tmp_path: Path) -> None:
+    db_path = tmp_path / "sessions.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    digest_store = DigestStore(db_path)
+    collected = datetime(2026, 5, 7, 10, 0, 0, tzinfo=UTC)
+
+    store.create_session("sess-1")
+    store.create_session("sess-2")
+    message_1 = store.insert_message("sess-1", role="user", content="Hello")
+    message_2 = store.insert_message("sess-2", role="user", content="Hi")
+    run_id = digest_store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=["RAG"],
+        connector_names=["github"],
+    )
+
+    store.create_request(
+        "sess-1",
+        "req-active",
+        user_message_id=message_1,
+        correlation_id="corr-1",
+    )
+    store.create_request(
+        "sess-2",
+        "req-ok",
+        user_message_id=message_2,
+        correlation_id="corr-2",
+    )
+    store.update_request_run_id("sess-2", "req-ok", run_id)
+    store.mark_terminal("sess-2", "req-ok", status="succeeded")
+
+    only_first = store.get_session_request_stats(["sess-1"])
+    assert set(only_first) == {"sess-1"}
+    assert only_first["sess-1"].digest_count == 0
+    assert only_first["sess-1"].active_request_id == "req-active"
+
+    both = store.get_session_request_stats(["sess-1", "sess-2"])
+    assert set(both) == {"sess-1", "sess-2"}
+    assert both["sess-2"].digest_count == 1
+    assert both["sess-2"].active_request_id is None
+
+    assert store.get_session_request_stats([]) == {}

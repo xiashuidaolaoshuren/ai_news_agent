@@ -328,5 +328,6 @@ Per subtask, obey `TDD suitable`. `yes` means strict **test-driven-development**
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | 2026-09-22 | Initial plan from the reviewed 8A.1 spec and ADR-0008.                                                                        |
 | 2026-09-22 | Note: OpenDesign starts after T14–T17, not during 8A.1a/8A.1b; T18 does not block it; 8B follows the OpenDesign ground truth. |
+| 2026-10-05 | Follow-on: prototype presentation metadata and opt-in Juya story mode — see `docs/superpowers/plans/2026-10-05-prototype-backend-alignment-plan.md` and ADR-0009. Does not reopen completed 8A.1 subtasks. |
 
 

@@ -70,6 +70,7 @@ def _candidate_to_match(
         url=str(candidate["source_url"]),
         excerpt=extract_historical_excerpt(query=query, candidate=candidate),
         score=score,
+        topics=list(candidate.get("digest_topics") or []),
     )
 
 
@@ -151,6 +152,30 @@ def search_digest_history(
         archive_truncated=archive_truncated,
         caveats=caveats,
     )
+
+
+def project_historical_entry(store: Any, token: str) -> dict[str, Any] | None:
+    """Return a DigestView entry payload for one historical rank, if available."""
+    from ai_news_agent.services.digest_views import build_digest_view_payload
+
+    try:
+        ref = parse_historical_item_ref(token)
+    except ValueError:
+        return None
+
+    ctx = store.get_followup_context_for_digest(ref.digest_id)
+    if ctx is None or ctx.digest is None or not ctx.digest.entries:
+        return None
+
+    rank = ref.rank
+    if rank < 1 or rank > len(ctx.digest.entries):
+        return None
+
+    payload = build_digest_view_payload(ctx.digest, news_items=ctx.news_items)
+    entries = payload.get("entries") or []
+    if rank > len(entries):
+        return None
+    return entries[rank - 1]
 
 
 def show_historical_item(store: Any, token: str) -> str | None:

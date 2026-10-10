@@ -300,7 +300,27 @@ Browser routes:
 | `POST /api/v1/sessions/{id}/requests/{request_id}/cancel` | `202` only before digest persistence; `204` afterward |
 | `GET /api/v1/sessions/search?q=` | Lexical session search, one hit per session, opaque cursor |
 | `GET /api/v1/history/search` | Existing historical digest search |
-| `GET /api/v1/history/{dN:rN}` | Persist-only historical item (`markdown` plus the `dN:rN` token) |
+| `GET /api/v1/history/{dN:rN}` | Persist-only historical item (`markdown`, optional structured `entry`, plus the `dN:rN` token) |
+
+**DigestView presentation metadata** (additive, nullable on old digests):
+
+- GitHub / Hugging Face entries may include `owner` (`name`, `profile_url`, `avatar_url`, `type` where `type` is `organisation` or `person`).
+- GitHub entries may include `preview_image_url`, `stars`, `language`, and `stars_today` (`int` or `null` when the repo is absent from the daily trending page or the fetch failed).
+- Hugging Face entries may include `base_model` (`string` or `null` when missing or blank). The family representative's value is used.
+- Juya entries include `item_type` (`issue` or `story`), optional `issue` block (`id`, `date`, `url`, `cover_url`, `lead_title`), and optional `story` block (`number`, `section`, `original_url`) when in story mode.
+
+**Milestone 8B additive fields** (old clients ignore them):
+
+| Field | Where | Nullability |
+|---|---|---|
+| `digest_id` | `MessageOut`; SSE `digest` event (`DigestPayload`) | `null` on user messages and non-digest assistant messages. Required integer on the live `digest` event. |
+| `warnings` | `MessageOut`; SSE `digest` event | Always a list. `[]` when the run saved none. |
+| `digest_count` | `SessionOut` | Integer, never null. Counts only succeeded requests that have a `run_id`. |
+| `active_request_id` | `SessionOut` | `string` or `null`. Set only while a request is `active`. |
+| `source`, `status`, `count` | SSE `progress` event (`ProgressPayload`) | All three are `null` for non-connector lines. `status` is `running`, `done`, or `failed` when set. `count` is an integer on `done`. `stage` is always sent. |
+| `topics` | `HistorySearchMatchOut` | Always a list, in saved digest order. `[]` when the digest has no topics. |
+
+**Juya story mode (web only):** `POST .../messages` accepts optional `"juya_item_mode": "stories"` (default `"issue"`). This applies to that message only; CLI, Gradio, and OpenClaw stay issue mode. Replaying a finished `client_request_id` returns the saved digest regardless of new options.
 
 Chat SSE (`POST /api/v1/sessions/{id}/messages`) uses `fetch` and a `ReadableStream`, not `EventSource`. Frames are `event: <name>` plus one JSON `data:` line. Event names, in order: `started`, `progress`, `delta`, `digest` (digest results only), then terminal `done` or `error`. A dropped client does not stop persistence: the assistant message is still saved. Reconnect by polling request status and reloading the transcript; the server does not resume a partial byte stream. Reusing a finished `client_request_id` replays the stored outcome and does not start a new run.
 

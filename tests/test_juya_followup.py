@@ -216,6 +216,115 @@ def test_answer_structured_followup_digest_the_first_news(tmp_path: Path) -> Non
     assert "daily.juya.uk/issue-5" in reply
 
 
+def _juya_story_news_item() -> NewsItem:
+    now = datetime(2026, 6, 17, 12, 0, tzinfo=UTC)
+    return NewsItem(
+        source=SourceKind.JUYA,
+        source_id="juya-story-juya-rss-issue5-1",
+        url="https://daily.juya.uk/issue-5/#story-1",
+        title="DeepSeek 正式上线识图模式",
+        collected_at=now,
+        raw_snippet="DeepSeek 的 Vision 识图模式现已在网页端和 App 端上线。",
+        tags=["juya", "juya-story"],
+        source_evidence={
+            "juya_item_type": "story",
+            "story_number": 1,
+            "story_section": "要闻",
+            "story_original_url": "https://www.deepseek.com",
+            "story_identity": "juya-rss-issue5:1",
+            "issue_id": "juya-rss-issue5",
+            "issue_url": "https://daily.juya.uk/issue-5/",
+        },
+    )
+
+
+def test_format_juya_story_deep_dive_shows_single_story_not_whole_issue() -> None:
+    from ai_news_agent.juya_followup import format_juya_story_deep_dive
+
+    item = _juya_story_news_item()
+    entry = DigestEntry(
+        source_kind=SourceKind.JUYA,
+        source_id=item.source_id,
+        title=item.title,
+        source_name="juya",
+        source_url=item.url,
+        summary="DeepSeek vision launch",
+        why_it_matters="Multimodal capability",
+        background_knowledge="",
+        follow_up_action=FollowUpAction.READ,
+    )
+    out = format_juya_story_deep_dive(entry, item, rank=2)
+    assert "第 2 条" in out
+    assert "DeepSeek" in out
+    assert "子新闻" not in out
+    assert "#2 " not in out or "bulletin #2" not in out
+
+
+def test_match_news_item_for_story_entry_uses_source_id_not_parent_url() -> None:
+    story = _juya_story_news_item()
+    issue = _juya_news_item(
+        source_id="juya-rss-issue5",
+        title="2026-06-16",
+        url="https://daily.juya.uk/issue-5/",
+        snippet=_juya_backup_snippet(),
+    )
+    entry = DigestEntry(
+        source_kind=SourceKind.JUYA,
+        source_id=story.source_id,
+        title=story.title,
+        source_name="juya",
+        source_url=story.url,
+        summary="DeepSeek vision launch",
+        why_it_matters="Multimodal capability",
+        background_knowledge="",
+        follow_up_action=FollowUpAction.READ,
+    )
+    matched = match_news_item_for_digest_entry(entry, [issue, story])
+    assert matched is story
+
+
+def test_answer_structured_followup_juya_story_deep_dive(tmp_path: Path) -> None:
+    store = DigestStore(tmp_path / "juya-story.db")
+    store.init_schema()
+    now = datetime(2026, 6, 17, 12, 0, tzinfo=UTC)
+    story = _juya_story_news_item()
+    digest = Digest(
+        generated_at=now,
+        entries=[
+            DigestEntry(
+                source_kind=SourceKind.JUYA,
+                source_id=story.source_id,
+                title=story.title,
+                source_name="juya",
+                source_url=story.url,
+                summary="DeepSeek vision launch",
+                why_it_matters="Multimodal capability",
+                background_knowledge="",
+                follow_up_action=FollowUpAction.READ,
+            ),
+        ],
+        topics=["AI"],
+        timeframe="today",
+    )
+    run_id = store.save_run(
+        requested_at=now,
+        timeframe="today",
+        topics=["AI"],
+        connector_names=["juya"],
+    )
+    store.save_connector_result(run_id, ConnectorResult(items=[story], warnings=[]))
+    store.save_ranked_items(
+        run_id,
+        [RankedItem(item=story, score_total=0.95, selected=True)],
+    )
+    store.save_digest(run_id, digest)
+    ctx = store.get_latest_followup_context()
+    reply = answer_structured_followup("follow up on item 1", ctx)
+    assert reply is not None
+    assert "子新闻" not in reply
+    assert "DeepSeek" in reply
+
+
 def test_match_news_item_for_digest_entry_by_source_id() -> None:
     item = _juya_news_item(
         source_id="juya-rss-issue5",
