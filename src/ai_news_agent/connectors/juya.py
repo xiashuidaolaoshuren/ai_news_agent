@@ -280,6 +280,9 @@ async def enrich_juya_items_with_markdown(
     story_cap = max_items if juya_item_mode == "stories" and max_items is not None else None
 
     for row in rows:
+        if juya_item_mode == "stories" and story_cap is not None and story_cap == 0:
+            break
+
         item = row.item
         md_url = markdown_url_for_issue(item.title, item.url)
         raw_md: str | None = None

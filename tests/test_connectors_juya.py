@@ -153,6 +153,45 @@ def test_juya_collect_stories_mode_emits_one_item_per_numbered_story() -> None:
     asyncio.run(main())
 
 
+def test_juya_collect_stories_mode_stops_after_story_cap_without_issue_rows() -> None:
+    markdown = _load_fixture_markdown("juya_website_with_cover_sample.md")
+    requested_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        host = request.url.host or ""
+        path = request.url.path
+        requested_paths.append(path)
+        if host == "daily.juya.uk":
+            if path == "/rss.xml":
+                return httpx.Response(200, text=_rss_fixture_text())
+            if path in {
+                "/markdown/2026-06-16.md",
+                "/markdown/2026-06-15.md",
+            }:
+                return httpx.Response(200, text=markdown)
+            return httpx.Response(404, text="not found")
+        return httpx.Response(404, json={"message": "not found"})
+
+    async def main() -> None:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            out = await JuyaConnector(client=client).collect(
+                ConnectorRequest(
+                    topics=["rag"],
+                    max_items=2,
+                    juya_item_mode="stories",
+                ),
+            )
+        assert len(out.items) == 2
+        assert all(
+            item.source_evidence.get("juya_item_type") == "story" for item in out.items
+        )
+        assert "/markdown/2026-06-16.md" in requested_paths
+        assert "/markdown/2026-06-15.md" not in requested_paths
+
+    asyncio.run(main())
+
+
 def test_juya_collect_stories_mode_warns_when_markdown_unparseable() -> None:
     async def main() -> None:
         transport = _juya_website_transport(
