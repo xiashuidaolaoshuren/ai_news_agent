@@ -13,6 +13,7 @@ from ai_news_agent.repositories.session_records import (
     MessageRecord,
     SessionRecord,
     SessionRequestRecord,
+    SessionRequestStats,
     message_record_from_row,
     request_record_from_row,
     session_record_from_row,
@@ -234,6 +235,48 @@ class SessionStore:
                 (session_id,),
             ).fetchall()
         return [request_record_from_row(row) for row in rows]
+
+    def get_session_request_stats(
+        self,
+        session_ids: list[str] | None = None,
+    ) -> dict[str, SessionRequestStats]:
+        """Digest counts and active request ids for one or many sessions.
+
+        ``session_ids=None`` covers every session; an empty sequence returns
+        an empty map. Both values come from one aggregate query.
+        """
+        if session_ids is not None and not session_ids:
+            return {}
+        where_sql = ""
+        params: list[str] = []
+        if session_ids is not None:
+            placeholders = ",".join("?" for _ in session_ids)
+            where_sql = f"WHERE session_id IN ({placeholders})"
+            params.extend(session_ids)
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT session_id,
+                       SUM(
+                         CASE
+                           WHEN status = 'succeeded' AND run_id IS NOT NULL THEN 1
+                           ELSE 0
+                         END
+                       ) AS digest_count,
+                       MAX(CASE WHEN status = 'active' THEN id END) AS active_request_id
+                FROM session_requests
+                {where_sql}
+                GROUP BY session_id
+                """,
+                params,
+            ).fetchall()
+        return {
+            row["session_id"]: SessionRequestStats(
+                digest_count=int(row["digest_count"]),
+                active_request_id=row["active_request_id"],
+            )
+            for row in rows
+        }
 
     def update_request_run_id(
         self,

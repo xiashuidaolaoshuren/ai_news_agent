@@ -154,6 +154,38 @@ def test_save_digest_bundle_persists_complete_bundle(tmp_path: Path) -> None:
     assert ctx.warnings == bundle["warnings"]
 
 
+def test_get_digest_id_for_run_returns_saved_digest_id(tmp_path: Path) -> None:
+    db_path = tmp_path / "digest-id.db"
+    _init_db(db_path)
+    store = DigestStore(db_path)
+    bundle = _sample_bundle()
+
+    run_id = store.save_digest_bundle(**bundle)
+    with sqlite3.connect(db_path) as conn:
+        expected = conn.execute(
+            "SELECT id FROM digests WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()[0]
+
+    assert store.get_digest_id_for_run(run_id) == expected
+
+
+def test_get_digest_id_for_run_returns_none_without_digest(tmp_path: Path) -> None:
+    db_path = tmp_path / "digest-id-none.db"
+    _init_db(db_path)
+    store = DigestStore(db_path)
+
+    run_id = store.save_run(
+        requested_at=None,
+        timeframe=None,
+        topics=[],
+        connector_names=[],
+    )
+
+    assert store.get_digest_id_for_run(run_id) is None
+    assert store.get_digest_id_for_run(9999) is None
+
+
 def test_save_digest_bundle_rolls_back_on_mid_bundle_failure(tmp_path: Path) -> None:
     db_path = tmp_path / "bundle-rollback.db"
     _init_db(db_path)

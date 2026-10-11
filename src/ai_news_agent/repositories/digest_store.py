@@ -767,6 +767,15 @@ class DigestStore:
             return None
         return self._digest_from_row(row)
 
+    def get_digest_id_for_run(self, run_id: int) -> int | None:
+        """Return the saved digest row id for a run, or None when absent."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT id FROM digests WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        return int(row["id"]) if row is not None else None
+
     def get_news_items_for_run(self, run_id: int) -> list[NewsItem]:
         return self._load_news_items(run_id)
 

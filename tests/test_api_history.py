@@ -140,6 +140,34 @@ def test_history_search_returns_matches_envelope(tmp_path: Path) -> None:
     assert match["score"] > 0
 
 
+def test_history_search_match_topics_preserves_saved_order(tmp_path: Path) -> None:
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "history-match-topics.db"
+    client = _build_test_client(fake=True, db_path=db_path)
+    store = DigestStore(db_path)
+    _seed_run_with_digest(
+        store,
+        generated_at=datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+        topics=["agents", "RAG"],
+        entries=[
+            _make_digest_entry(
+                source_kind=SourceKind.GITHUB,
+                source_id="repo-topics",
+                title="Gamma unique agents repo",
+                url="https://example.com/repo-topics",
+                summary="Agents framework",
+            )
+        ],
+    )
+
+    response = client.get("/api/v1/history/search", params={"text": "Gamma unique"})
+
+    assert response.status_code == 200
+    match = response.json()["matches"][0]
+    assert match["topics"] == ["agents", "RAG"]
+
+
 def test_history_search_validation_maps_value_errors_to_400(tmp_path: Path) -> None:
     client = _build_test_client(fake=True, db_path=tmp_path / "history-validate.db")
 
@@ -163,6 +191,59 @@ def test_history_search_empty_archive_returns_200_empty(tmp_path: Path) -> None:
     payload = response.json()
     assert payload["matches"] == []
     assert payload["caveats"]
+
+
+def test_history_show_includes_structured_entry_for_juya_story(tmp_path: Path) -> None:
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "history-show-story.db"
+    client = _build_test_client(fake=True, db_path=db_path)
+    store = DigestStore(db_path)
+    story_item = _make_news_item(
+        source=SourceKind.JUYA,
+        source_id="juya-story-issue-1",
+        title="DeepSeek vision",
+        url="https://daily.juya.uk/2026/05/13/#story-1",
+    )
+    story_item = story_item.model_copy(
+        update={
+            "source_evidence": {
+                "juya_item_type": "story",
+                "story_number": 1,
+                "story_section": "要闻",
+                "story_original_url": "https://www.deepseek.com",
+                "issue_id": "issue-2026-05-13",
+                "issue_date": "2026-05-13",
+                "issue_url": "https://daily.juya.uk/2026/05/13",
+            }
+        }
+    )
+    _, digest_id = _seed_run_with_digest(
+        store,
+        generated_at=datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+        topics=["agents"],
+        entries=[
+            _make_digest_entry(
+                source_kind=SourceKind.JUYA,
+                source_id=story_item.source_id,
+                title=story_item.title,
+                url=story_item.url,
+                summary="Story summary",
+            )
+        ],
+        news_items=[story_item],
+    )
+    token = f"d{digest_id}:r1"
+
+    response = client.get(f"/api/v1/history/{token}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["entry"] is not None
+    assert payload["entry"]["item_type"] == "story"
+    assert payload["entry"]["story"]["number"] == 1
+    assert payload["entry"]["display_rank"] == 1
+    assert "DeepSeek vision" in payload["markdown"]
 
 
 def test_history_show_persist_only_markdown_and_errors(tmp_path: Path) -> None:

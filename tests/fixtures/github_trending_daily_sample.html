@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<!--
+  Representative excerpt of https://github.com/trending?since=daily
+  Captured 2026-10-09 and trimmed to the row structure the parser depends on:
+  an article.Box-row whose h2 holds the repository link, plus a separate
+  span.float-sm-right carrying "<count> stars today" (the figure GitHub gained
+  since midnight UTC). Weekly and monthly rows share the same span class and are
+  included here so the parser must reject them.
+-->
+<html lang="en">
+<head><title>Trending repositories on GitHub today</title></head>
+<body>
+<div class="Box">
+  <div class="Box-header">
+    <h1 class="h3">Trending</h1>
+  </div>
+
+  <div data-view-component="true" class="Box-body">
+    <article class="Box-row">
+      <div class="float-right d-flex">
+        <a href="/login?return_to=%2Fdemo-org%2Fawesome-agents" rel="nofollow" class="btn-sm btn">Star</a>
+      </div>
+
+      <h2 class="h3 lh-condensed">
+        <a href="/demo-org/awesome-agents" data-view-component="true" class="Link">
+          <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-repo mr-1 tmp-mr-1 color-fg-muted">
+            <path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Z"></path>
+          </svg>
+
+          <span data-view-component="true" class="text-normal">
+            demo-org /
+          </span>
+          awesome-agents</a>
+      </h2>
+
+      <p class="col-9 color-fg-muted my-1 tmp-pr-4">
+        Agents framework with tool use and evaluation harnesses.
+      </p>
+
+      <div class="f6 color-fg-muted mt-2">
+        <span class="tmp-mr-3 d-inline-block ml-0 tmp-ml-0">
+          <span class="repo-language-color" style="background-color: #3178c6"></span>
+          <span itemprop="programmingLanguage">TypeScript</span>
+        </span>
+
+        <a href="/demo-org/awesome-agents/stargazers" class="tmp-mr-3 Link Link--muted d-inline-block">
+          <svg aria-label="star" role="img" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-star">
+            <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347Z"></path>
+          </svg>
+          128,000</a>
+        <a href="/demo-org/awesome-agents/forks" class="tmp-mr-3 Link Link--muted d-inline-block">
+          <svg aria-label="fork" role="img" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-repo-forked">
+            <path d="M5 5.372v.878c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.878Z"></path>
+          </svg>
+          5,006</a>
+        <span data-view-component="true" class="d-inline-block float-sm-right">
+          <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-star">
+            <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815Z"></path>
+          </svg>
+            1,234
+          stars today
+        </span>
+      </div>
+    </article>
+
+    <article class="Box-row">
+      <div class="float-right d-flex">
+        <a href="/login?return_to=%2FDemo-Org%2FRAG-Cookbook" rel="nofollow" class="btn-sm btn">Star</a>
+      </div>
+
+      <h2 class="h3 lh-condensed">
+        <a href="/Demo-Org/RAG-Cookbook" class="Link">
+          <span data-view-component="true" class="text-normal">
+            Demo-Org /
+          </span>
+          RAG-Cookbook</a>
+      </h2>
+
+      <p class="col-9 color-fg-muted my-1 tmp-pr-4">
+        Recipes for retrieval augmented generation pipelines.
+      </p>
+
+      <div class="f6 color-fg-muted mt-2">
+        <a href="/Demo-Org/RAG-Cookbook/stargazers" class="tmp-mr-3 Link Link--muted d-inline-block">420</a>
+        <span data-view-component="true" class="d-inline-block float-sm-right">
+          5,925 stars today
+        </span>
+      </div>
+    </article>
+
+    <article class="Box-row">
+      <h2 class="h3 lh-condensed">
+        <a href="/demo-org/weekly-repo" class="Link">
+          <span data-view-component="true" class="text-normal">
+            demo-org /
+          </span>
+          weekly-repo</a>
+      </h2>
+
+      <div class="f6 color-fg-muted mt-2">
+        <a href="/demo-org/weekly-repo/stargazers" class="tmp-mr-3 Link Link--muted d-inline-block">9,001</a>
+        <span data-view-component="true" class="d-inline-block float-sm-right">
+          9,001 stars this week
+        </span>
+      </div>
+    </article>
+
+    <article class="Box-row">
+      <h2 class="h3 lh-condensed">
+        <a href="/demo-org/monthly-repo" class="Link">
+          <span data-view-component="true" class="text-normal">
+            demo-org /
+          </span>
+          monthly-repo</a>
+      </h2>
+
+      <div class="f6 color-fg-muted mt-2">
+        <a href="/demo-org/monthly-repo/stargazers" class="tmp-mr-3 Link Link--muted d-inline-block">8,000</a>
+        <span data-view-component="true" class="d-inline-block float-sm-right">
+          8,000 stars this month
+        </span>
+      </div>
+    </article>
+
+    <article class="Box-row">
+      <h2 class="h3 lh-condensed">
+        <a href="/demo-org/no-count" class="Link">
+          <span data-view-component="true" class="text-normal">
+            demo-org /
+          </span>
+          no-count</a>
+      </h2>
+
+      <div class="f6 color-fg-muted mt-2">
+        <a href="/demo-org/no-count/stargazers" class="tmp-mr-3 Link Link--muted d-inline-block">17</a>
+      </div>
+    </article>
+  </div>
+</div>
+</body>
+</html>

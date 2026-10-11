@@ -6,6 +6,7 @@ from ai_news_agent.repositories.session_records import (
     MessageRecord,
     SessionRecord,
     SessionRequestRecord,
+    SessionRequestStats,
 )
 
 _TITLE_MAX_CHARS = 60
@@ -29,5 +30,6 @@ __all__ = [
     "MessageRecord",
     "SessionRecord",
     "SessionRequestRecord",
+    "SessionRequestStats",
     "initial_session_title",
 ]

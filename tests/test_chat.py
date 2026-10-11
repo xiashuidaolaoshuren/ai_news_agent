@@ -939,6 +939,44 @@ def _digest_stream_news_item(source_id: str) -> NewsItem:
     )
 
 
+def test_parse_connector_progress_round_trips_collect_formatters() -> None:
+    from ai_news_agent.graph.nodes.collect import (
+        _format_connector_call_done,
+        _format_connector_call_failed,
+        _format_connector_call_start,
+        parse_connector_progress,
+    )
+
+    start = _format_connector_call_start("github")
+    assert parse_connector_progress(start) == ("github", "running", None)
+
+    done_one = _format_connector_call_done("juya", 1)
+    assert parse_connector_progress(done_one) == ("juya", "done", 1)
+
+    done_two = _format_connector_call_done("huggingface", 2)
+    assert parse_connector_progress(done_two) == ("huggingface", "done", 2)
+
+    failed = _format_connector_call_failed("github")
+    assert parse_connector_progress(failed) == ("github", "failed", None)
+
+    for line in (
+        "Parsing request…",
+        "Ranking candidates…",
+        "Collecting from sources…",
+        "Summarizing entries…",
+        "Saving run…",
+        "Rendering digest…",
+    ):
+        assert parse_connector_progress(line) is None
+
+    assert (
+        parse_connector_progress(
+            "Tool failed load_latest_digest: terminal kind conversational not allowed from tool"
+        )
+        is None
+    )
+
+
 def test_chat_digest_stream_each_progress_is_single_stage_not_cumulative(
     tmp_path,
 ) -> None:
@@ -2312,6 +2350,7 @@ def test_stream_events_digest_deltas_and_persistence_use_markdown(
             connector_names=list(req.connector_names or ["github"]),
             session_id=session_id,
         )
+        store.save_digest(run_id, digest)
         yield "", True, DigestResult(
             request=req,
             digest=digest,

@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from ai_news_agent.api.schemas.digests import DigestView
+from ai_news_agent.models import ConnectorWarning
 
 
 class SessionOut(BaseModel):
@@ -19,6 +20,8 @@ class SessionOut(BaseModel):
     items_per_source: int | None
     created_at: datetime
     updated_at: datetime
+    digest_count: int = 0
+    active_request_id: str | None = None
 
 
 class SessionListPage(BaseModel):
@@ -46,6 +49,8 @@ class MessageOut(BaseModel):
     content: str
     run_id: int | None
     created_at: datetime
+    digest_id: int | None = None
+    warnings: list[ConnectorWarning] = Field(default_factory=list)
     digest: DigestView | None = None
 
 
@@ -61,6 +66,7 @@ class PostMessageBody(BaseModel):
 
     content: str
     client_request_id: str | None = Field(default=None)
+    juya_item_mode: Literal["issue", "stories"] = "issue"
 
 
 MatchKind = Literal["title", "user", "assistant"]

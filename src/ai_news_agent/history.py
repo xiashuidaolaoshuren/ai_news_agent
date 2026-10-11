@@ -110,6 +110,7 @@ class HistorySearchMatch(BaseModel):
     url: str
     excerpt: str | None = None
     score: float
+    topics: list[str] = Field(default_factory=list)
 
 
 class HistorySearchResult(BaseModel):

@@ -63,9 +63,14 @@ def rank_items(
             )
         )
 
-    def sort_key(ri: RankedItem) -> tuple[float, float, str]:
+    def sort_key(ri: RankedItem) -> tuple[float, float, float, str]:
         ts = _reference_time(ri.item, reference)
-        return (-ri.score_total, -ts.timestamp(), ri.item.source_id)
+        return (
+            -ri.score_total,
+            -ts.timestamp(),
+            _juya_story_number_sort_key(ri.item),
+            ri.item.source_id,
+        )
 
     ranked.sort(key=sort_key)
 
@@ -433,11 +438,31 @@ def _dedupe_by_clusters(items: list[NewsItem], reference: datetime) -> list[News
 
 
 def _cluster_keys(it: NewsItem) -> list[str]:
+    evidence = it.source_evidence or {}
+    if evidence.get("juya_item_type") == "story":
+        identity = evidence.get("story_identity")
+        keys = [
+            f"id:{it.source}:{it.source_id}",
+            f"title:{_normalize_title(it.title)}",
+        ]
+        if isinstance(identity, str) and identity.strip():
+            keys.insert(0, f"juya-story:{identity.strip()}")
+        return keys
     return [
         f"id:{it.source}:{it.source_id}",
         f"url:{_normalize_url(it.url)}",
         f"title:{_normalize_title(it.title)}",
     ]
+
+
+def _juya_story_number_sort_key(item: NewsItem) -> float:
+    evidence = item.source_evidence or {}
+    if evidence.get("juya_item_type") != "story":
+        return 0.0
+    number = evidence.get("story_number")
+    if isinstance(number, int) and number > 0:
+        return float(number)
+    return 9999.0
 
 
 def _normalize_url(url: str) -> str:

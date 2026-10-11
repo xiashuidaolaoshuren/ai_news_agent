@@ -53,5 +53,6 @@ def parse_request_node(state: DigestGraphState) -> dict[str, object]:
             huggingface_discovery_mode=req.huggingface_discovery_mode,
             huggingface_search=req.huggingface_search,
             huggingface_pipeline_tag=req.huggingface_pipeline_tag,
+            juya_item_mode=req.juya_item_mode,
         )
     }

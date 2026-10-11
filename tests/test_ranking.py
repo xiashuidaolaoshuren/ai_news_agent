@@ -288,6 +288,84 @@ def test_dedupe_keeps_higher_preference_on_same_source_id() -> None:
     assert ranked[0].item is strong
 
 
+def _juya_story_item(
+    *,
+    issue_id: str,
+    story_number: int,
+    title: str,
+    url: str,
+    snippet: str = "story evidence",
+) -> NewsItem:
+    return NewsItem(
+        source=SourceKind.JUYA,
+        source_id=f"juya-story-{issue_id}-{story_number}",
+        url=url,
+        title=title,
+        published_at=_fixed_ts(),
+        collected_at=_fixed_ts(),
+        metadata_completeness=0.9,
+        raw_snippet=snippet,
+        tags=["juya", "juya-story"],
+        source_evidence={
+            "juya_item_type": "story",
+            "story_identity": f"{issue_id}:{story_number}",
+            "story_number": story_number,
+            "issue_id": issue_id,
+        },
+    )
+
+
+def test_dedupe_keeps_distinct_juya_story_siblings_with_shared_parent_url() -> None:
+    from ai_news_agent.ranking import rank_items
+
+    now = _fixed_ts()
+    issue_id = "juya-rss-abc"
+    parent = f"https://daily.juya.uk/2026/06/19/"
+    story_one = _juya_story_item(
+        issue_id=issue_id,
+        story_number=1,
+        title="DeepSeek vision",
+        url=f"{parent}#story-1",
+    )
+    story_two = _juya_story_item(
+        issue_id=issue_id,
+        story_number=2,
+        title="Codex replay",
+        url=f"{parent}#story-2",
+    )
+    ranked = rank_items([story_one, story_two], top_n=5, now=now)
+    assert len(ranked) == 2
+    assert {r.item.source_id for r in ranked} == {
+        story_one.source_id,
+        story_two.source_id,
+    }
+
+
+def test_juya_story_bulletin_number_tiebreak_orders_lower_number_first() -> None:
+    from ai_news_agent.ranking import rank_items
+
+    now = _fixed_ts()
+    issue_id = "juya-rss-abc"
+    parent = "https://daily.juya.uk/2026/06/19/"
+    story_two = _juya_story_item(
+        issue_id=issue_id,
+        story_number=2,
+        title="Codex replay",
+        url=f"{parent}#story-2",
+        snippet="b" * 200,
+    )
+    story_one = _juya_story_item(
+        issue_id=issue_id,
+        story_number=1,
+        title="DeepSeek vision",
+        url=f"{parent}#story-1",
+        snippet="a" * 200,
+    )
+    ranked = rank_items([story_two, story_one], top_n=2, now=now)
+    assert ranked[0].item.source_evidence["story_number"] == 1
+    assert ranked[1].item.source_evidence["story_number"] == 2
+
+
 def test_dedupe_same_normalized_url_keeps_stronger_candidate() -> None:
     from ai_news_agent.ranking import rank_items
 

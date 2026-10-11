@@ -404,6 +404,251 @@ def test_parse_github_repo_ref() -> None:
     assert parse_github_repo_ref("o/r") == ("o", "r")
 
 
+def _make_preview_transport(
+    *,
+    pages: dict[str, tuple[int, str]] | None = None,
+    redirect_targets: dict[str, str] | None = None,
+    request_headers: list[dict[str, str]] | None = None,
+) -> httpx.MockTransport:
+    pages = pages or {}
+    redirect_targets = redirect_targets or {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request_headers is not None:
+            request_headers.append(dict(request.headers))
+        path = request.url.path.rstrip("/") or "/"
+        if path in redirect_targets:
+            return httpx.Response(
+                302,
+                headers={"Location": redirect_targets[path]},
+            )
+        status, body = pages.get(path, (404, ""))
+        return httpx.Response(status, text=body)
+
+    return httpx.MockTransport(handler)
+
+
+def test_collect_enriches_preview_image_from_repo_page_og_tag() -> None:
+    data = _load_fixture("github_search_sample.json")
+    preview_html = (
+        '<html><head><meta property="og:image" '
+        'content="https://opengraph.githubassets.com/9001/NVIDIA/OpenShell" />'
+        "</head></html>"
+    )
+
+    async def main() -> None:
+        api_transport = _make_transport(search_json=data)
+        preview_transport = _make_preview_transport(
+            pages={"/demo-org/awesome-agents": (200, preview_html)},
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+        ) as api_client, httpx.AsyncClient(
+            transport=preview_transport,
+            base_url="https://github.com",
+            follow_redirects=False,
+        ) as preview_client:
+            conn = GitHubConnector(
+                token="secret-token",
+                client=api_client,
+                preview_client=preview_client,
+            )
+            out = await conn.collect(ConnectorRequest(topics=["RAG"], max_items=5))
+
+        first = out.items[0]
+        assert first.source_evidence["preview_image_url"].startswith("https://")
+        assert "opengraph.githubassets.com" in first.source_evidence["preview_image_url"]
+
+    asyncio.run(main())
+
+
+def test_collect_preview_client_does_not_forward_api_authorization() -> None:
+    data = _load_fixture("github_search_sample.json")
+    captured_headers: list[dict[str, str]] = []
+
+    async def main() -> None:
+        api_transport = _make_transport(search_json=data)
+        preview_transport = _make_preview_transport(
+            pages={
+                "/demo-org/awesome-agents": (
+                    200,
+                    '<meta property="og:image" content="https://cdn.example/p.png" />',
+                )
+            },
+            request_headers=captured_headers,
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+            headers={"Authorization": "Bearer secret-token"},
+        ) as api_client, httpx.AsyncClient(
+            transport=preview_transport,
+            base_url="https://github.com",
+            follow_redirects=False,
+        ) as preview_client:
+            conn = GitHubConnector(
+                token="secret-token",
+                client=api_client,
+                preview_client=preview_client,
+            )
+            await conn.collect(ConnectorRequest(topics=["RAG"], max_items=1))
+
+        assert captured_headers
+        for headers in captured_headers:
+            assert "authorization" not in {k.lower() for k in headers}
+
+    asyncio.run(main())
+
+
+def test_collect_preview_rejects_off_host_redirect() -> None:
+    data = _load_fixture("github_search_sample.json")["items"][:1]
+    sparse = {"total_count": 1, "incomplete_results": False, "items": data}
+
+    async def main() -> None:
+        api_transport = _make_transport(search_json=sparse)
+        preview_transport = _make_preview_transport(
+            redirect_targets={
+                "/demo-org/awesome-agents": "https://evil.example/phish",
+            },
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+        ) as api_client, httpx.AsyncClient(
+            transport=preview_transport,
+            base_url="https://github.com",
+            follow_redirects=False,
+        ) as preview_client:
+            conn = GitHubConnector(
+                token=None,
+                client=api_client,
+                preview_client=preview_client,
+            )
+            out = await conn.collect(ConnectorRequest(topics=["RAG"], max_items=1))
+
+        assert "preview_image_url" not in out.items[0].source_evidence
+        assert any(w.code == "preview_unavailable" for w in out.warnings)
+
+    asyncio.run(main())
+
+
+def test_collect_preview_missing_og_image_leaves_item_without_preview_field() -> None:
+    data = _load_fixture("github_search_sample.json")["items"][:1]
+    sparse = {"total_count": 1, "incomplete_results": False, "items": data}
+
+    async def main() -> None:
+        api_transport = _make_transport(search_json=sparse)
+        preview_transport = _make_preview_transport(
+            pages={"/demo-org/awesome-agents": (200, "<html><head></head></html>")},
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+        ) as api_client, httpx.AsyncClient(
+            transport=preview_transport,
+            base_url="https://github.com",
+            follow_redirects=False,
+        ) as preview_client:
+            conn = GitHubConnector(
+                token=None,
+                client=api_client,
+                preview_client=preview_client,
+            )
+            out = await conn.collect(ConnectorRequest(topics=["RAG"], max_items=1))
+
+        assert "preview_image_url" not in out.items[0].source_evidence
+
+    asyncio.run(main())
+
+
+def test_parse_og_image_extracts_https_content() -> None:
+    from ai_news_agent.github_previews import parse_og_image_url
+
+    html = (
+        '<meta name="viewport" content="width=device-width">'
+        '<meta property="og:image" content="https://cdn.example/preview.png" />'
+    )
+    assert parse_og_image_url(html) == "https://cdn.example/preview.png"
+
+
+def test_repo_to_news_item_maps_organisation_owner_evidence() -> None:
+    from ai_news_agent.connectors.github import _repo_to_news_item
+
+    collected = datetime(2026, 5, 18, 12, 0, 0, tzinfo=UTC)
+    item = _repo_to_news_item(
+        {
+            "id": 9001,
+            "full_name": "NVIDIA/OpenShell",
+            "html_url": "https://github.com/NVIDIA/OpenShell",
+            "description": "Safe runtime",
+            "owner": {
+                "login": "NVIDIA",
+                "html_url": "https://github.com/NVIDIA",
+                "avatar_url": "https://avatars.githubusercontent.com/u/1?v=4",
+                "type": "Organization",
+            },
+            "stargazers_count": 13659,
+            "language": "Rust",
+            "pushed_at": "2026-05-01T08:30:00Z",
+        },
+        ["agents"],
+        None,
+        collected,
+    )
+    assert item.author == "NVIDIA"
+    assert item.source_evidence["owner_name"] == "NVIDIA"
+    assert item.source_evidence["owner_profile_url"] == "https://github.com/NVIDIA"
+    assert item.source_evidence["owner_avatar_url"].startswith("https://")
+    assert item.source_evidence["owner_type"] == "organisation"
+
+
+def test_repo_to_news_item_maps_person_owner_evidence() -> None:
+    from ai_news_agent.connectors.github import _repo_to_news_item
+
+    collected = datetime(2026, 5, 18, 12, 0, 0, tzinfo=UTC)
+    item = _repo_to_news_item(
+        {
+            "id": 9002,
+            "full_name": "mattpocock/skills",
+            "html_url": "https://github.com/mattpocock/skills",
+            "description": "Skills",
+            "owner": {
+                "login": "mattpocock",
+                "html_url": "https://github.com/mattpocock",
+                "avatar_url": "https://avatars.githubusercontent.com/u/2?v=4",
+                "type": "User",
+            },
+            "stargazers_count": 273407,
+            "language": "Shell",
+            "pushed_at": "2026-05-01T08:30:00Z",
+        },
+        ["agents"],
+        None,
+        collected,
+    )
+    assert item.source_evidence["owner_type"] == "person"
+
+
+def test_repo_to_news_item_owner_type_null_when_unknown() -> None:
+    from ai_news_agent.connectors.github import _repo_to_news_item
+
+    collected = datetime(2026, 5, 18, 12, 0, 0, tzinfo=UTC)
+    item = _repo_to_news_item(
+        {
+            "id": 9003,
+            "full_name": "bot/repo",
+            "html_url": "https://github.com/bot/repo",
+            "owner": {"login": "bot", "type": "Bot"},
+            "pushed_at": "2026-05-01T08:30:00Z",
+        },
+        [],
+        None,
+        collected,
+    )
+    assert "owner_type" not in item.source_evidence or item.source_evidence.get("owner_type") is None
+
+
 def test_github_connector_name() -> None:
 
     async def main() -> None:
@@ -413,5 +658,218 @@ def test_github_connector_name() -> None:
             base_url="https://api.github.com",
         ) as client:
             assert GitHubConnector(client=client).name() == "github"
+
+    asyncio.run(main())
+
+
+def _load_trending_fixture() -> str:
+    path = FIXTURES / "github_trending_daily_sample.html"
+    assert path.is_file(), f"missing fixture {path}"
+    return path.read_text(encoding="utf-8")
+
+
+def _record(inner: httpx.MockTransport, seen: list[str]) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return inner.handler(request)
+
+    return httpx.MockTransport(handler)
+
+
+def _sparse_search_json() -> dict:
+    data = _load_fixture("github_search_sample.json")
+    items = list(data["items"]) + [
+        {
+            "id": 9003,
+            "full_name": "demo-org/absent-repo",
+            "html_url": "https://github.com/demo-org/absent-repo",
+            "description": "Not on the trending page",
+            "owner": {"login": "demo-org", "id": 1},
+            "stargazers_count": 17,
+            "language": "Go",
+            "pushed_at": "2026-05-01T08:30:00Z",
+        }
+    ]
+    return {"total_count": len(items), "incomplete_results": False, "items": items}
+
+
+def test_collect_default_connector_makes_no_web_request() -> None:
+    seen: list[str] = []
+
+    async def main() -> None:
+        api_transport = _record(
+            _make_transport(search_json=_load_fixture("github_search_sample.json")),
+            seen,
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+        ) as api_client:
+            conn = GitHubConnector(token=None, client=api_client)
+            out = await conn.collect(ConnectorRequest(topics=["RAG"], max_items=5))
+
+            assert conn._preview_client is None
+
+        assert len(out.items) == 2
+        assert all("stars_today" not in item.source_evidence for item in out.items)
+        assert not any("/trending" in url for url in seen)
+
+    asyncio.run(main())
+
+
+def test_collect_trending_enrichment_adds_daily_stars_once() -> None:
+    api_seen: list[str] = []
+    web_seen: list[str] = []
+
+    async def main() -> None:
+        api_transport = _record(_make_transport(search_json=_sparse_search_json()), api_seen)
+        web_transport = _record(
+            _make_preview_transport(pages={"/trending": (200, _load_trending_fixture())}),
+            web_seen,
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+        ) as api_client, httpx.AsyncClient(
+            transport=web_transport,
+            base_url="https://github.com",
+            follow_redirects=False,
+        ) as web_client:
+            conn = GitHubConnector(
+                token=None,
+                client=api_client,
+                trending_client=web_client,
+                trending_enrichment=True,
+            )
+            out = await conn.collect(ConnectorRequest(topics=["RAG"], max_items=5))
+
+        assert len(web_seen) == 1
+        assert "/trending" in web_seen[0]
+        assert "since=daily" in web_seen[0]
+
+        by_title = {item.title: item for item in out.items}
+        matched = by_title["demo-org/awesome-agents"]
+        assert matched.source_evidence["stars_today"] == 1234
+        assert isinstance(matched.source_evidence["stars_today"], int)
+        assert matched.stars_or_views == 1280
+        assert matched.source_evidence["owner_name"] == "demo-org"
+        # Case-different spelling on the page still matches.
+        assert by_title["demo-org/rag-cookbook"].source_evidence["stars_today"] == 5925
+        # Collected repo missing from the page keeps no daily figure.
+        assert "stars_today" not in by_title["demo-org/absent-repo"].source_evidence
+
+    asyncio.run(main())
+
+
+def test_collect_trending_enrichment_skips_web_request_without_items() -> None:
+    web_seen: list[str] = []
+
+    async def main() -> None:
+        api_transport = _make_transport(
+            search_json={"total_count": 0, "incomplete_results": False, "items": []}
+        )
+        web_transport = _record(
+            _make_preview_transport(pages={"/trending": (200, _load_trending_fixture())}),
+            web_seen,
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+        ) as api_client, httpx.AsyncClient(
+            transport=web_transport,
+            base_url="https://github.com",
+            follow_redirects=False,
+        ) as web_client:
+            conn = GitHubConnector(
+                token=None,
+                client=api_client,
+                trending_client=web_client,
+                trending_enrichment=True,
+            )
+            out = await conn.collect(ConnectorRequest(topics=["RAG"], max_items=5))
+
+        assert out.items == []
+        assert web_seen == []
+
+    asyncio.run(main())
+
+
+def test_collect_trending_enrichment_makes_no_request_without_input() -> None:
+    web_seen: list[str] = []
+
+    async def main() -> None:
+        api_transport = _make_transport(search_json={"items": []})
+        web_transport = _record(
+            _make_preview_transport(pages={"/trending": (200, _load_trending_fixture())}),
+            web_seen,
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+        ) as api_client, httpx.AsyncClient(
+            transport=web_transport,
+            base_url="https://github.com",
+            follow_redirects=False,
+        ) as web_client:
+            conn = GitHubConnector(
+                token=None,
+                client=api_client,
+                trending_client=web_client,
+                trending_enrichment=True,
+            )
+            out = await conn.collect(ConnectorRequest(topics=[], max_items=5))
+
+        assert out.items == []
+        assert any(w.code == "no_input" for w in out.warnings)
+        assert web_seen == []
+
+    asyncio.run(main())
+
+
+def test_collect_preview_and_trending_share_one_unauthenticated_web_client() -> None:
+    preview_html = (
+        '<html><head><meta property="og:image" '
+        'content="https://opengraph.githubassets.com/9001/demo-org/awesome-agents" />'
+        "</head></html>"
+    )
+    headers_seen: list[dict[str, str]] = []
+    web_seen: list[str] = []
+
+    async def main() -> None:
+        api_transport = _make_transport(search_json=_sparse_search_json())
+        web_transport = _make_preview_transport(
+            pages={
+                "/demo-org/awesome-agents": (200, preview_html),
+                "/demo-org/rag-cookbook": (200, preview_html),
+                "/demo-org/absent-repo": (200, preview_html),
+                "/trending": (200, _load_trending_fixture()),
+            },
+            request_headers=headers_seen,
+        )
+        async with httpx.AsyncClient(
+            transport=api_transport,
+            base_url="https://api.github.com",
+            headers={"Authorization": "Bearer secret-token"},
+        ) as api_client, httpx.AsyncClient(
+            transport=_record(web_transport, web_seen),
+            base_url="https://github.com",
+            follow_redirects=False,
+        ) as web_client:
+            conn = GitHubConnector(
+                token="secret-token",
+                client=api_client,
+                preview_client=web_client,
+                trending_enrichment=True,
+            )
+            out = await conn.collect(ConnectorRequest(topics=["RAG"], max_items=5))
+
+        by_title = {item.title: item for item in out.items}
+        matched = by_title["demo-org/awesome-agents"]
+        assert matched.source_evidence["preview_image_url"].startswith("https://")
+        assert matched.source_evidence["stars_today"] == 1234
+        assert sum(1 for url in web_seen if "/trending" in url) == 1
+        assert headers_seen
+        for headers in headers_seen:
+            assert "authorization" not in {key.lower() for key in headers}
 
     asyncio.run(main())

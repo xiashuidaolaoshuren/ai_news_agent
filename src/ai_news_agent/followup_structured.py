@@ -9,7 +9,9 @@ from ai_news_agent.followup_enrich import enrich_huggingface_for_rank
 from ai_news_agent.huggingface_followup import format_huggingface_family_card
 from ai_news_agent.juya_followup import (
     format_juya_issue_deep_dive,
+    format_juya_story_deep_dive,
     is_juya_news_item,
+    is_juya_story_item,
     match_news_item_for_digest_entry,
 )
 from ai_news_agent.models import DigestEntry, RankedItem, SourceKind
@@ -262,6 +264,8 @@ def format_rank_item(ctx: FollowupContext, rank: int) -> str:
 
     entry = entries[rank - 1]
     news_item = match_news_item_for_digest_entry(entry, ctx.news_items)
+    if news_item is not None and is_juya_story_item(news_item):
+        return format_juya_story_deep_dive(entry, news_item, rank=rank)
     if news_item is not None and is_juya_news_item(news_item):
         return format_juya_issue_deep_dive(entry, news_item, rank=rank)
     if entry.source_kind is SourceKind.HUGGINGFACE:

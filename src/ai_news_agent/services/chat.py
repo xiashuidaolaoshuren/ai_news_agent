@@ -336,6 +336,7 @@ class ChatService:
         *,
         session_id: str,
         request_id: str | None = None,
+        juya_item_mode: str | None = None,
         chunk_size: int = 80,
         chunk_delay_s: float = 0.02,
     ) -> AsyncIterator[ChatEvent]:
@@ -381,6 +382,7 @@ class ChatService:
                     session_id=session_id,
                     record=record,
                     message=message,
+                    juya_item_mode=juya_item_mode,
                     chunk_size=chunk_size,
                     chunk_delay_s=chunk_delay_s,
                 ):
@@ -409,11 +411,16 @@ class ChatService:
         session_id: str,
         record: SessionRequestRecord,
         message: str,
+        juya_item_mode: str | None = None,
         chunk_size: int,
         chunk_delay_s: float,
     ) -> AsyncIterator[ChatEvent]:
         assert self._session_service is not None
-        req = self._session_service.build_request(session_id, message)
+        req = self._session_service.build_request(
+            session_id,
+            message,
+            juya_item_mode=juya_item_mode,
+        )
         runner = self._iter_streaming_runner(
             req,
             session_id=session_id,

@@ -14,6 +14,7 @@ from ai_news_agent.services.session_records import (
     MessageRecord,
     SessionRecord,
     SessionRequestRecord,
+    SessionRequestStats,
     initial_session_title,
 )
 
@@ -51,6 +52,12 @@ class SessionService:
 
     def list_sessions(self) -> list[SessionRecord]:
         return self._store.list_sessions()
+
+    def get_session_request_stats(
+        self,
+        session_ids: list[str] | None = None,
+    ) -> dict[str, SessionRequestStats]:
+        return self._store.get_session_request_stats(session_ids)
 
     def list_messages(self, session_id: str) -> list[MessageRecord]:
         return self._store.list_messages(session_id)
@@ -91,7 +98,13 @@ class SessionService:
         messages = self._store.list_messages(session_id)
         return messages[-1]
 
-    def build_request(self, session_id: str, message: str) -> DigestRequest:
+    def build_request(
+        self,
+        session_id: str,
+        message: str,
+        *,
+        juya_item_mode: str | None = None,
+    ) -> DigestRequest:
         """Compose a request where session preferences act only as defaults.
 
         Explicit message selectors win for this one request; the stored
@@ -111,6 +124,8 @@ class SessionService:
                 items_per_source=value,
                 max_items_per_source=max(req.max_items_per_source, value),
             )
+        if juya_item_mode is not None:
+            req = replace(req, juya_item_mode=juya_item_mode)
         return req
 
     def delete_session(self, session_id: str) -> None:
@@ -227,6 +242,12 @@ class SessionService:
             ):
                 raise KeyError(
                     f"active request not found: session={session_id!r} request={request_id!r}"
+                )
+            if run_id is not None:
+                uow.session_store.update_request_run_id(
+                    session_id,
+                    request_id,
+                    run_id,
                 )
         return assistant_message_id
 

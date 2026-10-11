@@ -374,6 +374,278 @@ def test_enrich_maps_readme_to_raw_snippet_and_marks_fetched() -> None:
     asyncio.run(main())
 
 
+def _make_hf_profile_transport(
+    *,
+    org_responses: dict[str, tuple[int, dict[str, Any] | None]] | None = None,
+    user_responses: dict[str, tuple[int, dict[str, Any] | None]] | None = None,
+    org_calls: list[str] | None = None,
+    user_calls: list[str] | None = None,
+) -> httpx.MockTransport:
+    import httpx
+
+    org_responses = org_responses or {}
+    user_responses = user_responses or {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.startswith("/api/organizations/") and path.endswith("/overview"):
+            name = path.split("/")[3]
+            if org_calls is not None:
+                org_calls.append(name)
+            status, body = org_responses.get(name, (404, {"error": "not found"}))
+            return httpx.Response(status, json=body)
+        if path.startswith("/api/users/") and path.endswith("/overview"):
+            name = path.split("/")[3]
+            if user_calls is not None:
+                user_calls.append(name)
+            status, body = user_responses.get(name, (404, {"error": "not found"}))
+            return httpx.Response(status, json=body)
+        return httpx.Response(404, json={"error": "unexpected path", "path": path})
+
+    return httpx.MockTransport(handler)
+
+
+def test_collect_enriches_representative_with_organisation_owner_evidence() -> None:
+    import httpx
+
+    raw = _load_fixture("huggingface_models_sample.json")
+    models = [_model_info_from_dict(row) for row in raw[:1]]
+    api = FakeHfApi(models=models)
+    transport = _make_hf_profile_transport(
+        org_responses={
+            "meta-llama": (
+                200,
+                {
+                    "name": "meta-llama",
+                    "fullname": "Meta Llama",
+                    "avatarUrl": "https://cdn.example/meta.png",
+                },
+            )
+        },
+    )
+
+    async def main() -> None:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="https://huggingface.co",
+        ) as profile_client:
+            conn = HuggingFaceConnector(api=api, profile_client=profile_client)
+            out = await conn.collect(
+                ConnectorRequest(
+                    topics=["model releases"],
+                    max_items=5,
+                    huggingface_discovery_mode="global",
+                )
+            )
+        assert len(out.items) == 1
+        evidence = out.items[0].source_evidence
+        assert evidence["owner_name"] == "meta-llama"
+        assert evidence["owner_profile_url"] == "https://huggingface.co/meta-llama"
+        assert evidence["owner_avatar_url"] == "https://cdn.example/meta.png"
+        assert evidence["owner_type"] == "organisation"
+        assert evidence["trending_score"] == 88
+
+    asyncio.run(main())
+
+
+def test_collect_enriches_person_owner_after_org_overview_404() -> None:
+    import httpx
+
+    model = _model_info_from_dict(
+        {
+            "id": "alice/demo-model",
+            "author": "alice",
+            "downloads": 100,
+            "likes": 1,
+            "trending_score": 40,
+        }
+    )
+    api = FakeHfApi(models=[model])
+    org_calls: list[str] = []
+    user_calls: list[str] = []
+    transport = _make_hf_profile_transport(
+        org_responses={"alice": (404, None)},
+        user_responses={
+            "alice": (
+                200,
+                {
+                    "user": "alice",
+                    "fullname": "Alice Example",
+                    "avatarUrl": "https://cdn.example/alice.png",
+                },
+            )
+        },
+        org_calls=org_calls,
+        user_calls=user_calls,
+    )
+
+    async def main() -> None:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="https://huggingface.co",
+        ) as profile_client:
+            conn = HuggingFaceConnector(api=api, profile_client=profile_client)
+            out = await conn.collect(
+                ConnectorRequest(
+                    topics=["model releases"],
+                    max_items=5,
+                    huggingface_discovery_mode="global",
+                )
+            )
+        assert len(out.items) == 1
+        evidence = out.items[0].source_evidence
+        assert evidence["owner_type"] == "person"
+        assert evidence["owner_profile_url"] == "https://huggingface.co/alice"
+        assert org_calls == ["alice"]
+        assert user_calls == ["alice"]
+
+    asyncio.run(main())
+
+
+def test_collect_deduplicates_owner_profile_lookups_for_shared_author() -> None:
+    import httpx
+
+    models = [
+        _model_info_from_dict(
+            {
+                "id": "meta-llama/Llama-3.1-8B",
+                "author": "meta-llama",
+                "downloads": 150000,
+                "likes": 420,
+                "trending_score": 88,
+            }
+        ),
+        _model_info_from_dict(
+            {
+                "id": "meta-llama/Llama-3.1-8B-GGUF",
+                "author": "meta-llama",
+                "downloads": 50000,
+                "likes": 100,
+                "trending_score": 60,
+            }
+        ),
+    ]
+    api = FakeHfApi(models=models)
+    org_calls: list[str] = []
+    transport = _make_hf_profile_transport(
+        org_responses={
+            "meta-llama": (
+                200,
+                {
+                    "name": "meta-llama",
+                    "avatarUrl": "https://cdn.example/meta.png",
+                },
+            )
+        },
+        org_calls=org_calls,
+    )
+
+    async def main() -> None:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="https://huggingface.co",
+        ) as profile_client:
+            conn = HuggingFaceConnector(api=api, profile_client=profile_client)
+            out = await conn.collect(
+                ConnectorRequest(
+                    topics=["model releases"],
+                    max_items=5,
+                    huggingface_discovery_mode="global",
+                )
+            )
+        assert len(out.items) == 1
+        assert org_calls == ["meta-llama"]
+        assert out.items[0].source_evidence["owner_name"] == "meta-llama"
+
+    asyncio.run(main())
+
+
+def test_collect_owner_lookup_timeout_degrades_without_user_fallback() -> None:
+    import httpx
+
+    model = _model_info_from_dict(
+        {
+            "id": "alice/demo-model",
+            "author": "alice",
+            "downloads": 100,
+            "likes": 1,
+            "trending_score": 40,
+        }
+    )
+    api = FakeHfApi(models=[model])
+    user_calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/api/organizations/"):
+            raise httpx.ReadTimeout("lookup timed out")
+        if request.url.path.startswith("/api/users/"):
+            user_calls.append("alice")
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+
+    async def main() -> None:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="https://huggingface.co",
+            timeout=httpx.Timeout(1.0),
+        ) as profile_client:
+            conn = HuggingFaceConnector(api=api, profile_client=profile_client)
+            out = await conn.collect(
+                ConnectorRequest(
+                    topics=["model releases"],
+                    max_items=5,
+                    huggingface_discovery_mode="global",
+                )
+            )
+        assert len(out.items) == 1
+        assert "owner_name" not in out.items[0].source_evidence
+        assert user_calls == []
+        assert any(w.code == "owner_profile_unavailable" for w in out.warnings)
+
+    asyncio.run(main())
+
+
+def test_collect_owner_lookup_rate_limit_degrades_without_user_fallback() -> None:
+    import httpx
+
+    model = _model_info_from_dict(
+        {
+            "id": "alice/demo-model",
+            "author": "alice",
+            "downloads": 100,
+            "likes": 1,
+            "trending_score": 40,
+        }
+    )
+    api = FakeHfApi(models=[model])
+    user_calls: list[str] = []
+    transport = _make_hf_profile_transport(
+        org_responses={"alice": (429, None)},
+        user_calls=user_calls,
+    )
+
+    async def main() -> None:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="https://huggingface.co",
+        ) as profile_client:
+            conn = HuggingFaceConnector(api=api, profile_client=profile_client)
+            out = await conn.collect(
+                ConnectorRequest(
+                    topics=["model releases"],
+                    max_items=5,
+                    huggingface_discovery_mode="global",
+                )
+            )
+        assert len(out.items) == 1
+        assert "owner_name" not in out.items[0].source_evidence
+        assert user_calls == []
+        assert any(w.code == "owner_profile_unavailable" for w in out.warnings)
+
+    asyncio.run(main())
+
+
 def test_enrich_fail_closed_leaves_item_unchanged() -> None:
     def fake_load(_repo_id: str) -> SimpleNamespace:
         raise RuntimeError("hub unavailable")

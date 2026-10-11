@@ -40,14 +40,47 @@ class FakeGitHubConnector:
 
     async def collect(self, request) -> ConnectorResult:  # noqa: ANN001
         now = datetime(2026, 5, 18, 12, 0, 0, tzinfo=UTC)
-        item = NewsItem(
-            source=SourceKind.GITHUB,
-            source_id="fake-github-1",
-            url="https://example.com/fake-github",
-            title="Fake GitHub repo",
-            collected_at=now,
-        )
-        return ConnectorResult(items=[item], warnings=[], raw_count=1)
+        items = [
+            NewsItem(
+                source=SourceKind.GITHUB,
+                source_id="fake-github-1",
+                url="https://example.com/fake-github",
+                title="Fake GitHub repo",
+                collected_at=now,
+                stars_or_views=1280,
+                language="Python",
+                source_evidence={
+                    "owner_name": "demo-org",
+                    "owner_type": "organisation",
+                    "owner_profile_url": "https://github.com/demo-org",
+                    "owner_avatar_url": "https://avatars.example.com/demo-org.png",
+                    "preview_image_url": "https://opengraph.example.com/fake-github.png",
+                    "stars_today": 42,
+                },
+            ),
+            NewsItem(
+                source=SourceKind.GITHUB,
+                source_id="fake-github-2",
+                url="https://example.com/fake-github-2",
+                title="Fake GitHub agent toolkit",
+                collected_at=now,
+                stars_or_views=97,
+                language="TypeScript",
+                source_evidence={
+                    "owner_name": "octocat",
+                    "owner_type": "person",
+                    "owner_profile_url": "https://github.com/octocat",
+                },
+            ),
+            NewsItem(
+                source=SourceKind.GITHUB,
+                source_id="fake-github-3",
+                url="https://example.com/fake-github-3",
+                title="Fake GitHub notebook",
+                collected_at=now,
+            ),
+        ]
+        return ConnectorResult(items=items, warnings=[], raw_count=len(items))
 
 
 class FakeBilibiliConnector:
@@ -68,12 +101,51 @@ class FakeJuyaConnector:
 
     async def collect(self, request) -> ConnectorResult:  # noqa: ANN001
         now = datetime(2026, 5, 18, 12, 0, 0, tzinfo=UTC)
+        if getattr(request, "juya_item_mode", None) == "stories":
+            issue_id = "fake-juya-issue-1"
+            issue_url = "https://daily.juya.uk/fake-juya"
+            stories = []
+            for number, title in (
+                (1, "Fake Juya story one"),
+                (2, "Fake Juya story two"),
+            ):
+                stories.append(
+                    NewsItem(
+                        source=SourceKind.JUYA,
+                        source_id=f"juya-story-{issue_id}-{number}",
+                        url=f"{issue_url}#story-{number}",
+                        title=title,
+                        collected_at=now,
+                        raw_snippet=f"Evidence for {title}",
+                        tags=["juya", "juya-story"],
+                        source_evidence={
+                            "juya_item_type": "story",
+                            "story_number": number,
+                            "story_section": "要闻",
+                            "story_identity": f"{issue_id}:{number}",
+                            "issue_id": issue_id,
+                            "issue_url": issue_url,
+                            "issue_date": "2026-05-18",
+                            "issue_cover_url": "https://assets.juya.uk/cover/fake.png",
+                        },
+                    )
+                )
+            return ConnectorResult(items=stories, warnings=[], raw_count=len(stories))
+
         item = NewsItem(
             source=SourceKind.JUYA,
             source_id="fake-juya-1",
             url="https://daily.juya.uk/fake-juya",
             title="Fake Juya bulletin",
             collected_at=now,
+            source_evidence={
+                "juya_item_type": "issue",
+                "issue_id": "fake-juya-1",
+                "issue_url": "https://daily.juya.uk/fake-juya",
+                "issue_date": "2026-05-18",
+                "issue_cover_url": "https://assets.example.com/juya/fake-cover.png",
+                "issue_lead_title": "Fake Juya lead headline",
+            },
         )
         return ConnectorResult(items=[item], warnings=[], raw_count=1)
 
@@ -86,14 +158,32 @@ class FakeHuggingFaceConnector:
 
     async def collect(self, request) -> ConnectorResult:  # noqa: ANN001
         now = datetime(2026, 5, 18, 12, 0, 0, tzinfo=UTC)
-        item = NewsItem(
-            source=SourceKind.HUGGINGFACE,
-            source_id="fake-huggingface-1",
-            url="https://huggingface.co/fake-model",
-            title="Fake Hugging Face model",
-            collected_at=now,
-        )
-        return ConnectorResult(items=[item], warnings=[], raw_count=1)
+        items = [
+            NewsItem(
+                source=SourceKind.HUGGINGFACE,
+                source_id="fake-huggingface-1",
+                url="https://huggingface.co/fake-model",
+                title="Fake Hugging Face model",
+                collected_at=now,
+                source_evidence={
+                    "owner_name": "demo-org",
+                    "owner_type": "organisation",
+                    "owner_profile_url": "https://huggingface.co/demo-org",
+                    "base_model": "meta-llama/Llama-3.1-8B",
+                    "pipeline_tag": "text-generation",
+                    "downloads_30d": 1234,
+                    "likes": 56,
+                },
+            ),
+            NewsItem(
+                source=SourceKind.HUGGINGFACE,
+                source_id="fake-huggingface-2",
+                url="https://huggingface.co/fake-model-2",
+                title="Fake Hugging Face quantized model",
+                collected_at=now,
+            ),
+        ]
+        return ConnectorResult(items=items, warnings=[], raw_count=len(items))
 
 
 class FakeZhihuConnector:
@@ -155,9 +245,9 @@ def build_connectors(*, fake: bool, names: Sequence[str]) -> list[SourceConnecto
     else:
         factories = {
             "juya": JuyaConnector(),
-            "github": GitHubConnector(),
+            "github": GitHubConnector(preview_enrichment=True, trending_enrichment=True),
             "bilibili": BilibiliConnector(),
-            "huggingface": HuggingFaceConnector(),
+            "huggingface": HuggingFaceConnector(owner_enrichment=True),
             "zhihu": ZhihuConnector(),
         }
     return [factories[name] for name in selected]

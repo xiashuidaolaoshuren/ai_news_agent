@@ -39,8 +39,12 @@ The atomic Zhihu digest item — one traceable search result framed for its prac
 _Avoid_: Uncited multi-result synthesis, treating a relevance score as popularity, inferring claims not supported by the returned content
 
 **Trending repo**:
-The atomic GitHub digest item — a repository under a topic that scores as notable momentum via a transparent heuristic (e.g. stars combined with recent activity), not true star-delta until that exists.
-_Avoid_: Release-as-primary-item, README snippet as the story, treating every matching repo as equally newsworthy, claiming precise “stars gained in N days” without that data
+The atomic GitHub digest item — a repository under a topic that scores as notable momentum via a transparent heuristic (e.g. stars combined with recent activity).
+_Avoid_: Release-as-primary-item, README snippet as the story, treating every matching repo as equally newsworthy, claiming a star delta the source did not report
+
+**Stars today**:
+The star gain GitHub prints for a repository on its daily trending list. A GitHub digest row shows it only when that list includes the repository.
+_Avoid_: A delta computed from total stars, a change since the last digest labeled as today, showing it on every GitHub row
 
 **Trending model**:
 The atomic Hugging Face digest item — one **model family** with notable current Hub momentum, represented by the family’s highest-trending Hub repository. It may be global or constrained to a user-named topic or task.
@@ -79,6 +83,18 @@ _Avoid_: A digest-renderer “follow-up section”, giving Also variants their o
 **Issue deep-dive**:
 The Juya rank deep-dive — one daily issue expanded into sub-news from persisted website markdown. Chinese chrome.
 _Avoid_: Inventing sub-items not in persisted evidence, using this shape for Hugging Face families or Zhihu search snippets
+
+**Juya daily issue**:
+The default Juya digest item — one row per daily bulletin (RSS/markdown issue), with optional cover and lead metadata in the API view.
+_Avoid_: Treating every Juya row as a single bulletin story, assuming story mode without an explicit web request
+
+**Juya bulletin story**:
+An opt-in Juya digest item — one numbered story from a daily issue when the web client requests story mode. It has its own display rank, history reference, and story-specific summary.
+_Avoid_: Silent story mode on CLI/Gradio/OpenClaw, inferring story identity from title alone, giving Also variants their own story ranks
+
+**Digest presentation metadata**:
+Whitelisted API fields derived from persisted connector evidence: publisher owner (name, profile, avatar, account type), GitHub preview image, Juya issue cover, and Juya story/issue structure. Not raw `source_evidence`.
+_Avoid_: Exposing raw evidence, inventing daily star deltas or issue numbers, treating UI initials as a backend field
 
 **Hugging Face family card**:
 The Hugging Face rank deep-dive — the **model family** at that display rank: representative, comparison-table Hub stats, Also variants, publisher, card snippet, and the popularity-not-quality caveat. English chrome matching the comparison table. Snippet may come from collect-time card data or a once-fetched live model-card README (ADR-0006).

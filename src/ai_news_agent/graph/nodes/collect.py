@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Callable, Sequence
+from typing import Literal
 
 from ai_news_agent.connectors.base import ConnectorRequest, ConnectorResult, SourceConnector
 from ai_news_agent.graph.state import DigestGraphState, WorkflowError
@@ -25,6 +27,27 @@ def _format_connector_call_done(name: str, item_count: int) -> str:
 
 def _format_connector_call_failed(name: str) -> str:
     return f"Tool failed {name}: collection failed."
+
+
+_CALLING_RE = re.compile(r"^Calling (.+)…$")
+_DONE_RE = re.compile(r"^Done (.+): Found (\d+) \1 (?:result|results)\.$")
+_FAILED_RE = re.compile(r"^Tool failed (.+): collection failed\.$")
+
+
+def parse_connector_progress(
+    line: str,
+) -> tuple[str, Literal["running", "done", "failed"], int | None] | None:
+    """Parse a collect-node progress line into structured connector fields."""
+    match = _CALLING_RE.match(line)
+    if match is not None:
+        return match.group(1), "running", None
+    match = _DONE_RE.match(line)
+    if match is not None:
+        return match.group(1), "done", int(match.group(2))
+    match = _FAILED_RE.match(line)
+    if match is not None:
+        return match.group(1), "failed", None
+    return None
 
 
 def make_collect_sources_node(
