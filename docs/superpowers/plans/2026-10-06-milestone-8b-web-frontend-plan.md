@@ -221,7 +221,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### T3 — SSE reader and request lifecycle
 
-- [ ] **Do:** Implement the POST SSE frame parser, the request state machine, cancel, and reconnect polling.
+- [x] **Do:** Implement the POST SSE frame parser, the request state machine, cancel, and reconnect polling.
 - **Consumes:** the generated client; SSE contract (`started`, `progress`, `delta`, `digest`, `done`, `error`); `GET .../requests/{id}`; cancel 202/204; 409 codes.
 - **Produces:** `parseSseStream(readable)`, `postMessageStream(sessionId, body)`, `createRequestLifecycle(...)` emitting states `idle | streaming | reconnecting | succeeded | failed | cancelled`.
 - **Acceptance:** Parser handles frames split across chunks, several events per chunk, CRLF, and ignores unknown events. `delta` replaces text (cumulative, never appended). Cancel 202 waits for the terminal `cancelled` error; 204 triggers a status poll and shows the real outcome. A dropped stream enters `reconnecting`, polls with backoff up to 5 attempts, and on a terminal status reloads messages; exhaustion ends in `failed` with Run again. A 409 `session_busy` or `request_in_progress` surfaces the blocked state. The byte stream is never reopened.
@@ -337,3 +337,4 @@ Per subtask, obey `TDD suitable`: `yes` means strict RED/GREEN (scoped `uv run p
 | 2026-10-06 | Added B7 (fake-mode fixtures): fake GitHub and HF connectors carry no presentation evidence, so spec acceptance 1 could not be met without it | equivalent |
 | 2026-10-09 | B6 uses a separate streamed 2,000,000-byte cap; observed daily page is 585,999 bytes. Keep 5-second timeout/3 redirects and add offline HTML fixture | material (approved) |
 | 2026-10-11 | T1 done: `frontend/` scaffold with npm, Tailwind v4, shadcn-vue init, Vitest; OpenAPI client via `@hey-api/openapi-ts` from committed `frontend/openapi.json` | — |
+| 2026-10-11 | T3 done: `frontend/src/api/sse.ts` (frame parser, `postMessageStream`, `SseHttpError`) and `lifecycle.ts` (`createRequestLifecycle`, cancel 202/204, reconnect backoff, `resume`, 409 `blocked`, superseded-run guard, `defaultLifecycleDeps`); 15 vitest cases with injected deps, no network | — |
