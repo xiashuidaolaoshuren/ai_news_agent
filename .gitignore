@@ -48,3 +48,8 @@ digest_artifacts/
 
 .cursor/rules/
 
+# Frontend (Milestone 8B)
+frontend/node_modules/
+frontend/.env.local
+frontend/*.tsbuildinfo
+

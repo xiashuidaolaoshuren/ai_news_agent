@@ -331,6 +331,34 @@ curl -s http://127.0.0.1:8765/api/v1/health
 curl -s -X POST http://127.0.0.1:8765/api/v1/sessions
 ```
 
+## Web frontend (Milestone 8B)
+
+The Vue app lives in `frontend/`. It talks to the same local service on port `8765`. Vite serves the UI on `http://127.0.0.1:5173` (CORS is already allowlisted).
+
+1. Start the API in fake mode (separate terminal):
+
+```bash
+uv run ai-news-agent service --fake --host 127.0.0.1 --port 8765 --db-path ./digest.sqlite
+```
+
+2. Install and run the dev server:
+
+```bash
+npm --prefix frontend install
+npm --prefix frontend run dev
+```
+
+Optional: copy `frontend/.env.example` to `frontend/.env.local` to override `VITE_API_BASE_URL` (default `http://127.0.0.1:8765`).
+
+Regenerate the typed client after backend OpenAPI changes:
+
+```bash
+npm --prefix frontend run gen:api:spec
+npm --prefix frontend run gen:api
+```
+
+Scripts: `dev`, `build`, `typecheck`, `test`, `gen:api`, `gen:api:spec`. The client is generated with `@hey-api/openapi-ts` into `frontend/src/api/generated/`.
+
 ## OpenClaw integration (Milestone 3)
 
 Use [OpenClaw](https://docs.openclaw.ai/) as an outer gateway to trigger digest generation through natural-language prompts. OpenClaw handles channels and sessions; this project still runs retrieval, ranking, summarization, and persistence through the existing CLI workflow.

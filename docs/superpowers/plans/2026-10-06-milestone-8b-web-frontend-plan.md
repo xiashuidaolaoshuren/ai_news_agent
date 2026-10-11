@@ -197,7 +197,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### T1 — Scaffold `frontend/` and generated client
 
-- [ ] **Do:** Create the Vite + Vue 3 + TypeScript + Tailwind + shadcn-vue + Vitest app, env config, and the OpenAPI client generation script.
+- [x] **Do:** Create the Vite + Vue 3 + TypeScript + Tailwind + shadcn-vue + Vitest app, env config, and the OpenAPI client generation script.
 - **Consumes:** B8 final `/openapi.json`; `VITE_API_BASE_URL` (default `http://127.0.0.1:8765`); CORS allowlist for `:5173`.
 - **Produces:** runnable `npm run dev` on `:5173`; `npm run gen:api` writing `src/api/generated/`; `typecheck`, `test`, `build` scripts; the pre-paint theme script in `index.html` (`anra-theme`).
 - **Acceptance:** Dev server loads a blank shell and a single call to `GET /api/v1/health` succeeds from the browser against `ai-news-agent service --fake` with no CORS error. Generated types include the F1-F7 fields. The repo `.gitignore` covers `frontend/node_modules` and build output.
@@ -336,3 +336,4 @@ Per subtask, obey `TDD suitable`: `yes` means strict RED/GREEN (scoped `uv run p
 | 2026-10-06 | B1 also adds `digest_id` to the SSE `digest` event (spec F1 said `MessageOut` only); the `dN` ref is needed before any reload. Spec F1 row patched to match | equivalent |
 | 2026-10-06 | Added B7 (fake-mode fixtures): fake GitHub and HF connectors carry no presentation evidence, so spec acceptance 1 could not be met without it | equivalent |
 | 2026-10-09 | B6 uses a separate streamed 2,000,000-byte cap; observed daily page is 585,999 bytes. Keep 5-second timeout/3 redirects and add offline HTML fixture | material (approved) |
+| 2026-10-11 | T1 done: `frontend/` scaffold with npm, Tailwind v4, shadcn-vue init, Vitest; OpenAPI client via `@hey-api/openapi-ts` from committed `frontend/openapi.json` | — |

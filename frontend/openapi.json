@@ -1,0 +1,5573 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FastAPI",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Api V1 Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sources": {
+      "get": {
+        "summary": "Sources",
+        "operationId": "sources_api_v1_sources_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Sources Api V1 Sources Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Create Session",
+        "operationId": "create_session_api_v1_sessions_post",
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "List Sessions",
+        "operationId": "list_sessions_api_v1_sessions_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionListPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/search": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Search",
+        "operationId": "search_api_v1_sessions_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionSearchPageOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Session",
+        "operationId": "get_session_api_v1_sessions__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Patch Session",
+        "operationId": "patch_session_api_v1_sessions__session_id__patch",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Delete Session",
+        "operationId": "delete_session_api_v1_sessions__session_id__delete",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}/requests/{request_id}": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Request Status",
+        "operationId": "get_request_status_api_v1_sessions__session_id__requests__request_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}/requests/{request_id}/cancel": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Cancel Request",
+        "operationId": "cancel_request_api_v1_sessions__session_id__requests__request_id__cancel_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}/messages": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "List Messages",
+        "operationId": "list_messages_api_v1_sessions__session_id__messages_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageListPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Post Message",
+        "operationId": "post_message_api_v1_sessions__session_id__messages_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostMessageBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session chat event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$defs": {
+                    "ConnectorWarning": {
+                      "description": "Non-fatal connector issue (pipeline may continue).",
+                      "properties": {
+                        "connector": {
+                          "title": "Connector",
+                          "type": "string"
+                        },
+                        "code": {
+                          "title": "Code",
+                          "type": "string"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "detail": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Detail"
+                        }
+                      },
+                      "required": [
+                        "connector",
+                        "code",
+                        "message"
+                      ],
+                      "title": "ConnectorWarning",
+                      "type": "object"
+                    },
+                    "DeltaPayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "text": {
+                          "title": "Text",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "text"
+                      ],
+                      "title": "DeltaPayload",
+                      "type": "object"
+                    },
+                    "DeltaStreamEvent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "event": {
+                          "const": "delta",
+                          "default": "delta",
+                          "title": "Event",
+                          "type": "string"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/DeltaPayload"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ],
+                      "title": "DeltaStreamEvent",
+                      "type": "object"
+                    },
+                    "DigestEntryView": {
+                      "description": "Common digest entry fields exposed to the API.",
+                      "properties": {
+                        "source_kind": {
+                          "enum": [
+                            "bilibili",
+                            "zhihu"
+                          ],
+                          "title": "Source Kind",
+                          "type": "string"
+                        },
+                        "source_id": {
+                          "title": "Source Id",
+                          "type": "string"
+                        },
+                        "title": {
+                          "title": "Title",
+                          "type": "string"
+                        },
+                        "source_name": {
+                          "title": "Source Name",
+                          "type": "string"
+                        },
+                        "source_url": {
+                          "title": "Source Url",
+                          "type": "string"
+                        },
+                        "summary": {
+                          "title": "Summary",
+                          "type": "string"
+                        },
+                        "why_it_matters": {
+                          "title": "Why It Matters",
+                          "type": "string"
+                        },
+                        "background_knowledge": {
+                          "title": "Background Knowledge",
+                          "type": "string"
+                        },
+                        "follow_up_action": {
+                          "$ref": "#/components/schemas/FollowUpAction"
+                        },
+                        "confidence_caveat": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Confidence Caveat"
+                        },
+                        "display_rank": {
+                          "title": "Display Rank",
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "source_kind",
+                        "source_id",
+                        "title",
+                        "source_name",
+                        "source_url",
+                        "summary",
+                        "why_it_matters",
+                        "background_knowledge",
+                        "follow_up_action",
+                        "display_rank"
+                      ],
+                      "title": "DigestEntryView",
+                      "type": "object"
+                    },
+                    "DigestPayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "run_id": {
+                          "title": "Run Id",
+                          "type": "integer"
+                        },
+                        "digest_id": {
+                          "title": "Digest Id",
+                          "type": "integer"
+                        },
+                        "digest": {
+                          "$ref": "#/components/schemas/DigestView"
+                        },
+                        "markdown": {
+                          "title": "Markdown",
+                          "type": "string"
+                        },
+                        "warnings": {
+                          "items": {
+                            "$ref": "#/components/schemas/ConnectorWarning"
+                          },
+                          "title": "Warnings",
+                          "type": "array"
+                        },
+                        "errors": {
+                          "items": {
+                            "$ref": "#/components/schemas/WorkflowErrorPayload"
+                          },
+                          "title": "Errors",
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "run_id",
+                        "digest_id",
+                        "digest",
+                        "markdown"
+                      ],
+                      "title": "DigestPayload",
+                      "type": "object"
+                    },
+                    "DigestStreamEvent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "event": {
+                          "const": "digest",
+                          "default": "digest",
+                          "title": "Event",
+                          "type": "string"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/DigestPayload"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ],
+                      "title": "DigestStreamEvent",
+                      "type": "object"
+                    },
+                    "DigestView": {
+                      "description": "API projection of a saved digest plus selected news evidence.",
+                      "properties": {
+                        "generated_at": {
+                          "format": "date-time",
+                          "title": "Generated At",
+                          "type": "string"
+                        },
+                        "timeframe": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Timeframe"
+                        },
+                        "topics": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "title": "Topics",
+                          "type": "array"
+                        },
+                        "entries": {
+                          "items": {
+                            "discriminator": {
+                              "mapping": {
+                                "bilibili": "#/components/schemas/DigestEntryView",
+                                "github": "#/components/schemas/GitHubDigestEntryView",
+                                "huggingface": "#/components/schemas/HuggingFaceDigestEntryView",
+                                "juya": "#/components/schemas/JuyaDigestEntryView",
+                                "zhihu": "#/components/schemas/DigestEntryView"
+                              },
+                              "propertyName": "source_kind"
+                            },
+                            "oneOf": [
+                              {
+                                "$ref": "#/components/schemas/GitHubDigestEntryView"
+                              },
+                              {
+                                "$ref": "#/components/schemas/HuggingFaceDigestEntryView"
+                              },
+                              {
+                                "$ref": "#/components/schemas/JuyaDigestEntryView"
+                              },
+                              {
+                                "$ref": "#/components/schemas/DigestEntryView"
+                              }
+                            ]
+                          },
+                          "title": "Entries",
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "generated_at"
+                      ],
+                      "title": "DigestView",
+                      "type": "object"
+                    },
+                    "DonePayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "request_id": {
+                          "title": "Request Id",
+                          "type": "string"
+                        },
+                        "message_id": {
+                          "title": "Message Id",
+                          "type": "integer"
+                        },
+                        "run_id": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Run Id"
+                        },
+                        "path": {
+                          "title": "Path",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "message_id",
+                        "run_id",
+                        "path"
+                      ],
+                      "title": "DonePayload",
+                      "type": "object"
+                    },
+                    "DoneStreamEvent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "event": {
+                          "const": "done",
+                          "default": "done",
+                          "title": "Event",
+                          "type": "string"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/DonePayload"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ],
+                      "title": "DoneStreamEvent",
+                      "type": "object"
+                    },
+                    "ErrorPayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "request_id": {
+                          "title": "Request Id",
+                          "type": "string"
+                        },
+                        "code": {
+                          "title": "Code",
+                          "type": "string"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "correlation_id": {
+                          "title": "Correlation Id",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "code",
+                        "message",
+                        "correlation_id"
+                      ],
+                      "title": "ErrorPayload",
+                      "type": "object"
+                    },
+                    "ErrorStreamEvent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "event": {
+                          "const": "error",
+                          "default": "error",
+                          "title": "Event",
+                          "type": "string"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/ErrorPayload"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ],
+                      "title": "ErrorStreamEvent",
+                      "type": "object"
+                    },
+                    "FamilyVariant": {
+                      "description": "Summary-only Hugging Face family variant for rich presentation.",
+                      "properties": {
+                        "source_id": {
+                          "title": "Source Id",
+                          "type": "string"
+                        },
+                        "title": {
+                          "title": "Title",
+                          "type": "string"
+                        },
+                        "url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Url"
+                        },
+                        "downloads_30d": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Downloads 30D"
+                        },
+                        "likes": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Likes"
+                        }
+                      },
+                      "required": [
+                        "source_id",
+                        "title"
+                      ],
+                      "title": "FamilyVariant",
+                      "type": "object"
+                    },
+                    "FollowUpAction": {
+                      "enum": [
+                        "read",
+                        "watch",
+                        "try",
+                        "build"
+                      ],
+                      "title": "FollowUpAction",
+                      "type": "string"
+                    },
+                    "GitHubDigestEntryView": {
+                      "description": "GitHub digest entry with repository presentation metadata.",
+                      "properties": {
+                        "source_kind": {
+                          "const": "github",
+                          "default": "github",
+                          "title": "Source Kind",
+                          "type": "string"
+                        },
+                        "source_id": {
+                          "title": "Source Id",
+                          "type": "string"
+                        },
+                        "title": {
+                          "title": "Title",
+                          "type": "string"
+                        },
+                        "source_name": {
+                          "title": "Source Name",
+                          "type": "string"
+                        },
+                        "source_url": {
+                          "title": "Source Url",
+                          "type": "string"
+                        },
+                        "summary": {
+                          "title": "Summary",
+                          "type": "string"
+                        },
+                        "why_it_matters": {
+                          "title": "Why It Matters",
+                          "type": "string"
+                        },
+                        "background_knowledge": {
+                          "title": "Background Knowledge",
+                          "type": "string"
+                        },
+                        "follow_up_action": {
+                          "$ref": "#/components/schemas/FollowUpAction"
+                        },
+                        "confidence_caveat": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Confidence Caveat"
+                        },
+                        "display_rank": {
+                          "title": "Display Rank",
+                          "type": "integer"
+                        },
+                        "owner": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/PublisherOwnerView"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "preview_image_url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Preview Image Url"
+                        },
+                        "stars": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Stars"
+                        },
+                        "stars_today": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Stars Today"
+                        },
+                        "language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Language"
+                        }
+                      },
+                      "required": [
+                        "source_id",
+                        "title",
+                        "source_name",
+                        "source_url",
+                        "summary",
+                        "why_it_matters",
+                        "background_knowledge",
+                        "follow_up_action",
+                        "display_rank"
+                      ],
+                      "title": "GitHubDigestEntryView",
+                      "type": "object"
+                    },
+                    "HuggingFaceDigestEntryView": {
+                      "description": "Hugging Face digest entry with whitelisted family metrics.",
+                      "properties": {
+                        "source_kind": {
+                          "const": "huggingface",
+                          "default": "huggingface",
+                          "title": "Source Kind",
+                          "type": "string"
+                        },
+                        "source_id": {
+                          "title": "Source Id",
+                          "type": "string"
+                        },
+                        "title": {
+                          "title": "Title",
+                          "type": "string"
+                        },
+                        "source_name": {
+                          "title": "Source Name",
+                          "type": "string"
+                        },
+                        "source_url": {
+                          "title": "Source Url",
+                          "type": "string"
+                        },
+                        "summary": {
+                          "title": "Summary",
+                          "type": "string"
+                        },
+                        "why_it_matters": {
+                          "title": "Why It Matters",
+                          "type": "string"
+                        },
+                        "background_knowledge": {
+                          "title": "Background Knowledge",
+                          "type": "string"
+                        },
+                        "follow_up_action": {
+                          "$ref": "#/components/schemas/FollowUpAction"
+                        },
+                        "confidence_caveat": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Confidence Caveat"
+                        },
+                        "display_rank": {
+                          "title": "Display Rank",
+                          "type": "integer"
+                        },
+                        "owner": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/PublisherOwnerView"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "base_model": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Base Model"
+                        },
+                        "trending_score": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Trending Score"
+                        },
+                        "downloads_30d": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Downloads 30D"
+                        },
+                        "likes": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Likes"
+                        },
+                        "pipeline_tag": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Pipeline Tag"
+                        },
+                        "family_variants": {
+                          "items": {
+                            "$ref": "#/components/schemas/FamilyVariant"
+                          },
+                          "title": "Family Variants",
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "source_id",
+                        "title",
+                        "source_name",
+                        "source_url",
+                        "summary",
+                        "why_it_matters",
+                        "background_knowledge",
+                        "follow_up_action",
+                        "display_rank"
+                      ],
+                      "title": "HuggingFaceDigestEntryView",
+                      "type": "object"
+                    },
+                    "JuyaDigestEntryView": {
+                      "description": "Juya digest entry with issue/story presentation metadata.",
+                      "properties": {
+                        "source_kind": {
+                          "const": "juya",
+                          "default": "juya",
+                          "title": "Source Kind",
+                          "type": "string"
+                        },
+                        "source_id": {
+                          "title": "Source Id",
+                          "type": "string"
+                        },
+                        "title": {
+                          "title": "Title",
+                          "type": "string"
+                        },
+                        "source_name": {
+                          "title": "Source Name",
+                          "type": "string"
+                        },
+                        "source_url": {
+                          "title": "Source Url",
+                          "type": "string"
+                        },
+                        "summary": {
+                          "title": "Summary",
+                          "type": "string"
+                        },
+                        "why_it_matters": {
+                          "title": "Why It Matters",
+                          "type": "string"
+                        },
+                        "background_knowledge": {
+                          "title": "Background Knowledge",
+                          "type": "string"
+                        },
+                        "follow_up_action": {
+                          "$ref": "#/components/schemas/FollowUpAction"
+                        },
+                        "confidence_caveat": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Confidence Caveat"
+                        },
+                        "display_rank": {
+                          "title": "Display Rank",
+                          "type": "integer"
+                        },
+                        "item_type": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "issue",
+                                "story"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Item Type"
+                        },
+                        "issue": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/JuyaIssueView"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "story": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/JuyaStoryView"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "source_id",
+                        "title",
+                        "source_name",
+                        "source_url",
+                        "summary",
+                        "why_it_matters",
+                        "background_knowledge",
+                        "follow_up_action",
+                        "display_rank"
+                      ],
+                      "title": "JuyaDigestEntryView",
+                      "type": "object"
+                    },
+                    "JuyaIssueView": {
+                      "properties": {
+                        "id": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Id"
+                        },
+                        "date": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Date"
+                        },
+                        "url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Url"
+                        },
+                        "cover_url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Cover Url"
+                        },
+                        "lead_title": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Lead Title"
+                        }
+                      },
+                      "title": "JuyaIssueView",
+                      "type": "object"
+                    },
+                    "JuyaStoryView": {
+                      "properties": {
+                        "number": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Number"
+                        },
+                        "section": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Section"
+                        },
+                        "original_url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Original Url"
+                        }
+                      },
+                      "title": "JuyaStoryView",
+                      "type": "object"
+                    },
+                    "ProgressPayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "stage": {
+                          "title": "Stage",
+                          "type": "string"
+                        },
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Source"
+                        },
+                        "status": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "running",
+                                "done",
+                                "failed"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Status"
+                        },
+                        "count": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Count"
+                        }
+                      },
+                      "required": [
+                        "stage"
+                      ],
+                      "title": "ProgressPayload",
+                      "type": "object"
+                    },
+                    "ProgressStreamEvent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "event": {
+                          "const": "progress",
+                          "default": "progress",
+                          "title": "Event",
+                          "type": "string"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/ProgressPayload"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ],
+                      "title": "ProgressStreamEvent",
+                      "type": "object"
+                    },
+                    "PublisherOwnerView": {
+                      "description": "Publisher account metadata for GitHub and Hugging Face entries.",
+                      "properties": {
+                        "name": {
+                          "title": "Name",
+                          "type": "string"
+                        },
+                        "profile_url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Profile Url"
+                        },
+                        "avatar_url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Avatar Url"
+                        },
+                        "type": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "organisation",
+                                "person"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Type"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "title": "PublisherOwnerView",
+                      "type": "object"
+                    },
+                    "StartedPayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "request_id": {
+                          "title": "Request Id",
+                          "type": "string"
+                        },
+                        "user_message_id": {
+                          "title": "User Message Id",
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "user_message_id"
+                      ],
+                      "title": "StartedPayload",
+                      "type": "object"
+                    },
+                    "StartedStreamEvent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "event": {
+                          "const": "started",
+                          "default": "started",
+                          "title": "Event",
+                          "type": "string"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/StartedPayload"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ],
+                      "title": "StartedStreamEvent",
+                      "type": "object"
+                    },
+                    "WorkflowErrorPayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "stage": {
+                          "title": "Stage",
+                          "type": "string"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "detail": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Detail"
+                        }
+                      },
+                      "required": [
+                        "stage",
+                        "message"
+                      ],
+                      "title": "WorkflowErrorPayload",
+                      "type": "object"
+                    }
+                  },
+                  "discriminator": {
+                    "mapping": {
+                      "delta": "#/components/schemas/DeltaStreamEvent",
+                      "digest": "#/components/schemas/DigestStreamEvent",
+                      "done": "#/components/schemas/DoneStreamEvent",
+                      "error": "#/components/schemas/ErrorStreamEvent",
+                      "progress": "#/components/schemas/ProgressStreamEvent",
+                      "started": "#/components/schemas/StartedStreamEvent"
+                    },
+                    "propertyName": "event"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/StartedStreamEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ProgressStreamEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DeltaStreamEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DigestStreamEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DoneStreamEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorStreamEvent"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/history/search": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "summary": "Search History",
+        "operationId": "search_history_api_v1_history_search_get",
+        "parameters": [
+          {
+            "name": "text",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Text"
+            }
+          },
+          {
+            "name": "sources",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sources"
+            }
+          },
+          {
+            "name": "topics",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Topics"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistorySearchResultOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/history/{historical_item_ref}": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "summary": "Show History",
+        "operationId": "show_history_api_v1_history__historical_item_ref__get",
+        "parameters": [
+          {
+            "name": "historical_item_ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Historical Item Ref"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryItemShowOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "openclaw"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/digest": {
+      "post": {
+        "tags": [
+          "openclaw"
+        ],
+        "summary": "Digest",
+        "operationId": "digest_digest_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/followup": {
+      "post": {
+        "tags": [
+          "openclaw"
+        ],
+        "summary": "Followup",
+        "operationId": "followup_followup_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ConnectorWarning": {
+        "properties": {
+          "connector": {
+            "type": "string",
+            "title": "Connector"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector",
+          "code",
+          "message"
+        ],
+        "title": "ConnectorWarning",
+        "description": "Non-fatal connector issue (pipeline may continue)."
+      },
+      "DigestEntryView": {
+        "properties": {
+          "source_kind": {
+            "type": "string",
+            "enum": [
+              "bilibili",
+              "zhihu"
+            ],
+            "title": "Source Kind"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "source_name": {
+            "type": "string",
+            "title": "Source Name"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "why_it_matters": {
+            "type": "string",
+            "title": "Why It Matters"
+          },
+          "background_knowledge": {
+            "type": "string",
+            "title": "Background Knowledge"
+          },
+          "follow_up_action": {
+            "$ref": "#/components/schemas/FollowUpAction"
+          },
+          "confidence_caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence Caveat"
+          },
+          "display_rank": {
+            "type": "integer",
+            "title": "Display Rank"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_kind",
+          "source_id",
+          "title",
+          "source_name",
+          "source_url",
+          "summary",
+          "why_it_matters",
+          "background_knowledge",
+          "follow_up_action",
+          "display_rank"
+        ],
+        "title": "DigestEntryView",
+        "description": "Common digest entry fields exposed to the API."
+      },
+      "DigestView": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "timeframe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeframe"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Topics"
+          },
+          "entries": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/GitHubDigestEntryView"
+                },
+                {
+                  "$ref": "#/components/schemas/HuggingFaceDigestEntryView"
+                },
+                {
+                  "$ref": "#/components/schemas/JuyaDigestEntryView"
+                },
+                {
+                  "$ref": "#/components/schemas/DigestEntryView"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "source_kind",
+                "mapping": {
+                  "bilibili": "#/components/schemas/DigestEntryView",
+                  "github": "#/components/schemas/GitHubDigestEntryView",
+                  "huggingface": "#/components/schemas/HuggingFaceDigestEntryView",
+                  "juya": "#/components/schemas/JuyaDigestEntryView",
+                  "zhihu": "#/components/schemas/DigestEntryView"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at"
+        ],
+        "title": "DigestView",
+        "description": "API projection of a saved digest plus selected news evidence."
+      },
+      "FamilyVariant": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "downloads_30d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloads 30D"
+          },
+          "likes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Likes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "title"
+        ],
+        "title": "FamilyVariant",
+        "description": "Summary-only Hugging Face family variant for rich presentation."
+      },
+      "FollowUpAction": {
+        "type": "string",
+        "enum": [
+          "read",
+          "watch",
+          "try",
+          "build"
+        ],
+        "title": "FollowUpAction"
+      },
+      "GitHubDigestEntryView": {
+        "properties": {
+          "source_kind": {
+            "type": "string",
+            "const": "github",
+            "title": "Source Kind",
+            "default": "github"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "source_name": {
+            "type": "string",
+            "title": "Source Name"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "why_it_matters": {
+            "type": "string",
+            "title": "Why It Matters"
+          },
+          "background_knowledge": {
+            "type": "string",
+            "title": "Background Knowledge"
+          },
+          "follow_up_action": {
+            "$ref": "#/components/schemas/FollowUpAction"
+          },
+          "confidence_caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence Caveat"
+          },
+          "display_rank": {
+            "type": "integer",
+            "title": "Display Rank"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublisherOwnerView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "preview_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Image Url"
+          },
+          "stars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stars"
+          },
+          "stars_today": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stars Today"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "title",
+          "source_name",
+          "source_url",
+          "summary",
+          "why_it_matters",
+          "background_knowledge",
+          "follow_up_action",
+          "display_rank"
+        ],
+        "title": "GitHubDigestEntryView",
+        "description": "GitHub digest entry with repository presentation metadata."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HistoricalItemRefOut": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "digest_id": {
+            "type": "integer",
+            "title": "Digest Id"
+          },
+          "run_id": {
+            "type": "integer",
+            "title": "Run Id"
+          },
+          "entry_id": {
+            "type": "integer",
+            "title": "Entry Id"
+          },
+          "rank": {
+            "type": "integer",
+            "title": "Rank"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token",
+          "digest_id",
+          "run_id",
+          "entry_id",
+          "rank"
+        ],
+        "title": "HistoricalItemRefOut"
+      },
+      "HistoryItemShowOut": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "markdown": {
+            "type": "string",
+            "title": "Markdown"
+          },
+          "entry": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/GitHubDigestEntryView"
+                  },
+                  {
+                    "$ref": "#/components/schemas/HuggingFaceDigestEntryView"
+                  },
+                  {
+                    "$ref": "#/components/schemas/JuyaDigestEntryView"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DigestEntryView"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "source_kind",
+                  "mapping": {
+                    "bilibili": "#/components/schemas/DigestEntryView",
+                    "github": "#/components/schemas/GitHubDigestEntryView",
+                    "huggingface": "#/components/schemas/HuggingFaceDigestEntryView",
+                    "juya": "#/components/schemas/JuyaDigestEntryView",
+                    "zhihu": "#/components/schemas/DigestEntryView"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token",
+          "markdown"
+        ],
+        "title": "HistoryItemShowOut"
+      },
+      "HistorySearchMatchOut": {
+        "properties": {
+          "ref": {
+            "$ref": "#/components/schemas/HistoricalItemRefOut"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/SourceKind"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "excerpt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excerpt"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Topics"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ref",
+          "generated_at",
+          "source_kind",
+          "title",
+          "url",
+          "excerpt",
+          "score"
+        ],
+        "title": "HistorySearchMatchOut"
+      },
+      "HistorySearchResultOut": {
+        "properties": {
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/HistorySearchMatchOut"
+            },
+            "type": "array",
+            "title": "Matches"
+          },
+          "scanned_count": {
+            "type": "integer",
+            "title": "Scanned Count"
+          },
+          "archive_truncated": {
+            "type": "boolean",
+            "title": "Archive Truncated"
+          },
+          "caveats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Caveats"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "matches",
+          "scanned_count",
+          "archive_truncated",
+          "caveats"
+        ],
+        "title": "HistorySearchResultOut"
+      },
+      "HuggingFaceDigestEntryView": {
+        "properties": {
+          "source_kind": {
+            "type": "string",
+            "const": "huggingface",
+            "title": "Source Kind",
+            "default": "huggingface"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "source_name": {
+            "type": "string",
+            "title": "Source Name"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "why_it_matters": {
+            "type": "string",
+            "title": "Why It Matters"
+          },
+          "background_knowledge": {
+            "type": "string",
+            "title": "Background Knowledge"
+          },
+          "follow_up_action": {
+            "$ref": "#/components/schemas/FollowUpAction"
+          },
+          "confidence_caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence Caveat"
+          },
+          "display_rank": {
+            "type": "integer",
+            "title": "Display Rank"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublisherOwnerView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "base_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Model"
+          },
+          "trending_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trending Score"
+          },
+          "downloads_30d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloads 30D"
+          },
+          "likes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Likes"
+          },
+          "pipeline_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pipeline Tag"
+          },
+          "family_variants": {
+            "items": {
+              "$ref": "#/components/schemas/FamilyVariant"
+            },
+            "type": "array",
+            "title": "Family Variants"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "title",
+          "source_name",
+          "source_url",
+          "summary",
+          "why_it_matters",
+          "background_knowledge",
+          "follow_up_action",
+          "display_rank"
+        ],
+        "title": "HuggingFaceDigestEntryView",
+        "description": "Hugging Face digest entry with whitelisted family metrics."
+      },
+      "JuyaDigestEntryView": {
+        "properties": {
+          "source_kind": {
+            "type": "string",
+            "const": "juya",
+            "title": "Source Kind",
+            "default": "juya"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "source_name": {
+            "type": "string",
+            "title": "Source Name"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "why_it_matters": {
+            "type": "string",
+            "title": "Why It Matters"
+          },
+          "background_knowledge": {
+            "type": "string",
+            "title": "Background Knowledge"
+          },
+          "follow_up_action": {
+            "$ref": "#/components/schemas/FollowUpAction"
+          },
+          "confidence_caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence Caveat"
+          },
+          "display_rank": {
+            "type": "integer",
+            "title": "Display Rank"
+          },
+          "item_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "issue",
+                  "story"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Type"
+          },
+          "issue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JuyaIssueView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "story": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JuyaStoryView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "title",
+          "source_name",
+          "source_url",
+          "summary",
+          "why_it_matters",
+          "background_knowledge",
+          "follow_up_action",
+          "display_rank"
+        ],
+        "title": "JuyaDigestEntryView",
+        "description": "Juya digest entry with issue/story presentation metadata."
+      },
+      "JuyaIssueView": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "lead_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Title"
+          }
+        },
+        "type": "object",
+        "title": "JuyaIssueView"
+      },
+      "JuyaStoryView": {
+        "properties": {
+          "number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
+          },
+          "original_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Url"
+          }
+        },
+        "type": "object",
+        "title": "JuyaStoryView"
+      },
+      "MessageListPage": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/MessageOut"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "messages",
+          "next_cursor"
+        ],
+        "title": "MessageListPage"
+      },
+      "MessageOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "digest_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digest Id"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorWarning"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "digest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DigestView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "sequence",
+          "role",
+          "content",
+          "run_id",
+          "created_at"
+        ],
+        "title": "MessageOut"
+      },
+      "PostMessageBody": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "client_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Request Id"
+          },
+          "juya_item_mode": {
+            "type": "string",
+            "enum": [
+              "issue",
+              "stories"
+            ],
+            "title": "Juya Item Mode",
+            "default": "issue"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "PostMessageBody"
+      },
+      "PublisherOwnerView": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "profile_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Url"
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "organisation",
+                  "person"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "PublisherOwnerView",
+        "description": "Publisher account metadata for GitHub and Hugging Face entries."
+      },
+      "RequestOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "user_message_id": {
+            "type": "integer",
+            "title": "User Message Id"
+          },
+          "assistant_message_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assistant Message Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "status",
+          "user_message_id",
+          "assistant_message_id",
+          "run_id",
+          "error_code",
+          "error_message",
+          "started_at",
+          "completed_at"
+        ],
+        "title": "RequestOut"
+      },
+      "SessionListPage": {
+        "properties": {
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/SessionOut"
+            },
+            "type": "array",
+            "title": "Sessions"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sessions",
+          "next_cursor"
+        ],
+        "title": "SessionListPage"
+      },
+      "SessionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "connector_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Names"
+          },
+          "items_per_source": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items Per Source"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "digest_count": {
+            "type": "integer",
+            "title": "Digest Count",
+            "default": 0
+          },
+          "active_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "connector_names",
+          "items_per_source",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SessionOut"
+      },
+      "SessionPatch": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "connector_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Names"
+          },
+          "items_per_source": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items Per Source"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SessionPatch"
+      },
+      "SessionSearchHitOut": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "match_kind": {
+            "type": "string",
+            "enum": [
+              "title",
+              "user",
+              "assistant"
+            ],
+            "title": "Match Kind"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
+          "excerpt": {
+            "type": "string",
+            "title": "Excerpt"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_id",
+          "title",
+          "updated_at",
+          "match_kind",
+          "message_id",
+          "excerpt"
+        ],
+        "title": "SessionSearchHitOut"
+      },
+      "SessionSearchPageOut": {
+        "properties": {
+          "hits": {
+            "items": {
+              "$ref": "#/components/schemas/SessionSearchHitOut"
+            },
+            "type": "array",
+            "title": "Hits"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hits",
+          "next_cursor"
+        ],
+        "title": "SessionSearchPageOut"
+      },
+      "SourceKind": {
+        "type": "string",
+        "enum": [
+          "github",
+          "bilibili",
+          "juya",
+          "huggingface",
+          "zhihu"
+        ],
+        "title": "SourceKind"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "StartedPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "user_message_id": {
+            "title": "User Message Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "request_id",
+          "user_message_id"
+        ],
+        "title": "StartedPayload",
+        "type": "object"
+      },
+      "ProgressPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "running",
+                  "done",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Count"
+          }
+        },
+        "required": [
+          "stage"
+        ],
+        "title": "ProgressPayload",
+        "type": "object"
+      },
+      "DeltaPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "DeltaPayload",
+        "type": "object"
+      },
+      "WorkflowErrorPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Detail"
+          }
+        },
+        "required": [
+          "stage",
+          "message"
+        ],
+        "title": "WorkflowErrorPayload",
+        "type": "object"
+      },
+      "DigestPayload": {
+        "$defs": {
+          "ConnectorWarning": {
+            "description": "Non-fatal connector issue (pipeline may continue).",
+            "properties": {
+              "connector": {
+                "title": "Connector",
+                "type": "string"
+              },
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              },
+              "detail": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Detail"
+              }
+            },
+            "required": [
+              "connector",
+              "code",
+              "message"
+            ],
+            "title": "ConnectorWarning",
+            "type": "object"
+          },
+          "DigestEntryView": {
+            "description": "Common digest entry fields exposed to the API.",
+            "properties": {
+              "source_kind": {
+                "enum": [
+                  "bilibili",
+                  "zhihu"
+                ],
+                "title": "Source Kind",
+                "type": "string"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "source_name": {
+                "title": "Source Name",
+                "type": "string"
+              },
+              "source_url": {
+                "title": "Source Url",
+                "type": "string"
+              },
+              "summary": {
+                "title": "Summary",
+                "type": "string"
+              },
+              "why_it_matters": {
+                "title": "Why It Matters",
+                "type": "string"
+              },
+              "background_knowledge": {
+                "title": "Background Knowledge",
+                "type": "string"
+              },
+              "follow_up_action": {
+                "$ref": "#/components/schemas/FollowUpAction"
+              },
+              "confidence_caveat": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Confidence Caveat"
+              },
+              "display_rank": {
+                "title": "Display Rank",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "source_kind",
+              "source_id",
+              "title",
+              "source_name",
+              "source_url",
+              "summary",
+              "why_it_matters",
+              "background_knowledge",
+              "follow_up_action",
+              "display_rank"
+            ],
+            "title": "DigestEntryView",
+            "type": "object"
+          },
+          "DigestView": {
+            "description": "API projection of a saved digest plus selected news evidence.",
+            "properties": {
+              "generated_at": {
+                "format": "date-time",
+                "title": "Generated At",
+                "type": "string"
+              },
+              "timeframe": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Timeframe"
+              },
+              "topics": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Topics",
+                "type": "array"
+              },
+              "entries": {
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "bilibili": "#/components/schemas/DigestEntryView",
+                      "github": "#/components/schemas/GitHubDigestEntryView",
+                      "huggingface": "#/components/schemas/HuggingFaceDigestEntryView",
+                      "juya": "#/components/schemas/JuyaDigestEntryView",
+                      "zhihu": "#/components/schemas/DigestEntryView"
+                    },
+                    "propertyName": "source_kind"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/GitHubDigestEntryView"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HuggingFaceDigestEntryView"
+                    },
+                    {
+                      "$ref": "#/components/schemas/JuyaDigestEntryView"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DigestEntryView"
+                    }
+                  ]
+                },
+                "title": "Entries",
+                "type": "array"
+              }
+            },
+            "required": [
+              "generated_at"
+            ],
+            "title": "DigestView",
+            "type": "object"
+          },
+          "FamilyVariant": {
+            "description": "Summary-only Hugging Face family variant for rich presentation.",
+            "properties": {
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Url"
+              },
+              "downloads_30d": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Downloads 30D"
+              },
+              "likes": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Likes"
+              }
+            },
+            "required": [
+              "source_id",
+              "title"
+            ],
+            "title": "FamilyVariant",
+            "type": "object"
+          },
+          "FollowUpAction": {
+            "enum": [
+              "read",
+              "watch",
+              "try",
+              "build"
+            ],
+            "title": "FollowUpAction",
+            "type": "string"
+          },
+          "GitHubDigestEntryView": {
+            "description": "GitHub digest entry with repository presentation metadata.",
+            "properties": {
+              "source_kind": {
+                "const": "github",
+                "default": "github",
+                "title": "Source Kind",
+                "type": "string"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "source_name": {
+                "title": "Source Name",
+                "type": "string"
+              },
+              "source_url": {
+                "title": "Source Url",
+                "type": "string"
+              },
+              "summary": {
+                "title": "Summary",
+                "type": "string"
+              },
+              "why_it_matters": {
+                "title": "Why It Matters",
+                "type": "string"
+              },
+              "background_knowledge": {
+                "title": "Background Knowledge",
+                "type": "string"
+              },
+              "follow_up_action": {
+                "$ref": "#/components/schemas/FollowUpAction"
+              },
+              "confidence_caveat": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Confidence Caveat"
+              },
+              "display_rank": {
+                "title": "Display Rank",
+                "type": "integer"
+              },
+              "owner": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PublisherOwnerView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "preview_image_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Preview Image Url"
+              },
+              "stars": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Stars"
+              },
+              "stars_today": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Stars Today"
+              },
+              "language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Language"
+              }
+            },
+            "required": [
+              "source_id",
+              "title",
+              "source_name",
+              "source_url",
+              "summary",
+              "why_it_matters",
+              "background_knowledge",
+              "follow_up_action",
+              "display_rank"
+            ],
+            "title": "GitHubDigestEntryView",
+            "type": "object"
+          },
+          "HuggingFaceDigestEntryView": {
+            "description": "Hugging Face digest entry with whitelisted family metrics.",
+            "properties": {
+              "source_kind": {
+                "const": "huggingface",
+                "default": "huggingface",
+                "title": "Source Kind",
+                "type": "string"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "source_name": {
+                "title": "Source Name",
+                "type": "string"
+              },
+              "source_url": {
+                "title": "Source Url",
+                "type": "string"
+              },
+              "summary": {
+                "title": "Summary",
+                "type": "string"
+              },
+              "why_it_matters": {
+                "title": "Why It Matters",
+                "type": "string"
+              },
+              "background_knowledge": {
+                "title": "Background Knowledge",
+                "type": "string"
+              },
+              "follow_up_action": {
+                "$ref": "#/components/schemas/FollowUpAction"
+              },
+              "confidence_caveat": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Confidence Caveat"
+              },
+              "display_rank": {
+                "title": "Display Rank",
+                "type": "integer"
+              },
+              "owner": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PublisherOwnerView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "base_model": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Base Model"
+              },
+              "trending_score": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Trending Score"
+              },
+              "downloads_30d": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Downloads 30D"
+              },
+              "likes": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Likes"
+              },
+              "pipeline_tag": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Pipeline Tag"
+              },
+              "family_variants": {
+                "items": {
+                  "$ref": "#/components/schemas/FamilyVariant"
+                },
+                "title": "Family Variants",
+                "type": "array"
+              }
+            },
+            "required": [
+              "source_id",
+              "title",
+              "source_name",
+              "source_url",
+              "summary",
+              "why_it_matters",
+              "background_knowledge",
+              "follow_up_action",
+              "display_rank"
+            ],
+            "title": "HuggingFaceDigestEntryView",
+            "type": "object"
+          },
+          "JuyaDigestEntryView": {
+            "description": "Juya digest entry with issue/story presentation metadata.",
+            "properties": {
+              "source_kind": {
+                "const": "juya",
+                "default": "juya",
+                "title": "Source Kind",
+                "type": "string"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "source_name": {
+                "title": "Source Name",
+                "type": "string"
+              },
+              "source_url": {
+                "title": "Source Url",
+                "type": "string"
+              },
+              "summary": {
+                "title": "Summary",
+                "type": "string"
+              },
+              "why_it_matters": {
+                "title": "Why It Matters",
+                "type": "string"
+              },
+              "background_knowledge": {
+                "title": "Background Knowledge",
+                "type": "string"
+              },
+              "follow_up_action": {
+                "$ref": "#/components/schemas/FollowUpAction"
+              },
+              "confidence_caveat": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Confidence Caveat"
+              },
+              "display_rank": {
+                "title": "Display Rank",
+                "type": "integer"
+              },
+              "item_type": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "issue",
+                      "story"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Item Type"
+              },
+              "issue": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/JuyaIssueView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "story": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/JuyaStoryView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "source_id",
+              "title",
+              "source_name",
+              "source_url",
+              "summary",
+              "why_it_matters",
+              "background_knowledge",
+              "follow_up_action",
+              "display_rank"
+            ],
+            "title": "JuyaDigestEntryView",
+            "type": "object"
+          },
+          "JuyaIssueView": {
+            "properties": {
+              "id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Id"
+              },
+              "date": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Date"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Url"
+              },
+              "cover_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Cover Url"
+              },
+              "lead_title": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lead Title"
+              }
+            },
+            "title": "JuyaIssueView",
+            "type": "object"
+          },
+          "JuyaStoryView": {
+            "properties": {
+              "number": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Number"
+              },
+              "section": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Section"
+              },
+              "original_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Original Url"
+              }
+            },
+            "title": "JuyaStoryView",
+            "type": "object"
+          },
+          "PublisherOwnerView": {
+            "description": "Publisher account metadata for GitHub and Hugging Face entries.",
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "profile_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Profile Url"
+              },
+              "avatar_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Avatar Url"
+              },
+              "type": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "organisation",
+                      "person"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Type"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "title": "PublisherOwnerView",
+            "type": "object"
+          },
+          "WorkflowErrorPayload": {
+            "additionalProperties": false,
+            "properties": {
+              "stage": {
+                "title": "Stage",
+                "type": "string"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              },
+              "detail": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Detail"
+              }
+            },
+            "required": [
+              "stage",
+              "message"
+            ],
+            "title": "WorkflowErrorPayload",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          },
+          "digest_id": {
+            "title": "Digest Id",
+            "type": "integer"
+          },
+          "digest": {
+            "$ref": "#/components/schemas/DigestView"
+          },
+          "markdown": {
+            "title": "Markdown",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowErrorPayload"
+            },
+            "title": "Errors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_id",
+          "digest_id",
+          "digest",
+          "markdown"
+        ],
+        "title": "DigestPayload",
+        "type": "object"
+      },
+      "DonePayload": {
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "integer"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "message_id",
+          "run_id",
+          "path"
+        ],
+        "title": "DonePayload",
+        "type": "object"
+      },
+      "ErrorPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "correlation_id": {
+            "title": "Correlation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "code",
+          "message",
+          "correlation_id"
+        ],
+        "title": "ErrorPayload",
+        "type": "object"
+      },
+      "StartedStreamEvent": {
+        "$defs": {
+          "StartedPayload": {
+            "additionalProperties": false,
+            "properties": {
+              "request_id": {
+                "title": "Request Id",
+                "type": "string"
+              },
+              "user_message_id": {
+                "title": "User Message Id",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "request_id",
+              "user_message_id"
+            ],
+            "title": "StartedPayload",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "const": "started",
+            "default": "started",
+            "title": "Event",
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/StartedPayload"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "StartedStreamEvent",
+        "type": "object"
+      },
+      "ProgressStreamEvent": {
+        "$defs": {
+          "ProgressPayload": {
+            "additionalProperties": false,
+            "properties": {
+              "stage": {
+                "title": "Stage",
+                "type": "string"
+              },
+              "source": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Source"
+              },
+              "status": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "running",
+                      "done",
+                      "failed"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Status"
+              },
+              "count": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Count"
+              }
+            },
+            "required": [
+              "stage"
+            ],
+            "title": "ProgressPayload",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "const": "progress",
+            "default": "progress",
+            "title": "Event",
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProgressPayload"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "ProgressStreamEvent",
+        "type": "object"
+      },
+      "DeltaStreamEvent": {
+        "$defs": {
+          "DeltaPayload": {
+            "additionalProperties": false,
+            "properties": {
+              "text": {
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "title": "DeltaPayload",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "const": "delta",
+            "default": "delta",
+            "title": "Event",
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DeltaPayload"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "DeltaStreamEvent",
+        "type": "object"
+      },
+      "DigestStreamEvent": {
+        "$defs": {
+          "ConnectorWarning": {
+            "description": "Non-fatal connector issue (pipeline may continue).",
+            "properties": {
+              "connector": {
+                "title": "Connector",
+                "type": "string"
+              },
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              },
+              "detail": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Detail"
+              }
+            },
+            "required": [
+              "connector",
+              "code",
+              "message"
+            ],
+            "title": "ConnectorWarning",
+            "type": "object"
+          },
+          "DigestEntryView": {
+            "description": "Common digest entry fields exposed to the API.",
+            "properties": {
+              "source_kind": {
+                "enum": [
+                  "bilibili",
+                  "zhihu"
+                ],
+                "title": "Source Kind",
+                "type": "string"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "source_name": {
+                "title": "Source Name",
+                "type": "string"
+              },
+              "source_url": {
+                "title": "Source Url",
+                "type": "string"
+              },
+              "summary": {
+                "title": "Summary",
+                "type": "string"
+              },
+              "why_it_matters": {
+                "title": "Why It Matters",
+                "type": "string"
+              },
+              "background_knowledge": {
+                "title": "Background Knowledge",
+                "type": "string"
+              },
+              "follow_up_action": {
+                "$ref": "#/components/schemas/FollowUpAction"
+              },
+              "confidence_caveat": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Confidence Caveat"
+              },
+              "display_rank": {
+                "title": "Display Rank",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "source_kind",
+              "source_id",
+              "title",
+              "source_name",
+              "source_url",
+              "summary",
+              "why_it_matters",
+              "background_knowledge",
+              "follow_up_action",
+              "display_rank"
+            ],
+            "title": "DigestEntryView",
+            "type": "object"
+          },
+          "DigestPayload": {
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {
+                "title": "Run Id",
+                "type": "integer"
+              },
+              "digest_id": {
+                "title": "Digest Id",
+                "type": "integer"
+              },
+              "digest": {
+                "$ref": "#/components/schemas/DigestView"
+              },
+              "markdown": {
+                "title": "Markdown",
+                "type": "string"
+              },
+              "warnings": {
+                "items": {
+                  "$ref": "#/components/schemas/ConnectorWarning"
+                },
+                "title": "Warnings",
+                "type": "array"
+              },
+              "errors": {
+                "items": {
+                  "$ref": "#/components/schemas/WorkflowErrorPayload"
+                },
+                "title": "Errors",
+                "type": "array"
+              }
+            },
+            "required": [
+              "run_id",
+              "digest_id",
+              "digest",
+              "markdown"
+            ],
+            "title": "DigestPayload",
+            "type": "object"
+          },
+          "DigestView": {
+            "description": "API projection of a saved digest plus selected news evidence.",
+            "properties": {
+              "generated_at": {
+                "format": "date-time",
+                "title": "Generated At",
+                "type": "string"
+              },
+              "timeframe": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Timeframe"
+              },
+              "topics": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Topics",
+                "type": "array"
+              },
+              "entries": {
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "bilibili": "#/components/schemas/DigestEntryView",
+                      "github": "#/components/schemas/GitHubDigestEntryView",
+                      "huggingface": "#/components/schemas/HuggingFaceDigestEntryView",
+                      "juya": "#/components/schemas/JuyaDigestEntryView",
+                      "zhihu": "#/components/schemas/DigestEntryView"
+                    },
+                    "propertyName": "source_kind"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/GitHubDigestEntryView"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HuggingFaceDigestEntryView"
+                    },
+                    {
+                      "$ref": "#/components/schemas/JuyaDigestEntryView"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DigestEntryView"
+                    }
+                  ]
+                },
+                "title": "Entries",
+                "type": "array"
+              }
+            },
+            "required": [
+              "generated_at"
+            ],
+            "title": "DigestView",
+            "type": "object"
+          },
+          "FamilyVariant": {
+            "description": "Summary-only Hugging Face family variant for rich presentation.",
+            "properties": {
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Url"
+              },
+              "downloads_30d": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Downloads 30D"
+              },
+              "likes": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Likes"
+              }
+            },
+            "required": [
+              "source_id",
+              "title"
+            ],
+            "title": "FamilyVariant",
+            "type": "object"
+          },
+          "FollowUpAction": {
+            "enum": [
+              "read",
+              "watch",
+              "try",
+              "build"
+            ],
+            "title": "FollowUpAction",
+            "type": "string"
+          },
+          "GitHubDigestEntryView": {
+            "description": "GitHub digest entry with repository presentation metadata.",
+            "properties": {
+              "source_kind": {
+                "const": "github",
+                "default": "github",
+                "title": "Source Kind",
+                "type": "string"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "source_name": {
+                "title": "Source Name",
+                "type": "string"
+              },
+              "source_url": {
+                "title": "Source Url",
+                "type": "string"
+              },
+              "summary": {
+                "title": "Summary",
+                "type": "string"
+              },
+              "why_it_matters": {
+                "title": "Why It Matters",
+                "type": "string"
+              },
+              "background_knowledge": {
+                "title": "Background Knowledge",
+                "type": "string"
+              },
+              "follow_up_action": {
+                "$ref": "#/components/schemas/FollowUpAction"
+              },
+              "confidence_caveat": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Confidence Caveat"
+              },
+              "display_rank": {
+                "title": "Display Rank",
+                "type": "integer"
+              },
+              "owner": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PublisherOwnerView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "preview_image_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Preview Image Url"
+              },
+              "stars": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Stars"
+              },
+              "stars_today": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Stars Today"
+              },
+              "language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Language"
+              }
+            },
+            "required": [
+              "source_id",
+              "title",
+              "source_name",
+              "source_url",
+              "summary",
+              "why_it_matters",
+              "background_knowledge",
+              "follow_up_action",
+              "display_rank"
+            ],
+            "title": "GitHubDigestEntryView",
+            "type": "object"
+          },
+          "HuggingFaceDigestEntryView": {
+            "description": "Hugging Face digest entry with whitelisted family metrics.",
+            "properties": {
+              "source_kind": {
+                "const": "huggingface",
+                "default": "huggingface",
+                "title": "Source Kind",
+                "type": "string"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "source_name": {
+                "title": "Source Name",
+                "type": "string"
+              },
+              "source_url": {
+                "title": "Source Url",
+                "type": "string"
+              },
+              "summary": {
+                "title": "Summary",
+                "type": "string"
+              },
+              "why_it_matters": {
+                "title": "Why It Matters",
+                "type": "string"
+              },
+              "background_knowledge": {
+                "title": "Background Knowledge",
+                "type": "string"
+              },
+              "follow_up_action": {
+                "$ref": "#/components/schemas/FollowUpAction"
+              },
+              "confidence_caveat": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Confidence Caveat"
+              },
+              "display_rank": {
+                "title": "Display Rank",
+                "type": "integer"
+              },
+              "owner": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PublisherOwnerView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "base_model": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Base Model"
+              },
+              "trending_score": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Trending Score"
+              },
+              "downloads_30d": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Downloads 30D"
+              },
+              "likes": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Likes"
+              },
+              "pipeline_tag": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Pipeline Tag"
+              },
+              "family_variants": {
+                "items": {
+                  "$ref": "#/components/schemas/FamilyVariant"
+                },
+                "title": "Family Variants",
+                "type": "array"
+              }
+            },
+            "required": [
+              "source_id",
+              "title",
+              "source_name",
+              "source_url",
+              "summary",
+              "why_it_matters",
+              "background_knowledge",
+              "follow_up_action",
+              "display_rank"
+            ],
+            "title": "HuggingFaceDigestEntryView",
+            "type": "object"
+          },
+          "JuyaDigestEntryView": {
+            "description": "Juya digest entry with issue/story presentation metadata.",
+            "properties": {
+              "source_kind": {
+                "const": "juya",
+                "default": "juya",
+                "title": "Source Kind",
+                "type": "string"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "source_name": {
+                "title": "Source Name",
+                "type": "string"
+              },
+              "source_url": {
+                "title": "Source Url",
+                "type": "string"
+              },
+              "summary": {
+                "title": "Summary",
+                "type": "string"
+              },
+              "why_it_matters": {
+                "title": "Why It Matters",
+                "type": "string"
+              },
+              "background_knowledge": {
+                "title": "Background Knowledge",
+                "type": "string"
+              },
+              "follow_up_action": {
+                "$ref": "#/components/schemas/FollowUpAction"
+              },
+              "confidence_caveat": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Confidence Caveat"
+              },
+              "display_rank": {
+                "title": "Display Rank",
+                "type": "integer"
+              },
+              "item_type": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "issue",
+                      "story"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Item Type"
+              },
+              "issue": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/JuyaIssueView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "story": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/JuyaStoryView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "source_id",
+              "title",
+              "source_name",
+              "source_url",
+              "summary",
+              "why_it_matters",
+              "background_knowledge",
+              "follow_up_action",
+              "display_rank"
+            ],
+            "title": "JuyaDigestEntryView",
+            "type": "object"
+          },
+          "JuyaIssueView": {
+            "properties": {
+              "id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Id"
+              },
+              "date": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Date"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Url"
+              },
+              "cover_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Cover Url"
+              },
+              "lead_title": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Lead Title"
+              }
+            },
+            "title": "JuyaIssueView",
+            "type": "object"
+          },
+          "JuyaStoryView": {
+            "properties": {
+              "number": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Number"
+              },
+              "section": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Section"
+              },
+              "original_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Original Url"
+              }
+            },
+            "title": "JuyaStoryView",
+            "type": "object"
+          },
+          "PublisherOwnerView": {
+            "description": "Publisher account metadata for GitHub and Hugging Face entries.",
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "profile_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Profile Url"
+              },
+              "avatar_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Avatar Url"
+              },
+              "type": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "organisation",
+                      "person"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Type"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "title": "PublisherOwnerView",
+            "type": "object"
+          },
+          "WorkflowErrorPayload": {
+            "additionalProperties": false,
+            "properties": {
+              "stage": {
+                "title": "Stage",
+                "type": "string"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              },
+              "detail": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Detail"
+              }
+            },
+            "required": [
+              "stage",
+              "message"
+            ],
+            "title": "WorkflowErrorPayload",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "const": "digest",
+            "default": "digest",
+            "title": "Event",
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DigestPayload"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "DigestStreamEvent",
+        "type": "object"
+      },
+      "DoneStreamEvent": {
+        "$defs": {
+          "DonePayload": {
+            "additionalProperties": false,
+            "properties": {
+              "request_id": {
+                "title": "Request Id",
+                "type": "string"
+              },
+              "message_id": {
+                "title": "Message Id",
+                "type": "integer"
+              },
+              "run_id": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Run Id"
+              },
+              "path": {
+                "title": "Path",
+                "type": "string"
+              }
+            },
+            "required": [
+              "request_id",
+              "message_id",
+              "run_id",
+              "path"
+            ],
+            "title": "DonePayload",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "const": "done",
+            "default": "done",
+            "title": "Event",
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DonePayload"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "DoneStreamEvent",
+        "type": "object"
+      },
+      "ErrorStreamEvent": {
+        "$defs": {
+          "ErrorPayload": {
+            "additionalProperties": false,
+            "properties": {
+              "request_id": {
+                "title": "Request Id",
+                "type": "string"
+              },
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              },
+              "correlation_id": {
+                "title": "Correlation Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "request_id",
+              "code",
+              "message",
+              "correlation_id"
+            ],
+            "title": "ErrorPayload",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "const": "error",
+            "default": "error",
+            "title": "Event",
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ErrorPayload"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "ErrorStreamEvent",
+        "type": "object"
+      }
+    }
+  }
+}
