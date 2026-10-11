@@ -7,23 +7,21 @@
     <title>AI News Agent</title>
     <script>
       ;(function () {
+        var t
         try {
-          var stored = localStorage.getItem('anra-theme')
-          var theme =
-            stored === 'light' || stored === 'dark'
-              ? stored
-              : window.matchMedia('(prefers-color-scheme: dark)').matches
-                ? 'dark'
-                : 'light'
-          document.documentElement.setAttribute('data-theme', theme)
-          if (theme === 'dark') {
-            document.documentElement.classList.add('dark')
-          }
-        } catch (_e) {
-          /* ignore */
-        }
+          t = localStorage.getItem('anra-theme')
+        } catch (e) {}
+        document.documentElement.dataset.theme =
+          t ||
+          (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
       })()
     </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div id="app"></div>

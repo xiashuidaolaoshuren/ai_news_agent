@@ -209,7 +209,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### T2 — Tokens, theme, and app shell layout
 
-- [ ] **Do:** Port the token blocks and the shell grid, breakpoints, and dock measurement; implement theme state and the circular reveal.
+- [x] **Do:** Port the token blocks and the shell grid, breakpoints, and dock measurement; implement theme state and the circular reveal.
 - **Consumes:** prototype lines 12-51 (tokens), 92-93, 380-410 (layout), 597-627 (theme).
 - **Produces:** `styles/tokens.css`; `AppShell`, theme store `useTheme()` with `setTheme(next, {user, point})`.
 - **Acceptance:** Light and dark values match the prototype tokens verbatim. Theme persists under `anra-theme`, follows the OS only while no stored choice exists, and is applied before first paint. The reveal runs 600 ms from the pointer or the control, and falls back to an instant switch with reduced motion or no `startViewTransition`. Layout matches the prototype at 1280, 1024, 800, and 400 px (history and sidebar become overlays at the specified breakpoints).
