@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 
 export type Theme = 'light' | 'dark'
 
@@ -73,7 +73,11 @@ let themeViewTransition: ViewTransition | null = null
 
 export function runSetTheme(
   theme: Theme,
-  options: { user?: boolean; point?: [number, number] } = {},
+  options: {
+    user?: boolean
+    point?: [number, number]
+    onApply?: () => void | Promise<void>
+  } = {},
 ): void {
   const user = options.user === true
   const root = document.documentElement
@@ -97,6 +101,7 @@ export function runSetTheme(
       themeViewTransition.skipTransition()
     }
     applyTheme(theme)
+    void options.onApply?.()
     root.classList.remove('theme-snap')
     return
   }
@@ -112,8 +117,11 @@ export function runSetTheme(
   root.classList.add('vt-theme')
   root.classList.toggle('vt-shrink', !grow)
 
-  const vt = document.startViewTransition(() => {
+  const vt = document.startViewTransition(async () => {
     applyTheme(theme)
+    // Inside the callback so the icon and labels flip with the reveal instead of
+    // landing in the snapshot of the old theme.
+    await options.onApply?.()
   })
   themeViewTransition = vt
 
@@ -174,9 +182,15 @@ export const useThemeStore = defineStore('theme', () => {
     const point =
       options.point ??
       themeOrigin(options.event ?? null, options.control ?? null)
-    runSetTheme(next, { user: options.user, point })
-    theme.value = next
-    userChosen.value = options.user === true || hasStoredThemeChoice()
+    runSetTheme(next, {
+      user: options.user,
+      point,
+      onApply: () => {
+        theme.value = next
+        userChosen.value = options.user === true || hasStoredThemeChoice()
+        return nextTick()
+      },
+    })
   }
 
   function toggleTheme(event?: MouseEvent, control?: HTMLElement | null): void {

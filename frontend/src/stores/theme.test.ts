@@ -184,6 +184,7 @@ describe('setTheme instant fallback', () => {
 
 describe('setTheme reveal', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     applyTheme('light')
     vi.stubGlobal(
       'matchMedia',
@@ -257,6 +258,48 @@ describe('setTheme reveal', () => {
     >
     expect(captured?.pseudoElement).toBe('::view-transition-old(root)')
     resolveFinished()
+  })
+
+  it('holds the reactive theme until the transition update callback runs', async () => {
+    let updateCallback: (() => unknown) | undefined
+    document.startViewTransition = ((callback: () => unknown) => {
+      updateCallback = callback
+      return {
+        ready: Promise.resolve(),
+        finished: Promise.resolve(),
+        skipTransition: vi.fn(),
+      } as unknown as ViewTransition
+    }) as typeof document.startViewTransition
+
+    const store = useThemeStore()
+    store.setTheme('dark', { user: true, point: [10, 10] })
+
+    // The browser captures the old state before running the callback, so the
+    // icon and labels must not have flipped yet.
+    expect(store.theme).toBe('light')
+    expect(document.documentElement.dataset.theme).toBe('light')
+
+    await updateCallback?.()
+
+    expect(store.theme).toBe('dark')
+    expect(document.documentElement.dataset.theme).toBe('dark')
+  })
+
+  it('applies the reactive theme without animation when the reveal is skipped', () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        matches: query.includes('reduce'),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    )
+
+    const store = useThemeStore()
+    store.setTheme('dark', { user: true, point: [10, 10] })
+
+    expect(store.theme).toBe('dark')
   })
 })
 
