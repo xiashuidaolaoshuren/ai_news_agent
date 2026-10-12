@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Thread visual compare · T6</title>
+    <script>
+      ;(function () {
+        var theme
+        try {
+          theme = localStorage.getItem('anra-theme')
+        } catch (e) {}
+        if (!theme) {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        }
+        document.documentElement.dataset.theme = theme
+      })()
+    </script>
+  </head>
+  <body>
+    <div class="compare" id="app"></div>
+    <style>
+      .compare {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background: var(--bg);
+      }
+    </style>
+    <script type="module" src="./visual-compare.ts"></script>
+  </body></html>

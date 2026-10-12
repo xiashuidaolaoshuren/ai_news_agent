@@ -1,4 +1,5 @@
 @import './styles/tokens.css';
+@import './styles/thread.css';
 
 @import 'tailwindcss';
 @import 'tw-animate-css';

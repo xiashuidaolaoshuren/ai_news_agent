@@ -16,7 +16,9 @@
     "@lucide/vue": "^1.55.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dompurify": "^3.4.16",
     "lucide-vue-next": "^1.0.0",
+    "markdown-it": "^15.0.2",
     "pinia": "^4.0.3",
     "reka-ui": "^2.11.0",
     "shadcn-vue": "^2.8.2",
@@ -27,6 +29,7 @@
   "devDependencies": {
     "@hey-api/openapi-ts": "^0.99.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/markdown-it": "^14.2.0",
     "@types/node": "^24.13.3",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/test-utils": "^2.5.1",

@@ -255,7 +255,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### T6 — Thread, digest reply, and hover card
 
-- [ ] **Do:** Port the chat head, thread, user bubble, markdown reply, and digest reply with source sections, Juya cover and stories, GitHub entries, HF table, and the preview hover card.
+- [x] **Do:** Port the chat head, thread, user bubble, markdown reply, and digest reply with source sections, Juya cover and stories, GitHub entries, HF table, and the preview hover card.
 - **Consumes:** T4 view-models, B1 `digest_id` and `warnings`, B4, B6; spec digest reply rules.
 - **Produces:** `Thread`, `DigestReply`, `EntryRow`, `HfTable`, `JuyaIssueCover`, `HoverPreview`, and a sanitized markdown renderer.
 - **Acceptance:** Header shows `dN`, time, item count, and "X of Y sources returned results" from warnings. Warning alerts render per connector. Hover or focus preview appears after 400 ms, hides on scroll and Escape, and uses only `preview_image_url`. Markdown is sanitized and links use `rel="noopener"`. A reloaded digest looks identical to the live one (same `dN`, same warnings). Layout matches the prototype; motion is added in T9.
@@ -339,3 +339,5 @@ Per subtask, obey `TDD suitable`: `yes` means strict RED/GREEN (scoped `uv run p
 | 2026-10-11 | T1 done: `frontend/` scaffold with npm, Tailwind v4, shadcn-vue init, Vitest; OpenAPI client via `@hey-api/openapi-ts` from committed `frontend/openapi.json` | — |
 | 2026-10-11 | T3 done: `frontend/src/api/sse.ts` (frame parser, `postMessageStream`, `SseHttpError`) and `lifecycle.ts` (`createRequestLifecycle`, cancel 202/204, reconnect backoff, `resume`, 409 `blocked`, superseded-run guard, `defaultLifecycleDeps`); 15 vitest cases with injected deps, no network | — |
 | 2026-10-12 | T4 done: `frontend/src/vm/` (`types`, `entries`, `digest`, `session`, `history` plus `fixtures/`) with pure `toVm`, section grouping, Juya issue grouping, digest and warning vms, message/session/history mappers, and a fixtures-import guard test; 30 new vitest cases | — |
+| 2026-10-12 | T6 done: markdown-it + DOMPurify renderer (`lib/markdown.ts`), hover-preview composable (`lib/useHoverPreview.ts`), `components/thread/**` (Thread, EmptyConversation, DigestReply, DigestSection, EntryRow, JuyaIssueCover, HfTable, SourceTag, SourceLogo, AvatarTile, AppIcon, HoverPreview, MarkdownReply) and `styles/thread.css` ported from the prototype; source logos copied to `src/assets/sources/`; `dev/visual-compare.html` renders fixtures outside the bundle; 39 new vitest cases | — |
+| 2026-10-12 | T6 drops prototype UI not in the spec: the hover card caption ("Preview card · github.com"), the Juya "Lead story" label, and the prototype review strip. User-message source chips stay for T8 (spec: current page session only), so T4's `MessageVm` is unchanged | equivalent |
