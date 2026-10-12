@@ -232,7 +232,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### T4 — View-model layer
 
-- [ ] **Do:** Define `Vm` types and `toVm` mappers; convert the prototype data into fixtures for visual comparison.
+- [x] **Do:** Define `Vm` types and `toVm` mappers; convert the prototype data into fixtures for visual comparison.
 - **Consumes:** generated types; spec "Digest reply" and gap table; prototype `JUYA`, `HF`, `GH`, `HIST` data.
 - **Produces:** `toVm(apiEntry)`, session, message, request, history, and warning mappers; `toVmFromFixture(raw)` used only by fixtures and the visual-compare route.
 - **Acceptance:** Nulls are omitted without empty labels. Avatar choice is image, person initials, or neutral tile. Juya stories group under one issue cover by `issue.id` with no issue number. Entries group into contiguous source sections with the continuous `display_rank` range. GitHub meta line is `language · stars ★ · +N today` with any null part dropped. HF rows carry `base_model` and variants. Only `http(s)` URLs pass through. No production module imports a fixture.
@@ -338,3 +338,4 @@ Per subtask, obey `TDD suitable`: `yes` means strict RED/GREEN (scoped `uv run p
 | 2026-10-09 | B6 uses a separate streamed 2,000,000-byte cap; observed daily page is 585,999 bytes. Keep 5-second timeout/3 redirects and add offline HTML fixture | material (approved) |
 | 2026-10-11 | T1 done: `frontend/` scaffold with npm, Tailwind v4, shadcn-vue init, Vitest; OpenAPI client via `@hey-api/openapi-ts` from committed `frontend/openapi.json` | — |
 | 2026-10-11 | T3 done: `frontend/src/api/sse.ts` (frame parser, `postMessageStream`, `SseHttpError`) and `lifecycle.ts` (`createRequestLifecycle`, cancel 202/204, reconnect backoff, `resume`, 409 `blocked`, superseded-run guard, `defaultLifecycleDeps`); 15 vitest cases with injected deps, no network | — |
+| 2026-10-12 | T4 done: `frontend/src/vm/` (`types`, `entries`, `digest`, `session`, `history` plus `fixtures/`) with pure `toVm`, section grouping, Juya issue grouping, digest and warning vms, message/session/history mappers, and a fixtures-import guard test; 30 new vitest cases | — |
