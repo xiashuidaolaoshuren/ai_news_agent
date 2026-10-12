@@ -205,6 +205,20 @@ def test_fastapi_shell_surface_importable() -> None:
     assert callable(create_app)
 
 
+def test_root_returns_service_pointers(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "root.db")
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "service": "ai-news-agent",
+        "health": "/api/v1/health",
+        "docs": "/docs",
+        "app": "http://localhost:5173",
+    }
+
+
 def test_api_v1_health_reports_status_and_fake_mode(tmp_path: Path) -> None:
     db_path = tmp_path / "digest.db"
     client = _build_test_client(fake=True, db_path=db_path)
