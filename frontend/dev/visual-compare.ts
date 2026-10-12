@@ -3,7 +3,7 @@
  * components so the thread, digest reply, and hover card can be compared against
  * the approved OpenDesign prototype. Not part of the app build.
  */
-import { createApp, h } from 'vue'
+import { createApp, h, ref } from 'vue'
 
 import '@/style.css'
 
@@ -112,10 +112,81 @@ const messages: MessageVm[] = [
   },
 ]
 
+/**
+ * Prototype review toolbar. Review-only, so it lives here rather than in `src/`.
+ *
+ * Digest reply and Empty conversation have production components today; the other
+ * prototype states arrive with T7-T9 and are shown disabled until then.
+ */
+type PrototypeView = {
+  id: string
+  label: string
+  implemented: boolean
+}
+
+const PROTOTYPE_VIEWS: PrototypeView[] = [
+  { id: 'digest', label: 'Digest reply', implemented: true },
+  { id: 'empty', label: 'Empty conversation', implemented: true },
+  { id: 'streaming', label: 'Streaming', implemented: false },
+  { id: 'streamtext', label: 'Streaming text', implemented: false },
+  { id: 'busy', label: 'Conversation busy', implemented: false },
+  { id: 'cancelled', label: 'Cancelled', implemented: false },
+  { id: 'reconnecting', label: 'Reconnecting', implemented: false },
+  { id: 'nomatch', label: 'No history matches', implemented: false },
+  { id: 'validation', label: 'Validation error', implemented: false },
+]
+
+function messagesFor(view: string): MessageVm[] {
+  return view === 'empty' ? [] : messages
+}
+
+/** `?state=empty` still opens the empty conversation, as it did before the toolbar. */
+function initialView(): string {
+  return new URLSearchParams(window.location.search).get('state') === 'empty' ? 'empty' : 'digest'
+}
+
+function PrototypeStateBar(onSelect: (id: string) => void, active: string) {
+  return h(
+    'div',
+    {
+      class: 'proto',
+      role: 'toolbar',
+      'aria-label': 'Prototype states (review only, not part of the product)',
+      'data-od-id': 'prototype-state-bar',
+    },
+    [
+      h('span', { class: 'proto-label' }, 'Prototype · state'),
+      ...PROTOTYPE_VIEWS.map((view) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            'data-view': view.id,
+            'aria-pressed': String(active === view.id),
+            disabled: !view.implemented,
+            title: view.implemented ? undefined : 'Added with T7/T8/T9',
+            onClick: () => {
+              if (view.implemented) {
+                onSelect(view.id)
+              }
+            },
+          },
+          view.label,
+        ),
+      ),
+    ],
+  )
+}
+
 createApp({
-  render: () =>
-    h(Thread, {
-      // ?state=empty renders the empty conversation for a side-by-side check.
-      messages: new URLSearchParams(window.location.search).get('state') === 'empty' ? [] : messages,
-    }),
+  setup() {
+    const view = ref(initialView())
+    return () =>
+      h('div', { class: 'compare' }, [
+        PrototypeStateBar((next) => {
+          view.value = next
+        }, view.value),
+        h(Thread, { messages: messagesFor(view.value) }),
+      ])
+  },
 }).mount('#app')

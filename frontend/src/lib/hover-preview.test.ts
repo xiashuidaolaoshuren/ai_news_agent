@@ -74,6 +74,26 @@ describe('hover preview', () => {
     expect(hoverPreview.left).toBeGreaterThanOrEqual(8)
   })
 
+  it('captions the card with the previewed link host', () => {
+    const anchor = previewLink('https://example.test/card.png')
+
+    scheduleHoverPreview(anchor)
+    vi.advanceTimersByTime(HOVER_DELAY_MS)
+
+    expect(hoverPreview.caption).toBe('Preview card · github.com')
+  })
+
+  it('omits the caption when the previewed link has no usable host', () => {
+    const mailto = previewLink('https://example.test/card.png')
+    mailto.setAttribute('href', 'mailto:someone@example.test')
+
+    scheduleHoverPreview(mailto)
+    vi.advanceTimersByTime(HOVER_DELAY_MS)
+
+    expect(hoverPreview.visible).toBe(true)
+    expect(hoverPreview.caption).toBe('')
+  })
+
   describe('thread listeners', () => {
     let thread: HTMLElement
     let anchor: HTMLAnchorElement

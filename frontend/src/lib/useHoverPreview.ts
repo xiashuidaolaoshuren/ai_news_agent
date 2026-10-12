@@ -12,6 +12,7 @@ export interface HoverPreviewState {
   visible: boolean
   src: string | null
   alt: string
+  caption: string
   top: number
   left: number
 }
@@ -20,6 +21,7 @@ const state = reactive<HoverPreviewState>({
   visible: false,
   src: null,
   alt: '',
+  caption: '',
   top: EDGE_GAP,
   left: EDGE_GAP,
 })
@@ -58,8 +60,23 @@ function show(anchor: Element): void {
   }
   state.src = url
   state.alt = `GitHub preview card for ${anchor.textContent ?? ''}`.trim()
+  state.caption = captionFor(anchor)
   place(anchor)
   state.visible = true
+}
+
+/** `Preview card · github.com` for the previewed link; empty when it has no host. */
+function captionFor(anchor: Element): string {
+  const href = (anchor as HTMLAnchorElement).href ?? ''
+  if (!isHttpUrl(href)) {
+    return ''
+  }
+  try {
+    const host = new URL(href).hostname.replace(/^www\./, '')
+    return `Preview card · ${host}`
+  } catch {
+    return ''
+  }
 }
 
 /** Show the card for a link that is already focused, with no dwell delay. */
@@ -93,10 +110,10 @@ export function hideHoverPreview(): void {
   state.visible = false
   state.src = null
   state.alt = ''
+  state.caption = ''
 }
 
-function previewLinkFrom(event: Event): HTMLElement | null {
-  const target = event.target
+function previewLinkFrom(event: Event): HTMLElement | null {  const target = event.target
   if (!(target instanceof Element)) {
     return null
   }

@@ -18,6 +18,7 @@ const props = defineProps<{ issue: JuyaIssueVm }>()
     />
     <div class="issue-meta">
       <span class="eyebrow">{{ props.issue.eyebrow }}</span>
+      <span v-if="props.issue.leadTitle">Lead story</span>
       <b v-if="props.issue.leadTitle">{{ props.issue.leadTitle }}</b>
       <a
         v-if="props.issue.issueUrl"

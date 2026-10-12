@@ -116,10 +116,34 @@ describe('DigestReply', () => {
     expect(wrapper.get('.issue img').attributes('alt')).toBe('Google 发布 Gemini 4 Argon')
     expect(wrapper.get('.issue .ext').attributes('href')).toBe('https://daily.juya.uk')
     expect(wrapper.findAll('.entries .entry')).toHaveLength(2)
+    expect(wrapper.get('.issue-meta').text()).toContain('Lead story')
   })
 
-  it('shows the story topic and the original link on a Juya story row', () => {
-    const story = juyaEntry({
+  it('omits the Lead story label when the issue has no lead title', () => {
+    const stories = [juyaEntry({ rank: 1 })]
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          sections: [
+            sectionVm({
+              kind: 'juya',
+              label: 'Juya',
+              subtitle: '橘鸦 AI 早报',
+              count: 1,
+              rangeStart: 1,
+              rangeEnd: 1,
+              entries: stories,
+              juyaIssues: [juyaIssue({ leadTitle: null, coverAlt: null, stories })],
+            }),
+          ],
+        }),
+      },
+    })
+
+    expect(wrapper.get('.issue-meta').text()).not.toContain('Lead story')
+  })
+
+  it('shows the story topic and the original link on a Juya story row', () => {    const story = juyaEntry({
       rank: 1,
       juya: { topic: 'Headlines', originalUrl: 'https://original.test/story-1' },
     })

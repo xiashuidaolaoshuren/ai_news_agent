@@ -18,13 +18,67 @@
     </script>
   </head>
   <body>
-    <div class="compare" id="app"></div>
+    <div id="app"></div>
     <style>
+      /*
+       * Review-only chrome for the prototype state strip. Colours are the
+       * prototype's own review colours, not product tokens, because the strip is
+       * not part of the app.
+       */
       .compare {
         display: flex;
         flex-direction: column;
         height: 100vh;
         background: var(--bg);
+      }
+
+      .proto {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 12px;
+        background: oklch(24% 0.02 240);
+        color: oklch(92% 0.01 240);
+        overflow-x: auto;
+        scrollbar-width: none;
+        border-bottom: 1px solid oklch(32% 0.02 240);
+        flex: none;
+      }
+
+      .proto-label {
+        font: 500 11px/1 var(--font-mono);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: oklch(72% 0.015 240);
+        margin-right: 6px;
+        white-space: nowrap;
+      }
+
+      .proto button {
+        height: 26px;
+        padding: 0 10px;
+        border-radius: 5px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: oklch(86% 0.01 240);
+        font-size: 12.5px;
+        white-space: nowrap;
+      }
+
+      .proto button:hover {
+        background: oklch(32% 0.02 240);
+        color: oklch(97% 0 0);
+      }
+
+      .proto button[aria-pressed='true'] {
+        background: oklch(96% 0.005 240);
+        color: oklch(22% 0.02 240);
+      }
+
+      .proto button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
       }
     </style>
     <script type="module" src="./visual-compare.ts"></script>

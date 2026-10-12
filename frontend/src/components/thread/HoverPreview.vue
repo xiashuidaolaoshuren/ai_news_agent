@@ -23,5 +23,6 @@ onUnmounted(() => {
     :style="{ top: `${hoverPreview.top}px`, left: `${hoverPreview.left}px` }"
   >
     <img :src="hoverPreview.src ?? ''" :alt="hoverPreview.alt" width="1200" height="600" />
+    <p v-if="hoverPreview.caption">{{ hoverPreview.caption }}</p>
   </div>
 </template>
