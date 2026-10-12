@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import AppIcon from '@/components/thread/AppIcon.vue'
+import AppIcon from '@/components/ui/AppIcon.vue'
 import { hostOf } from '@/vm'
 import type { JuyaIssueVm } from '@/vm'
 

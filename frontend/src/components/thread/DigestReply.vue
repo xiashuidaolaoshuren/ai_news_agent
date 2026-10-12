@@ -3,7 +3,7 @@ import { computed } from 'vue'
 
 import type { DigestVm } from '@/vm'
 
-import AppIcon from '@/components/thread/AppIcon.vue'
+import AppIcon from '@/components/ui/AppIcon.vue'
 import DigestSection from '@/components/thread/DigestSection.vue'
 import { formatDigestWhen } from '@/components/thread/format'
 

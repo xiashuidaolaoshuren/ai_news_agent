@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import AppIcon from '@/components/thread/AppIcon.vue'
+import AppIcon from '@/components/ui/AppIcon.vue'
 import AvatarTile from '@/components/thread/AvatarTile.vue'
 import SourceTag from '@/components/thread/SourceTag.vue'
 import { hostOf } from '@/vm'

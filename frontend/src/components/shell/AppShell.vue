@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 
+const props = defineProps<{ escapeGuard?: boolean }>()
+
 const histOpen = ref(typeof window !== 'undefined' && window.innerWidth >= 1280)
 const sbOpen = ref(false)
 
@@ -16,6 +18,10 @@ function closeOverlays() {
 
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
+    // An inline edit in the sidebar owns Escape while it is open.
+    if (props.escapeGuard === true) {
+      return
+    }
     closeOverlays()
   }
 }
@@ -24,11 +30,15 @@ function openSidebar() {
   sbOpen.value = true
 }
 
+function closeSidebar() {
+  sbOpen.value = false
+}
+
 function toggleHistory() {
   histOpen.value = !histOpen.value
 }
 
-defineExpose({ openSidebar, toggleHistory, histOpen, sbOpen })
+defineExpose({ openSidebar, closeSidebar, toggleHistory, histOpen, sbOpen })
 
 onMounted(() => {
   document.addEventListener('keydown', onKeydown)
@@ -108,7 +118,9 @@ onUnmounted(() => {
 .chat-body {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .history {

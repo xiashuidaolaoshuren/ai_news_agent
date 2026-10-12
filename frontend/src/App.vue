@@ -1,27 +1,70 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted, onUnmounted, useTemplateRef, watch } from 'vue'
 
+import Sidebar from '@/components/sidebar/Sidebar.vue'
 import AppShell from '@/components/shell/AppShell.vue'
-import ThemeSwitch from '@/components/shell/ThemeSwitch.vue'
+import ChatHead from '@/components/shell/ChatHead.vue'
+import Thread from '@/components/thread/Thread.vue'
+import { useSessionsStore } from '@/stores/sessions'
 import { useThemeStore } from '@/stores/theme'
 
 const themeStore = useThemeStore()
+const sessions = useSessionsStore()
+
+const shell = useTemplateRef<InstanceType<typeof AppShell>>('shell')
+
+/** An open inline edit in the sidebar takes Escape before the shell closes overlays. */
+const inlineEditOpen = computed(
+  () => sessions.renamingId !== null || sessions.deleteId !== null,
+)
+
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !inlineEditOpen.value) {
+    return
+  }
+  if (sessions.renamingId !== null) {
+    sessions.cancelRename()
+    return
+  }
+  sessions.cancelDelete()
+}
+
+// The prototype dismisses the sidebar overlay as soon as a conversation is chosen.
+watch(
+  () => sessions.activeId,
+  () => {
+    shell.value?.closeSidebar()
+  },
+)
 
 onMounted(() => {
   themeStore.initFromDocument()
+  document.addEventListener('keydown', onKeydown)
+  void sessions.loadSessions()
+  void sessions.loadHealth()
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', onKeydown)
 })
 </script>
 
 <template>
-  <AppShell>
+  <AppShell ref="shell" :escape-guard="inlineEditOpen">
     <template #sidebar>
-      <div class="sb-foot">
-        <ThemeSwitch />
-      </div>
+      <Sidebar />
+    </template>
+
+    <template #header>
+      <ChatHead
+        :hist-open="shell?.histOpen ?? false"
+        @open-sidebar="shell?.openSidebar()"
+        @toggle-history="shell?.toggleHistory()"
+      />
     </template>
 
     <template #default>
-      <div class="placeholder">App shell (T2)</div>
+      <Thread :messages="[]" />
     </template>
 
     <template #history>
@@ -31,15 +74,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.sb-foot {
-  margin-top: auto;
-  border-top: 1px solid var(--border);
-  padding: 8px 8px 10px;
-  display: grid;
-  gap: 2px;
-}
-
-.placeholder,
 .hist-placeholder {
   padding: 24px 20px;
   color: var(--muted);
