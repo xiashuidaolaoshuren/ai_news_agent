@@ -1,30 +1,26 @@
-# Implementation issues
+# Implementation Issues
 
-A running log of changes that looked correct, passed tests, and still did not do what they said.
+A learning log of bugs and surprises found while building AI News Research Agent. Each entry records what went wrong, why, and what we changed so the lesson sticks.
 
-These are not design decisions (see [docs/adr](adr/)) and not milestones (see [docs/superpowers](superpowers/)). Each entry records one thing that bit us, the minimal reproduction, the cause, and the rule that prevents it.
+Entry 1 came from the milestone 8B frontend work (T5, sidebar and chat head), and was found by a reviewer rather than by a test: the change had already been reported as working. Where [docs/adr](adr/) records decisions and [docs/superpowers](superpowers/) records milestones, this file records faults.
 
-Add an entry when you find something that a test suite and a quick look both missed. Keep entries short and verified: if a claim can be checked with a command, include the command and its real output.
+Add an entry when something passes its tests and still does not do what it says. Reproduce it against the live code, not from the spec.
 
 ## Index
 
 | # | Issue | Area |
 |---|---|---|
-| [0001](#0001-vue-scoped-css-discards-the-rest-of-a-selector-containing-global) | Vue scoped CSS discards the rest of a selector that contains `:global()` | frontend / CSS |
+| [1](#1-vue-scoped-css-silently-drops-the-rest-of-a-selector-containing-global) | Vue scoped CSS silently drops the rest of a selector containing `:global()` | frontend / CSS |
 
 ---
 
-## 0001 Vue scoped CSS discards the rest of a selector containing `:global()`
+## 1. Vue scoped CSS silently drops the rest of a selector containing :global()
 
-**Status:** fixed in `7265e3b`. Introduced in `4781793` (8B T5).
-**Where:** `frontend/src/components/shell/ChatHead.vue`
-**Versions:** Vue 3.5.43, `@vue/compiler-sfc` 3.5.43, Vite 8.3.4.
+**When:** 8B T5 fix pass (chat head theme icon), 12 Oct 2026. Fix landed in `7265e3b`; the bug came in with `4781793`.  
+**Area:** `frontend/src/components/shell/ChatHead.vue` (scoped `<style>`, theme button)  
+**Symptom:** The chat-head theme button showed a moon in light mode, which was correct, and kept showing a moon in dark mode, where a sun was expected. Nothing else looked wrong.
 
-### Symptom
-
-The chat-head theme button was meant to show a moon in light mode and a sun in dark mode. In light mode it was correct. In dark mode it kept showing the moon and the sun never appeared. Nothing else looked broken.
-
-### What the code did
+### What we saw
 
 The button held both icons and swapped them with CSS:
 
@@ -42,23 +38,7 @@ The button held both icons and swapped them with CSS:
 }
 ```
 
-### Reproduction
-
-Ask Vue's own compiler what that style block compiles to. From `frontend/`:
-
-```js
-import { compileStyle } from '@vue/compiler-sfc'
-
-const source = `
-.theme-btn .ic-sun { display: none; }
-:global([data-theme='dark']) .theme-btn .ic-moon { display: none; }
-:global([data-theme='dark']) .theme-btn .ic-sun { display: block; }
-`
-
-console.log(compileStyle({ source, filename: 'ChatHead.vue', id: 'data-v-abc123', scoped: true }).code)
-```
-
-Observed output:
+Asking Vue's own compiler what that block produces (`compileStyle` from `@vue/compiler-sfc` 3.5.43, `scoped: true`, `id: 'data-v-abc123'`):
 
 ```css
 .theme-btn .ic-sun[data-v-abc123] {
@@ -74,10 +54,12 @@ Observed output:
 
 Two things happened to the `:global()` rules, and neither was intended:
 
-1. `.theme-btn .ic-moon` and `.theme-btn .ic-sun` were **deleted from the selector**. The rules became plain global rules on `[data-theme='dark']`, which matches `<html>`.
-2. **No scope attribute was added at all.** The rules are unscoped, not scoped.
+1. `.theme-btn .ic-moon` and `.theme-btn .ic-sun` were **deleted from the selector**. Both rules became plain global rules on `[data-theme='dark']`, which matches `<html>`.
+2. **No scope attribute was added at all.** Those rules are unscoped, not scoped.
 
-### Cause
+Both surviving rules have identical specificity, so the later `display: block` won and `<html>` computed `display: block`. That is why the only visible damage was the wrong icon. Had the two rules been written in the opposite order, the same mistake would have set `display: none` on the root element — measured in a browser, `html { display: none }` gives `bodyHeight: 0`, a blank application.
+
+### Root cause
 
 In `@vue/compiler-sfc`'s scoped-style plugin (`style/pluginScoped.ts`), the `:global` branch is:
 
@@ -94,7 +76,7 @@ if (value === ':global' || value === '::v-global') {
 
 The intended reading of that comment is "the whole rule is global". Vue's own documentation only shows `:global()` used as the entire selector. Sharing a selector between `:global()` and normal parts is not supported, and it fails silently: no warning, no compile error, no test failure.
 
-The result is not "the scope attribute lands in the wrong place", it is "**everything except the `:global()` part is thrown away**". The same happens wherever `:global()` sits in the selector:
+The result is not "the scope attribute lands in the wrong place", it is "everything except the `:global()` part is thrown away". The same happens wherever `:global()` sits in the selector:
 
 | Source (inside `<style scoped>`) | Compiled |
 |---|---|
@@ -106,19 +88,7 @@ The result is not "the scope attribute lands in the wrong place", it is "**every
 
 Only the last row is the documented, working use. `:deep()` behaves correctly and keeps a scope anchor.
 
-This is worth calling out because the pattern reads as reasonable. It looks like "apply this scoped rule only in dark mode", which is the intent, and Vue 3 accepts it without a warning or error. Nothing in the toolchain tells you the selector was rewritten.
-
-### Worst case: nearly blanked the page
-
-Both surviving rules target `[data-theme='dark']` with identical specificity, so the later one wins and `<html>` computed `display: block`. That is why the only visible damage was the wrong icon.
-
-Had the order been reversed, or had only the `display: none` rule existed, the same mistake would have set `display: none` on the root element and blanked the entire application in dark mode. Verified in a browser:
-
-```
-html { display: none }  ->  htmlDisplay: "none", bodyHeight: 0
-```
-
-So a CSS typo in a component's scoped style can silently become a whole-app failure, and the version that shipped happened to land on the harmless side of the cascade.
+The pattern reads as reasonable, which is why it was written: it looks like "apply this scoped rule only in dark mode". Nothing in the toolchain says the selector was rewritten.
 
 ### Fix
 
@@ -133,25 +103,17 @@ const themeIcon = computed(() => (themeStore.theme === 'dark' ? 'sun' : 'moon'))
 <AppIcon :name="themeIcon" />
 ```
 
-Fixed in `7265e3b` (`fix(frontend): drive chat head theme icon from store`).
+Committed as `7265e3b` (`fix(frontend): drive chat head theme icon from store`).
 
-### Why it was missed
+No automated regression covers the icon choice. `frontend/src/stores/theme.test.ts` covers the store, but the icon mapping is a template binding, so the guards are the rule below and the compile check.
 
-The change was reported as working. The verification behind that report was:
+### Lesson
 
-- A CDP probe of the light-mode state only (`headSun: "none"`, `headMoon: "block"`), which confirmed exactly the half that was already correct.
-- Dark mode was judged by looking at a 16px glyph in a screenshot, where a moon and a sun are easy to confuse.
-
-The bug survived because the two halves were checked with different levels of rigour, and only the half using `:global()` was broken. Re-running the same probe after the theme toggle would have caught it immediately.
-
-### Rule
-
-- `:global()` is **whole-selector only**. Do not combine it with other parts of a selector in scoped CSS.
-- To style into a child component, use `:deep()`. To write a rule that must stay unscoped, put it in a global stylesheet (`frontend/src/styles/tokens.css`, `frontend/src/styles/controls.css`) or in a separate unscoped `<style>` block, which is where the prototype's theme rules live.
-- Do not drive state changes through scoped CSS when component state can drive them directly. Bind the view to state.
-- When a rule is claimed to work, measure it in every state it is supposed to cover, not just the first one.
-
-### Check
+- `:global()` is **whole-selector only**. Do not combine it with other parts of a selector in scoped CSS. To reach into a child component use `:deep()`, which keeps a scope anchor.
+- To write a rule that must stay unscoped, put it in a global stylesheet (`frontend/src/styles/tokens.css`, `frontend/src/styles/controls.css`) or in a separate unscoped `<style>` block. That is where the prototype's theme rules live, and it is why the port broke when the same rules moved into a scoped block.
+- Do not drive state changes through scoped CSS when component state can drive them directly. A computed property cannot be defeated by a compiler rewrite.
+- A silent rewrite is more dangerous than an error. This one turned a two-line visibility toggle into a rule targeting the root element, and the only reason it did not blank the whole app was the order of two rules in the same block.
+- The change was reported as working because the two halves were verified to different standards: light mode was measured with a CDP probe, dark mode was judged by eye from a 16px glyph in a screenshot. Measure every state a rule is supposed to cover, and measure rather than look when measuring is cheap.
 
 Any CSS in a `<style scoped>` block containing `:global(` is suspect. Confirm what it compiles to before trusting it:
 
@@ -160,4 +122,4 @@ cd frontend
 node --input-type=module -e "import { compileStyle } from '@vue/compiler-sfc'; console.log(compileStyle({ source: ':global(.a) .b { color: red }', filename: 'x.vue', id: 'data-v-x', scoped: true }).code)"
 ```
 
-If the output is a selector you did not write, the rule is not doing what you think. The command above prints `.a { color: red }`: the trailing `.b` is gone.
+The command above prints `.a { color: red }`: the trailing `.b` is gone. If the output is a selector you did not write, the rule is not doing what you think.
