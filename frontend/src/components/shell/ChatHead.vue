@@ -28,6 +28,9 @@ const themeLabel = computed(() =>
   themeStore.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
 )
 
+/** Moon in light mode, sun in dark — same affordance as the prototype head toggle. */
+const themeIcon = computed(() => (themeStore.theme === 'dark' ? 'sun' : 'moon'))
+
 function onToggleTheme(event: MouseEvent): void {
   themeStore.toggleTheme(event, themeButton.value)
 }
@@ -63,8 +66,7 @@ function onToggleTheme(event: MouseEvent): void {
       data-od-id="theme-toggle"
       @click="onToggleTheme"
     >
-      <AppIcon name="moon" class="ic-moon" />
-      <AppIcon name="sun" class="ic-sun" />
+      <AppIcon :name="themeIcon" />
     </button>
     <button
       type="button"
@@ -113,18 +115,6 @@ function onToggleTheme(event: MouseEvent): void {
 
 .menu-btn {
   display: none;
-}
-
-.theme-btn .ic-sun {
-  display: none;
-}
-
-:global([data-theme='dark']) .theme-btn .ic-moon {
-  display: none;
-}
-
-:global([data-theme='dark']) .theme-btn .ic-sun {
-  display: block;
 }
 
 @media (max-width: 899px) {
