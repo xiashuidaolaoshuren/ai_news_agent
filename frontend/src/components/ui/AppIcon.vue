@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   AlertTriangle,
+  ArrowUp,
   Ban,
   Check,
   Dot,
@@ -16,6 +17,7 @@ import {
   Reply,
   Search,
   Sparkles,
+  Square,
   Sun,
   Trash,
   X,
@@ -43,6 +45,8 @@ const props = defineProps<{
     | 'dot'
     | 'refresh'
     | 'ban'
+    | 'up'
+    | 'stop'
 }>()
 
 const ICONS = {
@@ -65,6 +69,8 @@ const ICONS = {
   dot: Dot,
   refresh: RefreshCw,
   ban: Ban,
+  up: ArrowUp,
+  stop: Square,
 } as const
 
 const icon = computed(() => ICONS[props.name])

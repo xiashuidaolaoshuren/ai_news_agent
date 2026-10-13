@@ -4,7 +4,9 @@ import { computed, onMounted, onUnmounted, useTemplateRef, watch } from 'vue'
 import Sidebar from '@/components/sidebar/Sidebar.vue'
 import AppShell from '@/components/shell/AppShell.vue'
 import ChatHead from '@/components/shell/ChatHead.vue'
+import Composer from '@/components/composer/Composer.vue'
 import Thread from '@/components/thread/Thread.vue'
+import { useComposerStore } from '@/stores/composer'
 import { useSessionsStore } from '@/stores/sessions'
 import { useThemeStore } from '@/stores/theme'
 import { useThreadStore } from '@/stores/thread'
@@ -12,8 +14,10 @@ import { useThreadStore } from '@/stores/thread'
 const themeStore = useThemeStore()
 const sessions = useSessionsStore()
 const thread = useThreadStore()
+const composer = useComposerStore()
 
 const shell = useTemplateRef<InstanceType<typeof AppShell>>('shell')
+const composerField = useTemplateRef<InstanceType<typeof Composer>>('composerField')
 
 /** An open inline edit in the sidebar takes Escape before the shell closes overlays. */
 const inlineEditOpen = computed(
@@ -45,7 +49,16 @@ onMounted(() => {
   document.addEventListener('keydown', onKeydown)
   void sessions.loadSessions()
   void sessions.loadHealth()
+  void composer.load()
 })
+
+// A suggestion, a follow-up, or Run again puts text in the dock and returns the caret.
+watch(
+  () => composer.focusToken,
+  () => {
+    composerField.value?.focus()
+  },
+)
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
@@ -72,7 +85,22 @@ onUnmounted(() => {
         :run="thread.run"
         :cancelled="thread.cancelled"
         :alert="thread.alert"
-        @run-again="thread.runAgain()"
+        @run-again="composer.runAgain()"
+        @followup="composer.prefillFollowUp($event)"
+        @suggest="composer.prefill($event)"
+      />
+    </template>
+
+    <template #composer>
+      <Composer
+        ref="composerField"
+        :vm="composer.vm"
+        @send="composer.send()"
+        @cancel="composer.cancel()"
+        @update-text="composer.setText($event)"
+        @toggle-source="composer.toggleSource($event)"
+        @commit-count="composer.commitCount($event)"
+        @step-count="composer.stepCount($event)"
       />
     </template>
 

@@ -71,6 +71,7 @@ onUnmounted(() => {
       <div class="chat-body">
         <slot />
       </div>
+      <slot name="composer" />
     </main>
 
     <button

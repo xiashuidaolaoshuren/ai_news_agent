@@ -7,6 +7,7 @@ import { createApp, h, ref } from 'vue'
 
 import '@/style.css'
 
+import Composer from '@/components/composer/Composer.vue'
 import Thread from '@/components/thread/Thread.vue'
 
 import type { DigestVm, EntryVm, JuyaIssueVm, MessageVm, SectionVm } from '@/vm'
@@ -20,6 +21,13 @@ import {
   type RunVm,
   type RunVmInput,
 } from '@/vm/run'
+import {
+  parseSources,
+  toComposerVm,
+  validateComposer,
+  type ComposerVm,
+  type ComposerVmInput,
+} from '@/vm/composer'
 
 const juya = JUYA_FIXTURES.map(toVmFromFixture)
 const hf = HF_FIXTURES.map(toVmFromFixture)
@@ -138,7 +146,7 @@ const PROTOTYPE_VIEWS: PrototypeView[] = [
   { id: 'streaming', label: 'Streaming', implemented: true },
   { id: 'writing', label: 'Writing digest', implemented: true },
   { id: 'streamtext', label: 'Streaming text', implemented: true },
-  { id: 'busy', label: 'Conversation busy', implemented: false },
+  { id: 'busy', label: 'Conversation busy', implemented: true },
   { id: 'cancelled', label: 'Cancelled', implemented: true },
   { id: 'cancelledtext', label: 'Cancelled reply', implemented: true },
   { id: 'failed', label: 'Failed', implemented: true },
@@ -146,7 +154,7 @@ const PROTOTYPE_VIEWS: PrototypeView[] = [
   { id: 'reconnecting', label: 'Reconnecting', implemented: true },
   { id: 'reconnected', label: 'Reconnected', implemented: true },
   { id: 'nomatch', label: 'No history matches', implemented: false },
-  { id: 'validation', label: 'Validation error', implemented: false },
+  { id: 'validation', label: 'Validation error', implemented: true },
 ]
 
 /** The prototype's run state: two sources done, one running, one still queued. */
@@ -317,6 +325,57 @@ function stateFor(view: string): ViewState {
   }
 }
 
+/** The prototype's own review toolbar state, mapped onto a composer view-model. */
+const CATALOG = parseSources({
+  defaults: ['juya'],
+  sources: [
+    { name: 'juya', default: true },
+    { name: 'huggingface', default: false },
+    { name: 'github', default: false },
+    { name: 'zhihu', default: false },
+    { name: 'bilibili', default: false },
+  ],
+})
+
+/** The prototype's default selection: Juya, Hugging Face, GitHub, Bilibili. */
+const DEFAULT_SELECTED = ['juya', 'huggingface', 'github', 'bilibili']
+
+const BUSY_TEXT = 'Also include Zhihu discussions about these models'
+const VALIDATION_TEXT = 'Compare the new speech-recognition models'
+
+function composerVmFor(view: string): ComposerVm {
+  const base: ComposerVmInput = {
+    text: '',
+    sources: CATALOG,
+    selected: DEFAULT_SELECTED,
+    count: '5',
+    errors: {},
+    busy: false,
+    notice: 'none',
+  }
+  switch (view) {
+    case 'streaming':
+    case 'writing':
+    case 'streamtext':
+      return toComposerVm({ ...base, busy: true, notice: 'running' })
+    case 'reconnecting':
+    case 'reconnected':
+      return toComposerVm({ ...base, busy: true, notice: 'reconnecting' })
+    case 'busy':
+      return toComposerVm({ ...base, text: BUSY_TEXT, busy: true, notice: 'blocked' })
+    case 'validation':
+      return toComposerVm({
+        ...base,
+        text: VALIDATION_TEXT,
+        selected: [],
+        count: '0',
+        errors: validateComposer({ text: VALIDATION_TEXT, selected: [], count: '0' }),
+      })
+    default:
+      return toComposerVm(base)
+  }
+}
+
 /** `?state=empty` still opens the empty conversation, as it did before the toolbar. */
 function initialView(): string {
   return new URLSearchParams(window.location.search).get('state') === 'empty' ? 'empty' : 'digest'
@@ -363,7 +422,10 @@ createApp({
         PrototypeStateBar((next) => {
           view.value = next
         }, view.value),
-        h(Thread, { ...stateFor(view.value) }),
+        h('div', { class: 'stage' }, [
+          h(Thread, { ...stateFor(view.value) }),
+          h(Composer, { vm: composerVmFor(view.value) }),
+        ]),
       ])
   },
 }).mount('#app')

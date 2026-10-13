@@ -72,6 +72,7 @@ export function createThreadController(deps: ThreadDeps) {
   const loadError = ref<string | null>(null)
   const session = shallowRef<SessionOut | null>(null)
   const draft = ref('')
+  const pendingUser = ref<string | null>(null)
   const snapshot = shallowRef<RequestSnapshot>(deps.lifecycle.state)
   const progressTimes = ref<string[]>([])
   const startedAt = ref<string | null>(null)
@@ -122,6 +123,7 @@ export function createThreadController(deps: ThreadDeps) {
     }
     // The backend persists its own terminal row; refresh so the digest reply lands.
     if (!active && wasActive && isTerminalState(next.state)) {
+      pendingUser.value = null
       const sessionId = session.value?.id
       if (sessionId !== undefined) {
         void loadMessages(sessionId)
@@ -162,14 +164,27 @@ export function createThreadController(deps: ThreadDeps) {
    * one is up rather than rendering the outcome twice.
    */
   const visibleMessages = computed<MessageVm[]>(() => {
+    const pending =
+      pendingUser.value === null
+        ? []
+        : [
+            {
+              id: -1,
+              sequence: -1,
+              kind: 'user' as const,
+              text: pendingUser.value,
+              createdAt: '',
+              warnings: [],
+            },
+          ]
     if (cancelled.value !== null) {
-      return messages.value.filter((item) => item.kind !== 'cancelled')
+      return [...messages.value.filter((item) => item.kind !== 'cancelled'), ...pending]
     }
     const outcome = alert.value?.message ?? null
     if (outcome === null) {
-      return messages.value
+      return [...messages.value, ...pending]
     }
-    return messages.value.filter((item) => item.text !== outcome)
+    return [...messages.value.filter((item) => item.text !== outcome), ...pending]
   })
 
   /**
@@ -219,6 +234,7 @@ export function createThreadController(deps: ThreadDeps) {
     messages.value = []
     loadError.value = null
     draft.value = ''
+    pendingUser.value = null
     if (next === null) {
       return
     }
@@ -233,6 +249,14 @@ export function createThreadController(deps: ThreadDeps) {
   function runAgain(): void {
     const last = [...messages.value].reverse().find((message) => message.kind === 'user')
     draft.value = last?.text ?? ''
+  }
+
+  /**
+   * The message the user just sent. It stands in for the row the backend persists
+   * until the terminal reload brings that row back with the reply.
+   */
+  function markUserSent(text: string): void {
+    pendingUser.value = text
   }
 
   return {
@@ -250,6 +274,7 @@ export function createThreadController(deps: ThreadDeps) {
     loadMessages,
     openSession,
     runAgain,
+    markUserSent,
   }
 }
 

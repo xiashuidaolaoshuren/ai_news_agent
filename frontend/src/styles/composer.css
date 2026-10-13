@@ -1,0 +1,309 @@
+/*
+ * Composer dock.
+ *
+ * Layout and spacing values are copied from the approved prototype
+ * (`research-chat-prototype.html`, lines 302-345 and 394-396). Colour, radius,
+ * and time come from the token variables in tokens.css only.
+ */
+
+.composer-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 20px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent calc(100% - 38px), var(--bg) calc(100% - 30px));
+}
+
+.composer-dock > * {
+  pointer-events: auto;
+}
+
+.composer {
+  max-width: 880px;
+  margin: 0 auto;
+  background: var(--frost);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .composer {
+    background: var(--surface);
+  }
+}
+
+.composer:focus-within {
+  border-color: var(--composer-focus);
+}
+
+.composer.invalid {
+  border-color: var(--danger-bd);
+}
+
+.c-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 11px 11px 0 0;
+}
+
+.c-notice.info {
+  background: var(--info-bg);
+  color: var(--info-ink);
+}
+
+.c-notice.info .ic {
+  color: var(--info);
+}
+
+.c-notice.warn {
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+
+.c-notice.warn .ic {
+  color: var(--warn-fg);
+}
+
+.composer textarea {
+  display: block;
+  width: 100%;
+  border: 0;
+  resize: none;
+  background: transparent;
+  padding: 12px 14px 6px;
+  min-height: 52px;
+  max-height: 180px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.composer textarea:focus {
+  outline: none;
+}
+
+.c-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 8px 10px 10px 12px;
+}
+
+.sources {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sources legend {
+  float: left;
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.src-chk {
+  position: relative;
+}
+
+.src-chk input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.src-chk span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px 0 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;
+  transition:
+    background-color var(--d1) var(--ease),
+    border-color var(--d1) var(--ease);
+}
+
+.src-chk .box {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.src-chk .box .ic {
+  width: 9px;
+  height: 9px;
+  stroke: var(--surface);
+  stroke-width: 3.5;
+  opacity: 0;
+}
+
+.src-chk:hover span {
+  background: var(--hover);
+}
+
+.src-chk input:checked + span {
+  background: var(--chk);
+  border-color: var(--chk-bd);
+}
+
+.src-chk input:checked + span .box {
+  background: var(--fg);
+  border-color: var(--fg);
+}
+
+.src-chk input:checked + span .box .ic {
+  opacity: 1;
+}
+
+.src-chk:hover input:checked + span {
+  background: var(--chk-hover);
+}
+
+.src-chk input:focus-visible + span {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.src-chk input:disabled + span {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sources[aria-invalid='true'] .src-chk span {
+  border-color: var(--danger-bd);
+}
+
+.per {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  height: 28px;
+  background: var(--surface);
+}
+
+.stepper button {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 5px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.stepper button:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.stepper input {
+  width: 34px;
+  border: 0;
+  text-align: center;
+  font: 500 12.5px var(--font-mono);
+  background: transparent;
+  -moz-appearance: textfield;
+}
+
+.stepper input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+
+.stepper input:focus {
+  outline: none;
+}
+
+.stepper:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.stepper.err {
+  border-color: var(--danger);
+}
+
+.c-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.c-errors {
+  display: grid;
+  gap: 3px;
+  padding: 0 12px 10px;
+}
+
+.err-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--danger);
+  margin: 0;
+}
+
+.err-msg .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.c-hint {
+  max-width: 880px;
+  height: 30px;
+  margin: 0 auto;
+  font-size: 11.5px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+@media (max-width: 899px) {
+  .composer-dock {
+    padding: 0 10px;
+  }
+
+  .c-hint span:last-child {
+    display: none;
+  }
+}

@@ -166,8 +166,49 @@ describe('thread store session loading', () => {
   })
 })
 
-describe('thread store live run clocks', () => {
-  it('stamps the run start and each finished source from the local clock', async () => {
+describe('thread store pending user message', () => {
+  it('shows the message just sent until the reloaded transcript carries it', async () => {
+    const hold = deferred()
+    const store = makeStore({
+      loadMessages: async () => [],
+      post: async () =>
+        (async function* generate() {
+          yield started
+          yield progress('Calling juya…', 'juya', 'running')
+          await hold.promise
+        })(),
+    })
+    await store.controller.openSession(sessionOut())
+
+    store.controller.markUserSent('What shipped this week?')
+    const sending = store.lifecycle.send('s1', { content: 'What shipped this week?' })
+    await waitFor(() => store.controller.run.value !== null)
+
+    expect(store.controller.visibleMessages.value.map((item) => item.text)).toEqual([
+      'What shipped this week?',
+    ])
+    expect(store.controller.visibleMessages.value[0]?.kind).toBe('user')
+
+    hold.resolve()
+    await sending
+
+    expect(store.controller.visibleMessages.value).toEqual([])
+  })
+
+  it('drops the pending message when another conversation is opened', async () => {
+    const store = makeStore({ loadMessages: async () => [] })
+    await store.controller.openSession(sessionOut())
+
+    store.controller.markUserSent('What shipped this week?')
+    expect(store.controller.visibleMessages.value).toHaveLength(1)
+
+    await store.controller.openSession(sessionOut({ id: 's2' }))
+
+    expect(store.controller.visibleMessages.value).toEqual([])
+  })
+})
+
+describe('thread store live run clocks', () => {  it('stamps the run start and each finished source from the local clock', async () => {
     const hold = deferred()
     const store = makeStore({
       loadMessages: async () => [],

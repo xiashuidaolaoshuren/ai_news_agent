@@ -2,6 +2,7 @@
 @import './styles/controls.css';
 @import './styles/thread.css';
 @import './styles/run.css';
+@import './styles/composer.css';
 
 @import 'tailwindcss';
 @import 'tw-animate-css';

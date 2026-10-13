@@ -32,6 +32,16 @@
         background: var(--bg);
       }
 
+      /* Review-only stand-in for the app's `.chat`, so the dock is positioned. */
+      .stage {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
       .proto {
         height: 40px;
         display: flex;
