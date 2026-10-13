@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import {
   AlertTriangle,
+  Ban,
   Check,
+  Dot,
   ExternalLink,
   FlaskConical,
   History,
@@ -10,6 +12,7 @@ import {
   Moon,
   Pencil,
   Plus,
+  RefreshCw,
   Reply,
   Search,
   Sparkles,
@@ -37,6 +40,9 @@ const props = defineProps<{
     | 'load'
     | 'moon'
     | 'sun'
+    | 'dot'
+    | 'refresh'
+    | 'ban'
 }>()
 
 const ICONS = {
@@ -56,6 +62,9 @@ const ICONS = {
   load: LoaderCircle,
   moon: Moon,
   sun: Sun,
+  dot: Dot,
+  refresh: RefreshCw,
+  ban: Ban,
 } as const
 
 const icon = computed(() => ICONS[props.name])

@@ -274,6 +274,41 @@
   color: var(--warn-ink);
 }
 
+.alert-danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-bd);
+  color: var(--danger);
+}
+
+.alert-danger p {
+  color: var(--danger-ink);
+}
+
+.alert-info {
+  background: var(--info-bg);
+  border-color: var(--info-bd);
+  color: var(--info);
+}
+
+.alert-info p {
+  color: var(--info-ink);
+}
+
+.alert-ok {
+  background: var(--sunken);
+  border-color: var(--border);
+  color: var(--accent-strong);
+}
+
+.alert-ok p {
+  color: var(--fg);
+}
+
+.alert .act {
+  margin-left: auto;
+  flex: none;
+}
+
 /* ---------- digest sections ---------- */
 
 .section {

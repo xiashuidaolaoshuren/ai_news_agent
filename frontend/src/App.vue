@@ -7,9 +7,11 @@ import ChatHead from '@/components/shell/ChatHead.vue'
 import Thread from '@/components/thread/Thread.vue'
 import { useSessionsStore } from '@/stores/sessions'
 import { useThemeStore } from '@/stores/theme'
+import { useThreadStore } from '@/stores/thread'
 
 const themeStore = useThemeStore()
 const sessions = useSessionsStore()
+const thread = useThreadStore()
 
 const shell = useTemplateRef<InstanceType<typeof AppShell>>('shell')
 
@@ -32,8 +34,9 @@ function onKeydown(event: KeyboardEvent): void {
 // The prototype dismisses the sidebar overlay as soon as a conversation is chosen.
 watch(
   () => sessions.activeId,
-  () => {
+  (activeId) => {
     shell.value?.closeSidebar()
+    void thread.openSession(sessions.sessions.find((item) => item.id === activeId) ?? null)
   },
 )
 
@@ -64,7 +67,13 @@ onUnmounted(() => {
     </template>
 
     <template #default>
-      <Thread :messages="[]" />
+      <Thread
+        :messages="thread.visibleMessages"
+        :run="thread.run"
+        :cancelled="thread.cancelled"
+        :alert="thread.alert"
+        @run-again="thread.runAgain()"
+      />
     </template>
 
     <template #history>

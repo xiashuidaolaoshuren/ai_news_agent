@@ -279,6 +279,97 @@ describe('createRequestLifecycle streaming', () => {
   })
 })
 
+describe('createRequestLifecycle terminal status', () => {
+  it('records a polled interruption so it is distinguishable from a failure', async () => {
+    const lifecycle = makeLifecycle({
+      backoffMs: [10],
+      post: async () => events([started]),
+      getRequest: async () => requestOut({ status: 'interrupted' }),
+    })
+
+    await lifecycle.resume('s1', 'r1')
+
+    expect(lifecycle.state.state).toBe('failed')
+    expect(lifecycle.state.terminalStatus).toBe('interrupted')
+  })
+
+  it('records the outcome a terminal error event carries', async () => {
+    const cancelRun = makeLifecycle({
+      post: async () =>
+        events([
+          started,
+          {
+            event: 'error',
+            data: {
+              request_id: 'r1',
+              code: 'cancelled',
+              message: 'The request was cancelled.',
+              correlation_id: 'c1',
+            },
+          },
+        ]),
+    })
+    await cancelRun.send('s1', { content: 'hi' })
+    expect(cancelRun.state.terminalStatus).toBe('cancelled')
+
+    const failRun = makeLifecycle({
+      post: async () =>
+        events([
+          started,
+          {
+            event: 'error',
+            data: {
+              request_id: 'r1',
+              code: 'workflow_error',
+              message: 'Something went wrong.',
+              correlation_id: 'c2',
+            },
+          },
+        ]),
+    })
+    await failRun.send('s1', { content: 'hi' })
+    expect(failRun.state.terminalStatus).toBe('failed')
+
+    const interruptedRun = makeLifecycle({
+      post: async () =>
+        events([
+          started,
+          {
+            event: 'error',
+            data: {
+              request_id: 'r1',
+              code: 'interrupted',
+              message: 'This request was interrupted by a restart',
+              correlation_id: 'c3',
+            },
+          },
+        ]),
+    })
+    await interruptedRun.send('s1', { content: 'hi' })
+    expect(interruptedRun.state.state).toBe('failed')
+    expect(interruptedRun.state.terminalStatus).toBe('interrupted')
+  })
+
+  it('records a succeeded outcome when done arrives without a digest', async () => {
+    const lifecycle = makeLifecycle({
+      post: async () =>
+        events([
+          started,
+          { event: 'delta', data: { text: 'A GGUF file is quantized.' } },
+          {
+            event: 'done',
+            data: { request_id: 'r1', message_id: 9, run_id: null, path: 'followup' },
+          },
+        ]),
+    })
+
+    await lifecycle.send('s1', { content: 'hi' })
+
+    expect(lifecycle.state.state).toBe('succeeded')
+    expect(lifecycle.state.terminalStatus).toBe('succeeded')
+  })
+})
+
 describe('createRequestLifecycle reconnect', () => {
   it('reconnects with backoff after a dropped stream and never reopens the stream', async () => {
     const sleeps: number[] = []

@@ -26,6 +26,9 @@ export type LifecycleState =
 /** Blocking 409 detail codes returned before a stream starts. */
 export type BlockedCode = 'session_busy' | 'request_in_progress'
 
+/** Durable request status once the run reaches an outcome. */
+export type TerminalStatus = 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
+
 export interface RequestSnapshot {
   state: LifecycleState
   requestId: string | null
@@ -36,6 +39,8 @@ export interface RequestSnapshot {
   attempt: number
   nextDelayMs: number | null
   blocked: BlockedCode | null
+  /** Terminal request status, so an interruption is distinguishable from a failure. */
+  terminalStatus: TerminalStatus | null
 }
 
 export interface LifecycleDeps {
@@ -68,11 +73,22 @@ function idleSnapshot(): RequestSnapshot {
     attempt: 0,
     nextDelayMs: null,
     blocked: null,
+    terminalStatus: null,
   }
 }
 
 function isTerminal(state: LifecycleState): boolean {
   return state === 'succeeded' || state === 'failed' || state === 'cancelled'
+}
+
+/** Narrow a durable request status to the terminal statuses the UI models. */
+function toTerminalStatus(status: string): TerminalStatus | null {
+  return status === 'succeeded' ||
+    status === 'failed' ||
+    status === 'cancelled' ||
+    status === 'interrupted'
+    ? status
+    : null
 }
 
 function isBlockedCode(code: string | null): code is BlockedCode {
@@ -143,12 +159,13 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
           emit({ digest: event.data })
           break
         case 'done':
-          emit({ state: 'succeeded' })
+          emit({ state: 'succeeded', terminalStatus: 'succeeded' })
           break
         case 'error':
           emit({
             error: event.data,
             state: event.data.code === 'cancelled' ? 'cancelled' : 'failed',
+            terminalStatus: toTerminalStatus(event.data.code ?? '') ?? 'failed',
           })
           break
         default:
@@ -194,18 +211,19 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
   }
 
   async function settleFromStatus(sessionId: string, status: string): Promise<void> {
+    const terminalStatus = toTerminalStatus(status)
     if (status === 'succeeded') {
-      emit({ state: 'succeeded', attempt: 0, nextDelayMs: null })
+      emit({ state: 'succeeded', attempt: 0, nextDelayMs: null, terminalStatus })
       await deps.reloadMessages(sessionId)
       return
     }
     if (status === 'cancelled') {
-      emit({ state: 'cancelled', attempt: 0, nextDelayMs: null })
+      emit({ state: 'cancelled', attempt: 0, nextDelayMs: null, terminalStatus })
       await deps.reloadMessages(sessionId)
       return
     }
     if (status === 'failed' || status === 'interrupted') {
-      emit({ state: 'failed', attempt: 0, nextDelayMs: null })
+      emit({ state: 'failed', attempt: 0, nextDelayMs: null, terminalStatus })
       await deps.reloadMessages(sessionId)
     }
   }

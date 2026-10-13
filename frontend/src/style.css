@@ -1,6 +1,7 @@
 @import './styles/tokens.css';
 @import './styles/controls.css';
 @import './styles/thread.css';
+@import './styles/run.css';
 
 @import 'tailwindcss';
 @import 'tw-animate-css';
