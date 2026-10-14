@@ -1,0 +1,202 @@
+/*
+ * Motion, ported literally from the approved prototype. Every duration and
+ * easing comes from the tokens (`--d1`, `--d2`, `--d3`, `--stagger`, `--ease`),
+ * and the `prefers-reduced-motion` block at the end is the prototype's own.
+ *
+ * This file is imported last among the app stylesheets on purpose: the reduce
+ * block has to beat the run card's gradient background, which shares a
+ * specificity with it.
+ */
+
+/* A live arrival: the sent bubble, a digest head, its warnings, and its rows. */
+.rise {
+  animation: rise var(--d2) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * var(--stagger));
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.fade-in {
+  animation: fadeIn var(--d2) var(--ease) both;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Collapse shell: the reconnect banner shutting, and a sidebar row leaving. */
+.collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--d3) var(--ease),
+    opacity var(--d2) var(--ease);
+}
+
+.collapse > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.collapse.shut {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+/* Sidebar rows: a new row arrives expanded, a deleted one collapses away. */
+.sess-li {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--d3) var(--ease),
+    opacity var(--d2) var(--ease);
+}
+
+.sess-li > * {
+  min-height: 0;
+}
+
+.sess-li.anim > * {
+  overflow: hidden;
+}
+
+.sess-li.shut {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+/*
+ * The arriving row. The prototype mounts it with `shut` and drops that class on
+ * the next frame; an animation from the same collapsed state plays on the first
+ * render instead, so a throttled tab cannot leave the row stuck shut.
+ */
+.sess-li.enter {
+  animation: sessEnter var(--d3) var(--ease) both;
+}
+
+.sess-li.enter > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@keyframes sessEnter {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+.sess.flash {
+  animation: flash 1.2s var(--ease);
+}
+
+@keyframes flash {
+  from {
+    background: var(--info-bg);
+    box-shadow: inset 0 0 0 1px var(--info-bd);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The run card and the streaming reply carry a rotating border sheen. */
+.run,
+.md.streaming {
+  animation: sheen 2.6s linear infinite;
+}
+
+@keyframes sheen {
+  to {
+    --ang: 360deg;
+  }
+}
+
+/* Source bar: a running segment fills, a finished one lands, paused ones stripe. */
+.segbar .s-run i {
+  animation: segrun 1.4s var(--ease) both;
+}
+
+@keyframes segrun {
+  from {
+    width: 0;
+  }
+}
+
+.segbar .enter i {
+  animation: segdone var(--d2) var(--ease) both;
+}
+
+@keyframes segdone {
+  from {
+    width: 72%;
+  }
+}
+
+.segbar.paused .s-run i {
+  animation: stripes 1s linear infinite;
+}
+
+@keyframes stripes {
+  to {
+    background-position: 17px 0;
+  }
+}
+
+/* Writing phase: shimmering placeholder lines, and the caret of a live reply. */
+.writing .line {
+  animation: shimmer 1.4s linear infinite;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.caret {
+  animation: blink 1s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* The preview card fades in wherever it lands. */
+.hovercard {
+  animation: fadeIn var(--d2) var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+
+  .run,
+  .md.streaming {
+    animation: none;
+    background: var(--surface);
+    border-color: var(--border);
+  }
+}

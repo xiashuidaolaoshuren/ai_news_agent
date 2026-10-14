@@ -94,6 +94,7 @@ onUnmounted(() => {
     <template #default>
       <Thread
         :messages="thread.visibleMessages"
+        :fresh-ids="thread.freshIds"
         :run="thread.run"
         :cancelled="thread.cancelled"
         :alert="thread.alert"

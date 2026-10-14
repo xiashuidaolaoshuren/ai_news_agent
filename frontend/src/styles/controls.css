@@ -188,13 +188,3 @@ select.input {
   width: 13px;
   height: 13px;
 }
-
-.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}

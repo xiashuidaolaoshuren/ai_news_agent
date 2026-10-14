@@ -7,15 +7,61 @@ import SessionRow from '@/components/sidebar/SessionRow.vue'
 import SessionSearchHit from '@/components/sidebar/SessionSearchHit.vue'
 import ThemeSwitch from '@/components/shell/ThemeSwitch.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import { prefersReducedMotion } from '@/lib/motion'
 import { useSessionsStore } from '@/stores/sessions'
 
 /** Client debounce before the search request, per the spec. */
 const SEARCH_DEBOUNCE_MS = 300
 
+/** The prototype's row animations: 360ms to expand, 330ms to collapse away. */
+const ENTER_ANIM_MS = 360
+const DELETE_COLLAPSE_MS = 330
+
 const store = useSessionsStore()
 
 const query = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * The row that is animating right now: a new one expanding, or a deleted one
+ * collapsing. The prototype calls this the row's `anim` class.
+ */
+const animId = ref<string | null>(null)
+const shutId = ref<string | null>(null)
+let enterTimer: ReturnType<typeof setTimeout> | null = null
+
+/** The prototype drops the confirm box at once and then collapses the row. */
+async function onConfirmDelete(sessionId: string): Promise<void> {
+  const wait = prefersReducedMotion() ? 0 : DELETE_COLLAPSE_MS
+  if (wait > 0) {
+    animId.value = sessionId
+    shutId.value = sessionId
+  }
+  store.cancelDelete()
+  if (wait > 0) {
+    await new Promise((resolve) => setTimeout(resolve, wait))
+    animId.value = null
+    shutId.value = null
+  }
+  await store.confirmDelete(sessionId)
+}
+
+watch(
+  () => store.enterId,
+  (id) => {
+    if (id === null || prefersReducedMotion()) {
+      return
+    }
+    if (enterTimer !== null) {
+      clearTimeout(enterTimer)
+    }
+    animId.value = id
+    enterTimer = setTimeout(() => {
+      enterTimer = null
+      animId.value = null
+    }, ENTER_ANIM_MS)
+  },
+)
 
 watch(query, (next) => {
   if (searchTimer !== null) {
@@ -36,6 +82,10 @@ watch(query, (next) => {
 onUnmounted(() => {
   if (searchTimer !== null) {
     clearTimeout(searchTimer)
+  }
+  if (enterTimer !== null) {
+    clearTimeout(enterTimer)
+    enterTimer = null
   }
 })
 
@@ -102,7 +152,15 @@ const deleteTitle = computed(() => {
         <div class="sb-group">{{ group.label }}</div>
         <ul class="sess-list">
           <template v-for="session in group.sessions" :key="session.id">
-            <li class="sess-li" :data-od-id="`session-${session.id}`">
+            <li
+              class="sess-li"
+              :class="{
+                anim: animId === session.id,
+                shut: shutId === session.id,
+                enter: animId === session.id && shutId !== session.id,
+              }"
+              :data-od-id="`session-${session.id}`"
+            >
               <SessionRow
                 :session="session"
                 :active="session.id === store.activeId"
@@ -125,7 +183,7 @@ const deleteTitle = computed(() => {
               <DeleteConfirm
                 :title="deleteTitle || 'this conversation'"
                 @keep="store.cancelDelete()"
-                @confirm="store.confirmDelete(session.id)"
+                @confirm="onConfirmDelete(session.id)"
               />
             </li>
           </template>

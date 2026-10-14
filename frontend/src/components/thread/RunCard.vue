@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 
 import AppIcon from '@/components/ui/AppIcon.vue'
 import ReconnectBanner from '@/components/thread/ReconnectBanner.vue'
@@ -7,6 +7,9 @@ import SourceLogo from '@/components/thread/SourceLogo.vue'
 import type { RunStepVm, RunVm } from '@/vm/run'
 
 const props = defineProps<{ run: RunVm }>()
+
+/** How long a segment keeps its landing animation, matching `--d2`. */
+const SEG_DONE_MS = 200
 
 const paused = computed(
   () => props.run.reconnect !== null && !props.run.reconnect.ok,
@@ -24,6 +27,46 @@ const STEP_ICONS = {
   warn: 'alert',
   queued: 'dot',
 } as const
+
+/**
+ * The segment of the source that just finished, so it can land with `segdone`.
+ * The prototype marks it as the running step turns done or warn and clears it on
+ * the next render.
+ */
+const landed = ref<number | null>(null)
+let landTimer: number | null = null
+
+const statuses = computed(() => props.run.steps.map((step) => step.status))
+
+watch(statuses, (next, previous) => {
+  if (previous === undefined) {
+    return
+  }
+  const index = next.findIndex(
+    (status, position) =>
+      status !== previous[position] && status !== 'run' && status !== 'queued',
+  )
+  // An unrelated redraw (a countdown tick, say) must not cut a landing short.
+  if (index === -1) {
+    return
+  }
+  if (landTimer !== null) {
+    window.clearTimeout(landTimer)
+    landTimer = null
+  }
+  landed.value = index
+  landTimer = window.setTimeout(() => {
+    landTimer = null
+    landed.value = null
+  }, SEG_DONE_MS)
+})
+
+onUnmounted(() => {
+  if (landTimer !== null) {
+    window.clearTimeout(landTimer)
+    landTimer = null
+  }
+})
 
 function stepCopy(step: RunStepVm): string {
   if (step.status === 'done') {
@@ -47,7 +90,11 @@ function stepCopy(step: RunStepVm): string {
       <span v-if="props.run.startedAt" class="muted mono">started {{ props.run.startedAt }}</span>
     </div>
 
-    <ReconnectBanner v-if="props.run.reconnect" :reconnect="props.run.reconnect" />
+    <ReconnectBanner
+      v-if="props.run.reconnect"
+      :reconnect="props.run.reconnect"
+      :leaving="props.run.reconnectLeaving"
+    />
 
     <div
       class="segbar"
@@ -61,7 +108,7 @@ function stepCopy(step: RunStepVm): string {
       <span
         v-for="(step, index) in props.run.steps"
         :key="`${step.source}:${index}`"
-        :class="`s-${step.status}`"
+        :class="[`s-${step.status}`, { enter: landed === index }]"
       ><i /></span>
     </div>
 

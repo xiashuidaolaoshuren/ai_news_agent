@@ -1,9 +1,20 @@
 <script setup lang="ts">
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AvatarTile from '@/components/thread/AvatarTile.vue'
+import { riseStyle } from '@/lib/motion'
 import type { EntryVm } from '@/vm'
 
-const props = defineProps<{ entries: EntryVm[] }>()
+const props = defineProps<{
+  entries: EntryVm[]
+  /** Set when the table arrived live, so each row reveals in turn. */
+  animate?: boolean
+  /** Where this table's rows start in the digest-wide stagger count. */
+  startIndex?: number
+}>()
+
+function rowStyle(index: number): string | undefined {
+  return props.animate === true ? riseStyle((props.startIndex ?? 0) + index) : undefined
+}
 </script>
 
 <template>
@@ -22,7 +33,13 @@ const props = defineProps<{ entries: EntryVm[] }>()
         </tr>
       </thead>
       <tbody>
-        <tr v-for="entry in props.entries" :key="entry.key" class="hf-row">
+        <tr
+          v-for="(entry, index) in props.entries"
+          :key="entry.key"
+          class="hf-row"
+          :class="{ rise: props.animate === true }"
+          :style="rowStyle(index)"
+        >
           <td class="mono muted">#{{ entry.rank }}</td>
           <td class="model">
             <span class="model-cell">

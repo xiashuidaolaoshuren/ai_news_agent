@@ -1,7 +1,8 @@
 /*
  * Run card, segmented bar, and streaming reply chrome, ported from the approved
- * prototype. Motion (sheen, segrun, segdone, stripes, shimmer, blink) is a later
- * pass; this file carries the layout and the state colors only.
+ * prototype. This file carries the layout, the gradient border surface, and the
+ * state colors; the motion (sheen, segrun, segdone, stripes, shimmer, blink)
+ * lives in `motion.css`.
  */
 
 @property --ang {
@@ -158,16 +159,6 @@
 .rc-wrap {
   display: grid;
   grid-template-rows: 1fr;
-}
-
-.collapse {
-  display: grid;
-  grid-template-rows: 1fr;
-}
-
-.collapse > * {
-  min-height: 0;
-  overflow: hidden;
 }
 
 @media (max-width: 560px) {

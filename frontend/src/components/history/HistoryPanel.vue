@@ -136,7 +136,7 @@ function text(event: Event): string {
   <div class="hist-scroll">
     <div
       v-if="props.vm.opened"
-      class="opened"
+      class="opened fade-in"
       data-od-id="history-opened-result"
     >
       <div class="opened-head">

@@ -11,6 +11,7 @@ import {
   type RequestSnapshot,
 } from '@/api/lifecycle'
 import { setupApiClient } from '@/api/setupClient'
+import { prefersReducedMotion } from '@/lib/motion'
 import { toMessageVm, toRequestStateVm, type MessageVm, type RequestStateVm } from '@/vm/session'
 import {
   toCancelledVm,
@@ -23,6 +24,12 @@ import {
 
 /** How long the "Reconnected." banner stays before the reloaded messages replace it. */
 const RECONNECTED_DWELL_MS = 1200
+
+/** The banner's own collapse time, from the prototype's shut-then-clear step. */
+const RECONNECT_COLLAPSE_MS = 340
+
+/** The id the transcript renders for the message the user just sent. */
+export const PENDING_MESSAGE_ID = -1
 
 /** Server calls and ambient services the thread store needs, injected for tests. */
 export interface ThreadDeps {
@@ -73,12 +80,14 @@ export function createThreadController(deps: ThreadDeps) {
   const session = shallowRef<SessionOut | null>(null)
   const draft = ref('')
   const pendingUser = ref<string | null>(null)
+  const freshIds = ref<number[]>([])
   const snapshot = shallowRef<RequestSnapshot>(deps.lifecycle.state)
   const progressTimes = ref<string[]>([])
   const startedAt = ref<string | null>(null)
   const droppedAt = ref<string | null>(null)
   const endedAt = ref<string | null>(null)
   const reconnected = ref(false)
+  const reconnectLeaving = ref(false)
 
   const clock = () => clockLabel(deps.now())
 
@@ -89,6 +98,7 @@ export function createThreadController(deps: ThreadDeps) {
     droppedAt.value = null
     endedAt.value = null
     reconnected.value = false
+    reconnectLeaving.value = false
   }
 
   deps.lifecycle.subscribe((next) => {
@@ -114,19 +124,38 @@ export function createThreadController(deps: ThreadDeps) {
     }
     if (previous.state === 'reconnecting' && next.state === 'succeeded') {
       reconnected.value = true
+      reconnectLeaving.value = false
+      // The banner collapses a beat before the reconnect is dropped, as the
+      // prototype's shut-then-clear step does. With reduced motion it vanishes
+      // whole at the end of the dwell instead.
+      const lead = prefersReducedMotion()
+        ? RECONNECTED_DWELL_MS
+        : RECONNECTED_DWELL_MS - RECONNECT_COLLAPSE_MS
+      const dwellSession = session.value?.id ?? null
       deps.schedule(() => {
+        if ((session.value?.id ?? null) !== dwellSession) {
+          return
+        }
+        reconnectLeaving.value = true
+      }, lead)
+      deps.schedule(() => {
+        if ((session.value?.id ?? null) !== dwellSession) {
+          return
+        }
+        reconnectLeaving.value = false
         reconnected.value = false
       }, RECONNECTED_DWELL_MS)
     }
     if (active) {
       reconnected.value = false
+      reconnectLeaving.value = false
     }
     // The backend persists its own terminal row; refresh so the digest reply lands.
     if (!active && wasActive && isTerminalState(next.state)) {
       pendingUser.value = null
       const sessionId = session.value?.id
       if (sessionId !== undefined) {
-        void loadMessages(sessionId)
+        void loadMessages(sessionId, { markFresh: true })
       }
     }
     snapshot.value = next
@@ -152,6 +181,7 @@ export function createThreadController(deps: ThreadDeps) {
       droppedAt: droppedAt.value,
       endedAt: endedAt.value,
       reconnected: reconnected.value,
+      reconnectLeaving: reconnectLeaving.value,
     }
   }
 
@@ -169,8 +199,8 @@ export function createThreadController(deps: ThreadDeps) {
         ? []
         : [
             {
-              id: -1,
-              sequence: -1,
+              id: PENDING_MESSAGE_ID,
+              sequence: PENDING_MESSAGE_ID,
               kind: 'user' as const,
               text: pendingUser.value,
               createdAt: '',
@@ -208,14 +238,37 @@ export function createThreadController(deps: ThreadDeps) {
     return [...loaded].sort((a, b) => a.sequence - b.sequence).map(toMessageVm)
   }
 
-  async function loadMessages(sessionId: string): Promise<void> {
+  /**
+   * Load the transcript. A reload after a run marks the rows it adds as fresh so
+   * the reveal animation plays for the reply that just landed; opening a
+   * conversation shows it still.
+   */
+  async function loadMessages(
+    sessionId: string,
+    options: { markFresh?: boolean } = {},
+  ): Promise<void> {
     loading.value = true
     loadError.value = null
     try {
-      messages.value = toMessages(await deps.loadMessages(sessionId))
+      const loaded = await deps.loadMessages(sessionId)
+      // The user may have opened another conversation while this was in flight.
+      if ((session.value?.id ?? null) !== sessionId) {
+        return
+      }
+      const next = toMessages(loaded)
+      const known = new Set(messages.value.map((message) => message.id))
+      messages.value = next
+      freshIds.value =
+        options.markFresh === true
+          ? next
+              .filter((message) => message.kind !== 'user' && !known.has(message.id))
+              .map((message) => message.id)
+          : []
     } catch (caught) {
-      loadError.value =
-        caught instanceof Error ? caught.message : 'Failed to load this conversation'
+      if ((session.value?.id ?? null) === sessionId) {
+        loadError.value =
+          caught instanceof Error ? caught.message : 'Failed to load this conversation'
+      }
     } finally {
       loading.value = false
     }
@@ -235,6 +288,7 @@ export function createThreadController(deps: ThreadDeps) {
     loadError.value = null
     draft.value = ''
     pendingUser.value = null
+    freshIds.value = []
     if (next === null) {
       return
     }
@@ -262,6 +316,7 @@ export function createThreadController(deps: ThreadDeps) {
   return {
     messages: messages as Ref<MessageVm[]>,
     visibleMessages,
+    freshIds,
     loading,
     loadError,
     session,

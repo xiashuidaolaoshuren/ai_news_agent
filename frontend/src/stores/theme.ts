@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { nextTick, ref } from 'vue'
 
+import { prefersReducedMotion } from '@/lib/motion'
+
 export type Theme = 'light' | 'dark'
 
 const STORAGE_KEY = 'anra-theme'
@@ -35,10 +37,6 @@ export function hasStoredThemeChoice(): boolean {
 
 function prefersDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches
-}
-
-function prefersReducedMotion(): boolean {
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 export function applyTheme(theme: Theme): void {

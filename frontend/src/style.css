@@ -4,6 +4,8 @@
 @import './styles/run.css';
 @import './styles/composer.css';
 @import './styles/history.css';
+/* Last of the app stylesheets: the reduce block overrides the run card's sheen. */
+@import './styles/motion.css';
 
 @import 'tailwindcss';
 @import 'tw-animate-css';

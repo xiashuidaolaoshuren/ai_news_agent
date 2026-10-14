@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import type { ReconnectVm } from '@/vm/run'
 
-const props = defineProps<{ reconnect: ReconnectVm }>()
+const props = defineProps<{ reconnect: ReconnectVm; leaving?: boolean }>()
 
 const nextCopy = computed(() =>
   props.reconnect.nextSeconds !== null && props.reconnect.nextSeconds > 0
@@ -20,7 +20,7 @@ const droppedCopy = computed(() =>
 </script>
 
 <template>
-  <div class="rc-wrap collapse">
+  <div class="rc-wrap collapse" :class="{ shut: props.leaving === true }">
     <div>
       <div v-if="props.reconnect.ok" class="alert alert-ok" role="status">
         <AppIcon name="check" />

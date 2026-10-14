@@ -34,6 +34,8 @@ export interface RunVmInput {
   droppedAt: string | null
   endedAt: string | null
   reconnected: boolean
+  /** True once the reconnected banner is collapsing out, just before it clears. */
+  reconnectLeaving: boolean
 }
 
 export interface ReconnectVm {
@@ -64,6 +66,8 @@ export interface RunVm {
   fallbackStage: string | null
   streamText: string
   reconnect: ReconnectVm | null
+  /** The reconnected banner is on its way out; it collapses as it goes. */
+  reconnectLeaving: boolean
 }
 
 const KINDS: Record<string, EntryKind> = {
@@ -211,5 +215,6 @@ export function toRunVm(input: RunVmInput): RunVm | null {
     fallbackStage: fallback?.stage ?? null,
     streamText: mode === 'followup' ? input.text : '',
     reconnect: reconnectVm(input),
+    reconnectLeaving: input.reconnectLeaving,
   }
 }

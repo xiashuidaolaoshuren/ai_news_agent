@@ -27,11 +27,15 @@ const NOTICE_COPY: Record<'running' | 'reconnecting', string> = {
   reconnecting: 'Reconnecting to the running request…',
 }
 
-function errorList(): string[] {
+function errorList(): { id: string; message: string }[] {
   const { errors } = props.vm
-  return [errors.text, errors.sources, errors.count, errors.send, errors.prefs].filter(
-    (message): message is string => message !== undefined,
-  )
+  return [
+    { id: 'err-text', message: errors.text },
+    { id: 'err-sources', message: errors.sources },
+    { id: 'err-n', message: errors.count },
+    { id: 'err-send', message: errors.send },
+    { id: 'err-prefs', message: errors.prefs },
+  ].filter((item): item is { id: string; message: string } => item.message !== undefined)
 }
 
 /** Enter sends; Shift+Enter is a newline; a keypress during composition is the IME's. */
@@ -142,6 +146,7 @@ defineExpose({
         <fieldset
           class="sources"
           :aria-invalid="props.vm.errors.sources !== undefined"
+          :aria-describedby="props.vm.errors.sources === undefined ? undefined : 'err-sources'"
           data-od-id="source-checkboxes"
         >
           <legend>Sources</legend>
@@ -183,6 +188,7 @@ defineExpose({
               max="20"
               :value="props.vm.count"
               :aria-invalid="props.vm.errors.count !== undefined"
+              :aria-describedby="props.vm.errors.count === undefined ? undefined : 'err-n'"
               :disabled="props.vm.busy"
               @change="onCountInput"
             />
@@ -220,12 +226,12 @@ defineExpose({
 
       <div v-if="errorList().length > 0" class="c-errors" data-od-id="validation-errors">
         <p
-          v-for="message in errorList()"
-          :key="message"
+          v-for="item in errorList()"
+          :key="item.id"
           class="err-msg"
-          :id="message === props.vm.errors.text ? 'err-text' : undefined"
+          :id="item.id"
         >
-          <AppIcon name="alert" />{{ message }}
+          <AppIcon name="alert" />{{ item.message }}
         </p>
       </div>
     </form>

@@ -4,10 +4,15 @@ import { computed } from 'vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AvatarTile from '@/components/thread/AvatarTile.vue'
 import SourceTag from '@/components/thread/SourceTag.vue'
+import { riseStyle } from '@/lib/motion'
 import { hostOf } from '@/vm'
 import type { EntryVm } from '@/vm'
 
-const props = defineProps<{ entry: EntryVm }>()
+const props = defineProps<{
+  entry: EntryVm
+  /** Stagger position when this row arrived live; null keeps it still. */
+  rise?: number | null
+}>()
 
 const emit = defineEmits<{ followup: [title: string] }>()
 
@@ -17,10 +22,13 @@ const externalHost = computed(() => hostOf(externalUrl.value))
 const sourceText = computed(
   () => props.entry.juya?.topic ?? props.entry.meta ?? props.entry.sourceName,
 )
+
+/** True while this row holds a stagger position, which is what `.rise` needs. */
+const rises = computed(() => props.rise !== null && props.rise !== undefined)
 </script>
 
 <template>
-  <li class="entry">
+  <li class="entry" :class="{ rise: rises }" :style="riseStyle(props.rise)">
     <div class="rank">#{{ props.entry.rank }}</div>
     <div>
       <h4>

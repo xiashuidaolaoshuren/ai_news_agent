@@ -137,6 +137,8 @@ export function createSessionsController(
   const error = ref<string | null>(null)
   const activeId = ref<string | null>(null)
   const flashId = ref<string | null>(null)
+  /** The row that has just been added and is animating open, per the prototype. */
+  const enterId = ref<string | null>(null)
   const renamingId = ref<string | null>(null)
   const deleteId = ref<string | null>(null)
   const deleteError = ref<string | null>(null)
@@ -200,6 +202,7 @@ export function createSessionsController(
     const created = await deps.createSession()
     sessions.value = [created, ...sessions.value]
     activeId.value = created.id
+    enterId.value = created.id
     flashId.value = created.id
   }
 
@@ -256,6 +259,9 @@ export function createSessionsController(
     if (flashId.value === sessionId) {
       flashId.value = null
     }
+    if (enterId.value === sessionId) {
+      enterId.value = null
+    }
   }
 
   async function search(query: string): Promise<void> {
@@ -301,6 +307,7 @@ export function createSessionsController(
     error,
     activeId,
     flashId,
+    enterId,
     renamingId,
     deleteId,
     deleteError,
