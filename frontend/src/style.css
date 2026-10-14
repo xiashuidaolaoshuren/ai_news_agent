@@ -3,6 +3,7 @@
 @import './styles/thread.css';
 @import './styles/run.css';
 @import './styles/composer.css';
+@import './styles/history.css';
 
 @import 'tailwindcss';
 @import 'tw-animate-css';

@@ -8,6 +8,7 @@ import {
   ExternalLink,
   FlaskConical,
   History,
+  Info,
   LoaderCircle,
   Menu,
   Moon,
@@ -39,6 +40,7 @@ const props = defineProps<{
     | 'menu'
     | 'history'
     | 'flask'
+    | 'info'
     | 'load'
     | 'moon'
     | 'sun'
@@ -63,6 +65,7 @@ const ICONS = {
   menu: Menu,
   history: History,
   flask: FlaskConical,
+  info: Info,
   load: LoaderCircle,
   moon: Moon,
   sun: Sun,

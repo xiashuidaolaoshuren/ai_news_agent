@@ -38,7 +38,29 @@ function toggleHistory() {
   histOpen.value = !histOpen.value
 }
 
-defineExpose({ openSidebar, closeSidebar, toggleHistory, histOpen, sbOpen })
+function closeHistory() {
+  histOpen.value = false
+}
+
+/**
+ * Dismiss the history panel only when it is overlaying the chat. At 1280px and
+ * above it is a column, and an action inside it must not close the column.
+ */
+function closeHistoryIfOverlay() {
+  if (window.innerWidth < 1280) {
+    histOpen.value = false
+  }
+}
+
+defineExpose({
+  openSidebar,
+  closeSidebar,
+  toggleHistory,
+  closeHistory,
+  closeHistoryIfOverlay,
+  histOpen,
+  sbOpen,
+})
 
 onMounted(() => {
   document.addEventListener('keydown', onKeydown)
@@ -81,7 +103,7 @@ onUnmounted(() => {
       tabindex="-1"
       @click="histOpen = false"
     />
-    <aside class="history" id="history" aria-label="History search">
+    <aside class="history" id="history" aria-label="History search" data-od-id="history-panel">
       <slot name="history" />
     </aside>
   </div>

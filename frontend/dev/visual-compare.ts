@@ -8,10 +8,17 @@ import { createApp, h, ref } from 'vue'
 import '@/style.css'
 
 import Composer from '@/components/composer/Composer.vue'
+import HistoryPanel from '@/components/history/HistoryPanel.vue'
 import Thread from '@/components/thread/Thread.vue'
 
+import type {
+  HistorySearchMatchOut,
+  HistorySearchResultOut,
+} from '@/api/generated/types.gen'
+import type { HistoryPanelVm } from '@/vm'
+import { toHistoryMatchVm, toHistoryPanelVm } from '@/vm'
 import type { DigestVm, EntryVm, JuyaIssueVm, MessageVm, SectionVm } from '@/vm'
-import { HF_FIXTURES, JUYA_FIXTURES, GH_FIXTURES } from '@/vm/fixtures/prototype'
+import { HF_FIXTURES, HIST_FIXTURES, JUYA_FIXTURES, GH_FIXTURES } from '@/vm/fixtures/prototype'
 import { toVmFromFixture } from '@/vm/fixtures/toVmFromFixture'
 import { toRequestStateVm, type RequestStateVm } from '@/vm/session'
 import {
@@ -32,6 +39,24 @@ import {
 const juya = JUYA_FIXTURES.map(toVmFromFixture)
 const hf = HF_FIXTURES.map(toVmFromFixture)
 const github = GH_FIXTURES.map(toVmFromFixture)
+
+/** The prototype's saved digest entries, as the history search returns them. */
+const historiaMatches: HistorySearchMatchOut[] = HIST_FIXTURES.map((entry, index) => ({
+  ref: {
+    token: `d15r${entry.rank}`,
+    digest_id: 15,
+    run_id: 4,
+    entry_id: index + 1,
+    rank: entry.rank,
+  },
+  generated_at: `${entry.source ?? '2026-10-01'}T20:04:00`,
+  source_kind: entry.kind,
+  title: entry.title,
+  url: entry.url,
+  excerpt: entry.summary ?? null,
+  score: 1,
+  topics: entry.topic === undefined ? [] : [entry.topic],
+}))
 
 // Fixture assets are served beside this page. The hover card only accepts http(s)
 // urls, as the API data does, so resolve them against the dev server here.
@@ -153,9 +178,98 @@ const PROTOTYPE_VIEWS: PrototypeView[] = [
   { id: 'interrupted', label: 'Interrupted', implemented: true },
   { id: 'reconnecting', label: 'Reconnecting', implemented: true },
   { id: 'reconnected', label: 'Reconnected', implemented: true },
-  { id: 'nomatch', label: 'No history matches', implemented: false },
+  { id: 'history', label: 'History results', implemented: true },
+  { id: 'historyopen', label: 'History opened result', implemented: true },
+  { id: 'historymd', label: 'History markdown fallback', implemented: true },
+  { id: 'historyloading', label: 'History opened loading', implemented: true },
+  { id: 'nomatch', label: 'No history matches', implemented: true },
+  { id: 'historyerror', label: 'History failed search', implemented: true },
   { id: 'validation', label: 'Validation error', implemented: true },
 ]
+
+/** The views that show the history panel beside the thread. */
+const HISTORY_VIEWS = new Set([
+  'history',
+  'historyopen',
+  'historymd',
+  'historyloading',
+  'nomatch',
+  'historyerror',
+])
+
+/** A search response over the prototype's saved digest entries. */
+function historyResult(overrides: Partial<HistorySearchResultOut> = {}): HistorySearchResultOut {
+  return {
+    matches: historiaMatches,
+    scanned_count: 42,
+    archive_truncated: false,
+    caveats: [],
+    ...overrides,
+  }
+}
+
+/** Panel state for one review view, built through the production mapper. */
+function historyVmFor(view: string): HistoryPanelVm {
+  const filters = { text: 'qwen', source: 'all', topic: '', from: '', to: '' }
+  const markdown = [
+    'Rank 1 — Qwen3.8-Flash-Next',
+    'Link — https://huggingface.co/Qwen/Qwen3.8-Flash-Next',
+    'Trending — 3955',
+    'Downloads (30d) — 4810',
+    '',
+    'Hub trending reflects popularity, not model quality or fitness for your use case.',
+  ].join('\n\n')
+  const firstMatch = historiaMatches[0]
+  function openedFor(entry: EntryVm | null, status: 'loading' | 'ready'): HistoryPanelVm {
+    return toHistoryPanelVm({
+      filters,
+      status: 'ready',
+      result: historyResult(),
+      error: null,
+      opened:
+        firstMatch === undefined
+          ? null
+          : {
+              match: toHistoryMatchVm(firstMatch),
+              status,
+              item: status === 'loading' ? null : { token: firstMatch.ref.token, entry, markdown },
+              error: null,
+            },
+    })
+  }
+  switch (view) {
+    case 'historyopen':
+      return openedFor(hf[0] ?? null, 'ready')
+    case 'historymd':
+      return openedFor(null, 'ready')
+    case 'historyloading':
+      return openedFor(null, 'loading')
+    case 'nomatch':
+      return toHistoryPanelVm({
+        filters,
+        status: 'ready',
+        result: historyResult({ matches: [] }),
+        error: null,
+        opened: null,
+      })
+    case 'historyerror':
+      return toHistoryPanelVm({
+        filters,
+        status: 'error',
+        result: null,
+        error: "Unknown source 'typo'; allowed: github, juya, zhihu",
+        opened: null,
+      })
+    default:
+      return toHistoryPanelVm({
+        filters,
+        status: 'ready',
+        result: historyResult({ archive_truncated: true }),
+        error: null,
+        opened: null,
+      })
+  }
+}
 
 /** The prototype's run state: two sources done, one running, one still queued. */
 const RUN_SOURCES = ['juya', 'huggingface', 'github', 'bilibili']
@@ -423,8 +537,31 @@ createApp({
           view.value = next
         }, view.value),
         h('div', { class: 'stage' }, [
-          h(Thread, { ...stateFor(view.value) }),
-          h(Composer, { vm: composerVmFor(view.value) }),
+          h('div', { class: 'stage-main' }, [
+            h(Thread, { ...stateFor(view.value) }),
+            h(Composer, { vm: composerVmFor(view.value) }),
+          ]),
+          ...(HISTORY_VIEWS.has(view.value)
+            ? [
+                h('aside', { class: 'panel' }, [
+                  h(HistoryPanel, {
+                    vm: historyVmFor(view.value),
+                    onOpen: () => {
+                      view.value = 'historyopen'
+                    },
+                    onCloseResult: () => {
+                      view.value = 'history'
+                    },
+                    onRetry: () => {
+                      view.value = 'history'
+                    },
+                    onClear: () => {
+                      view.value = 'history'
+                    },
+                  }),
+                ]),
+              ]
+            : []),
         ]),
       ])
   },

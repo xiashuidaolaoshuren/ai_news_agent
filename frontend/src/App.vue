@@ -5,8 +5,10 @@ import Sidebar from '@/components/sidebar/Sidebar.vue'
 import AppShell from '@/components/shell/AppShell.vue'
 import ChatHead from '@/components/shell/ChatHead.vue'
 import Composer from '@/components/composer/Composer.vue'
+import HistoryPanel from '@/components/history/HistoryPanel.vue'
 import Thread from '@/components/thread/Thread.vue'
 import { useComposerStore } from '@/stores/composer'
+import { useHistoryStore } from '@/stores/history'
 import { useSessionsStore } from '@/stores/sessions'
 import { useThemeStore } from '@/stores/theme'
 import { useThreadStore } from '@/stores/thread'
@@ -15,6 +17,7 @@ const themeStore = useThemeStore()
 const sessions = useSessionsStore()
 const thread = useThreadStore()
 const composer = useComposerStore()
+const history = useHistoryStore()
 
 const shell = useTemplateRef<InstanceType<typeof AppShell>>('shell')
 const composerField = useTemplateRef<InstanceType<typeof Composer>>('composerField')
@@ -59,6 +62,15 @@ watch(
     composerField.value?.focus()
   },
 )
+
+/**
+ * "Ask in chat" on an opened history result: hand the title to the composer, and
+ * step out of the way only when the panel covers the dock.
+ */
+function onHistoryAsk(title: string): void {
+  history.askInChat(title)
+  shell.value?.closeHistoryIfOverlay()
+}
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
@@ -105,15 +117,16 @@ onUnmounted(() => {
     </template>
 
     <template #history>
-      <div class="hist-placeholder">History panel (T9)</div>
+      <HistoryPanel
+        :vm="history.vm"
+        @update-filter="history.setFilters($event)"
+        @clear="history.clearFilters()"
+        @retry="history.retry()"
+        @open="history.open($event)"
+        @close-result="history.closeResult()"
+        @ask="onHistoryAsk($event)"
+        @close="shell?.closeHistory()"
+      />
     </template>
   </AppShell>
 </template>
-
-<style scoped>
-.hist-placeholder {
-  padding: 24px 20px;
-  color: var(--muted);
-  font-size: 13px;
-}
-</style>

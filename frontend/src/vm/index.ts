@@ -1,5 +1,31 @@
-export { toHistoryMatchVm, toSessionHitVm } from '@/vm/history'
-export type { HistoryMatchVm, SessionHitVm } from '@/vm/history'
+export {
+  EMPTY_HISTORY_FILTERS,
+  HISTORY_LIMIT,
+  filterCount,
+  historySourceOptions,
+  noMatchBody,
+  toHistoryMatchVm,
+  toHistoryPanelVm,
+  toHistoryQuery,
+  toHistoryResultVm,
+  toOpenedResultVm,
+  toOpenedVm,
+  toSessionHitVm,
+} from '@/vm/history'
+export type {
+  HistoryFilters,
+  HistoryMatchVm,
+  HistoryPanelInput,
+  HistoryPanelVm,
+  HistoryResultVm,
+  HistorySearchQuery,
+  HistoryState,
+  HistoryStatus,
+  OpenedItemVm,
+  OpenedResultInput,
+  OpenedResultVm,
+  SessionHitVm,
+} from '@/vm/history'
 export {
   CANCELLED_ASSISTANT_MESSAGE,
   groupSessions,
