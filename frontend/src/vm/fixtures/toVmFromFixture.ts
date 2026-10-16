@@ -3,8 +3,8 @@ import type { FixtureEntry } from '@/vm/fixtures/prototype'
 import type { AvatarVm, EntryVm } from '@/vm/types'
 
 /** Preview assets live beside the app rather than at an absolute url. */
-const PREVIEW_BASE = 'assets/previews'
-const AVATAR_BASE = 'assets/avatars'
+const PREVIEW_BASE = '/demo/previews'
+const AVATAR_BASE = '/demo/avatars'
 
 function fixtureAvatar(fixture: FixtureEntry): AvatarVm {
   const mono = textOrNull(fixture.avatar?.mono ?? null)

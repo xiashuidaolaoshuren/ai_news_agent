@@ -192,6 +192,22 @@ describe('Juya issue grouping', () => {
     expect(sections[0]?.juyaIssues?.[0]?.stories).toHaveLength(2)
   })
 
+  it('rewrites a demo issue cover onto the page origin', () => {
+    const sections = toSectionsVm([
+      juyaEntry('A', 1, {
+        issue: {
+          id: 'i1',
+          date: '2026-10-01',
+          cover_url: 'https://demo-assets.local/previews/juya-cover-20261001.png',
+        },
+      }),
+    ])
+
+    expect(sections[0]?.juyaIssues?.[0]?.coverUrl).toBe(
+      `${window.location.origin}/demo/previews/juya-cover-20261001.png`,
+    )
+  })
+
   it('never keeps a non-http cover or story url', () => {
     const sections = toSectionsVm([
       juyaEntry('A', 1, {

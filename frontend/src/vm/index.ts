@@ -65,6 +65,7 @@ export {
   huggingFaceVm,
   initialsOf,
   metricText,
+  resolveDemoAsset,
   safeHttpUrl,
   toVm,
   textOrNull,

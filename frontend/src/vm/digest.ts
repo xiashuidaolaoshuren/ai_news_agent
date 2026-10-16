@@ -1,6 +1,6 @@
 import type { ConnectorWarning, DigestView, JuyaDigestEntryView, SourceKind } from '@/api/generated/types.gen'
 import type { ApiDigestEntry } from '@/vm/entries'
-import { safeHttpUrl, textOrNull, toVm } from '@/vm/entries'
+import { resolveDemoAsset, safeHttpUrl, textOrNull, toVm } from '@/vm/entries'
 import type { EntryKind, EntryVm } from '@/vm/types'
 
 export type SectionSubtitle = string | null
@@ -73,7 +73,7 @@ export function toJuyaIssuesVm(
       group = {
         issueId,
         eyebrow: juyaEyebrow(api.issue?.date),
-        coverUrl: safeHttpUrl(api.issue?.cover_url),
+        coverUrl: resolveDemoAsset(api.issue?.cover_url),
         coverAlt: textOrNull(api.issue?.lead_title ?? null),
         leadTitle: textOrNull(api.issue?.lead_title ?? null),
         issueUrl: safeHttpUrl(api.issue?.url),
@@ -81,7 +81,7 @@ export function toJuyaIssuesVm(
       }
       groups.set(issueId, group)
     } else if (group.coverUrl === null) {
-      group.coverUrl = safeHttpUrl(api.issue?.cover_url)
+      group.coverUrl = resolveDemoAsset(api.issue?.cover_url)
     }
     group.stories.push(vm)
   })

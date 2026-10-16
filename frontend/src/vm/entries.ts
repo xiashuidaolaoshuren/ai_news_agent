@@ -46,6 +46,36 @@ export function safeHttpUrl(url: string | null | undefined): string | null {
   }
 }
 
+const DEMO_ASSET_PATH = /^\/(avatars|previews)\/[^/]+$/
+
+/**
+ * Map prototype-db image urls onto same-origin `/demo/...` assets.
+ *
+ * Live connector urls pass through unchanged.
+ */
+export function resolveDemoAsset(url: string | null | undefined): string | null {
+  const safe = safeHttpUrl(url)
+  if (safe === null) {
+    return null
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(safe)
+  } catch {
+    return null
+  }
+  if (parsed.hostname !== 'demo-assets.local') {
+    return safe
+  }
+  if (safe.includes('/../') || safe.includes('/./')) {
+    return null
+  }
+  if (!DEMO_ASSET_PATH.test(parsed.pathname)) {
+    return null
+  }
+  return new URL(`/demo${parsed.pathname}`, window.location.origin).href
+}
+
 /** Host name for a link label, without the `www.` prefix. */
 export function hostOf(url: string | null): string | null {
   const safe = safeHttpUrl(url)
@@ -67,7 +97,7 @@ export function avatarFor(owner: PublisherOwnerView | null | undefined): AvatarV
   if (owner === null || owner === undefined) {
     return { type: 'none' }
   }
-  const image = safeHttpUrl(owner.avatar_url)
+  const image = resolveDemoAsset(owner.avatar_url)
   if (image !== null) {
     return { type: 'image', src: image, alt: owner.name }
   }
@@ -144,7 +174,7 @@ export function toVm(api: ApiDigestEntry): EntryVm {
   if (kind === 'github') {
     const github = api as GitHubDigestEntryView
     vm.meta = githubMeta(github)
-    vm.previewUrl = safeHttpUrl(github.preview_image_url)
+    vm.previewUrl = resolveDemoAsset(github.preview_image_url)
   }
   if (kind === 'huggingface') {
     vm.hf = huggingFaceVm(api as HuggingFaceDigestEntryView)

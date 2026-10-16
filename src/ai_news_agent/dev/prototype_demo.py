@@ -322,12 +322,23 @@ def _row_to_models(row: dict[str, object], when: datetime) -> tuple[NewsItem, Di
     return item, entry
 
 
+_DEMO_ASSETS = "https://demo-assets.local"
+
+
+def _demo_avatar(filename: str) -> str:
+    return f"{_DEMO_ASSETS}/avatars/{filename}"
+
+
+def _demo_preview(filename: str) -> str:
+    return f"{_DEMO_ASSETS}/previews/{filename}"
+
+
 _JUYA_ISSUE = {
     "juya_item_type": "story",
     "issue_id": "juya-2026-10-01",
     "issue_date": "2026-10-01",
     "issue_url": "https://daily.juya.uk",
-    "issue_cover_url": "https://assets.juya.uk/cover/2026-10-01.png",
+    "issue_cover_url": _demo_preview("juya-cover-20261001.png"),
     "issue_lead_title": "Google 发布 Gemini 4 Argon",
     "story_original_url": "https://daily.juya.uk",
 }
@@ -404,6 +415,7 @@ _HF_ROWS: list[dict[str, object]] = [
             "owner_name": "Edge0",
             "owner_type": "organisation",
             "owner_profile_url": "https://huggingface.co/Edge0",
+            "owner_avatar_url": _demo_avatar("hf-Edge0.webp"),
             "trending_score": 1479,
             "downloads_30d": 27228,
             "likes": 1989,
@@ -423,6 +435,7 @@ _HF_ROWS: list[dict[str, object]] = [
             "owner_name": "convaiinnovations",
             "owner_type": "organisation",
             "owner_profile_url": "https://huggingface.co/convaiinnovations",
+            "owner_avatar_url": _demo_avatar("hf-convaiinnovations.webp"),
             "trending_score": 1293,
             "downloads_30d": 0,
             "likes": 4739,
@@ -442,6 +455,7 @@ _HF_ROWS: list[dict[str, object]] = [
             "owner_name": "XingChen-AGI",
             "owner_type": "organisation",
             "owner_profile_url": "https://huggingface.co/XingChen-AGI",
+            "owner_avatar_url": _demo_avatar("hf-XingChen-AGI.webp"),
             "trending_score": 851,
             "downloads_30d": 31584,
             "likes": 1129,
@@ -488,6 +502,7 @@ _HF_ROWS: list[dict[str, object]] = [
             "owner_name": "Contrastive-LM",
             "owner_type": "organisation",
             "owner_profile_url": "https://huggingface.co/Contrastive-LM",
+            "owner_avatar_url": _demo_avatar("hf-Contrastive-LM.webp"),
             "trending_score": 498,
             "downloads_30d": 2720,
             "likes": 583,
@@ -513,7 +528,8 @@ _GITHUB_ROWS: list[dict[str, object]] = [
             "owner_name": "NVIDIA",
             "owner_type": "organisation",
             "owner_profile_url": "https://github.com/NVIDIA",
-            "preview_image_url": "https://opengraph.githubassets.com/demo/NVIDIA/OpenShell",
+            "owner_avatar_url": _demo_avatar("gh-NVIDIA.png"),
+            "preview_image_url": _demo_preview("gh-og-NVIDIA-OpenShell.png"),
             "stars_today": 2503,
         },
     },
@@ -532,6 +548,7 @@ _GITHUB_ROWS: list[dict[str, object]] = [
             "owner_name": "DietrichGebert",
             "owner_type": "person",
             "owner_profile_url": "https://github.com/DietrichGebert",
+            "owner_avatar_url": _demo_avatar("gh-DietrichGebert.png"),
             "stars_today": 1179,
         },
     },
@@ -550,7 +567,8 @@ _GITHUB_ROWS: list[dict[str, object]] = [
             "owner_name": "mattpocock",
             "owner_type": "person",
             "owner_profile_url": "https://github.com/mattpocock",
-            "preview_image_url": "https://opengraph.githubassets.com/demo/mattpocock/skills",
+            "owner_avatar_url": _demo_avatar("gh-mattpocock.png"),
+            "preview_image_url": _demo_preview("gh-og-mattpocock-skills.png"),
             "stars_today": 888,
         },
     },
@@ -569,6 +587,7 @@ _GITHUB_ROWS: list[dict[str, object]] = [
             "owner_name": "mvschwarz",
             "owner_type": "person",
             "owner_profile_url": "https://github.com/mvschwarz",
+            "owner_avatar_url": _demo_avatar("gh-mvschwarz.png"),
             "stars_today": 640,
         },
     },
@@ -587,6 +606,7 @@ _GITHUB_ROWS: list[dict[str, object]] = [
             "owner_name": "mksglu",
             "owner_type": "person",
             "owner_profile_url": "https://github.com/mksglu",
+            "owner_avatar_url": _demo_avatar("gh-mksglu.png"),
             "stars_today": 357,
         },
     },

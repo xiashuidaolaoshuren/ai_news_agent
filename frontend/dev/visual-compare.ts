@@ -76,7 +76,7 @@ function section(kind: SectionVm['kind'], label: string, subtitle: string, entri
 const juyaIssue: JuyaIssueVm = {
   issueId: '2026-10-01',
   eyebrow: 'AI 早报 · 2026-10-01',
-  coverUrl: 'assets/previews/juya-cover-20261001.png',
+  coverUrl: '/demo/previews/juya-cover-20261001.png',
   coverAlt: 'Google 发布 Gemini 4 Argon',
   leadTitle: 'Google 发布 Gemini 4 Argon',
   issueUrl: 'https://daily.juya.uk',

@@ -134,8 +134,16 @@ def test_seed_stores_prototype_digest_evidence(tmp_path: Path) -> None:
     assert lead["item_type"] == "story"
     assert lead["issue"]["date"] == "2026-10-01"
     assert lead["issue"]["lead_title"] == "Google 发布 Gemini 4 Argon"
-    assert lead["issue"]["cover_url"] == "https://assets.juya.uk/cover/2026-10-01.png"
+    assert (
+        lead["issue"]["cover_url"]
+        == "https://demo-assets.local/previews/juya-cover-20261001.png"
+    )
     assert lead["story"]["section"] == "Headlines"
+
+    edge0 = next(
+        entry for entry in by_kind["huggingface"] if entry["title"] == "Edge0/Audio8-ASR-Infinite"
+    )
+    assert edge0["owner"]["avatar_url"] == "https://demo-assets.local/avatars/hf-Edge0.webp"
 
     gguf = next(
         entry
@@ -147,6 +155,7 @@ def test_seed_stores_prototype_digest_evidence(tmp_path: Path) -> None:
     assert gguf["downloads_30d"] == 1303476
     assert gguf["pipeline_tag"] == "text-to-image"
     assert gguf["owner"]["type"] == "person"
+    assert gguf["owner"]["avatar_url"] is None
 
     openshell = next(entry for entry in by_kind["github"] if entry["title"] == "NVIDIA/OpenShell")
     assert openshell["language"] == "Rust"
@@ -154,7 +163,19 @@ def test_seed_stores_prototype_digest_evidence(tmp_path: Path) -> None:
     assert openshell["stars_today"] == 2503
     assert openshell["owner"]["name"] == "NVIDIA"
     assert openshell["owner"]["type"] == "organisation"
-    assert openshell["preview_image_url"].startswith("https://")
+    assert (
+        openshell["preview_image_url"]
+        == "https://demo-assets.local/previews/gh-og-NVIDIA-OpenShell.png"
+    )
+    assert (
+        openshell["owner"]["avatar_url"] == "https://demo-assets.local/avatars/gh-NVIDIA.png"
+    )
+
+    skills = next(entry for entry in by_kind["github"] if entry["title"] == "mattpocock/skills")
+    assert (
+        skills["preview_image_url"]
+        == "https://demo-assets.local/previews/gh-og-mattpocock-skills.png"
+    )
 
     warning_text = {warning["connector"]: warning["message"] for warning in digest["warnings"]}
     assert "no items" in warning_text["zhihu"]

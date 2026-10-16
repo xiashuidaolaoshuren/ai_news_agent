@@ -5,7 +5,7 @@ import type {
   GitHubDigestEntryView,
   HuggingFaceDigestEntryView,
 } from '@/api/generated/types.gen'
-import { safeHttpUrl, toVm } from '@/vm'
+import { resolveDemoAsset, safeHttpUrl, toVm } from '@/vm'
 
 function zhihuEntry(overrides: Partial<DigestEntryView> = {}): DigestEntryView {
   return {
@@ -60,6 +60,36 @@ describe('toVm', () => {
     expect(vm.hf).toBeUndefined()
     expect(vm.juya).toBeUndefined()
     expect(vm.previewUrl).toBeNull()
+  })
+})
+
+describe('resolveDemoAsset', () => {
+  it('rewrites demo-assets.local avatars and previews onto the page origin', () => {
+    const origin = window.location.origin
+    expect(resolveDemoAsset('https://demo-assets.local/avatars/hf-Edge0.webp')).toBe(
+      `${origin}/demo/avatars/hf-Edge0.webp`,
+    )
+    expect(
+      resolveDemoAsset('https://demo-assets.local/previews/juya-cover-20261001.png'),
+    ).toBe(`${origin}/demo/previews/juya-cover-20261001.png`)
+    expect(
+      resolveDemoAsset('https://demo-assets.local/previews/gh-og-NVIDIA-OpenShell.png'),
+    ).toBe(`${origin}/demo/previews/gh-og-NVIDIA-OpenShell.png`)
+  })
+
+  it('keeps live image urls unchanged', () => {
+    expect(resolveDemoAsset('https://assets.juya.uk/cover/2026-05-13.png')).toBe(
+      'https://assets.juya.uk/cover/2026-05-13.png',
+    )
+    expect(resolveDemoAsset('https://opengraph.githubassets.com/1/NVIDIA/OpenShell')).toBe(
+      'https://opengraph.githubassets.com/1/NVIDIA/OpenShell',
+    )
+  })
+
+  it('rejects other demo-assets paths and non-http values', () => {
+    expect(resolveDemoAsset('https://demo-assets.local/etc/passwd')).toBeNull()
+    expect(resolveDemoAsset('https://demo-assets.local/avatars/../previews/x.png')).toBeNull()
+    expect(resolveDemoAsset('javascript:alert(1)')).toBeNull()
   })
 })
 
@@ -144,6 +174,24 @@ describe('avatar choice', () => {
     })
   })
 
+  it('rewrites a demo avatar url onto the page origin', () => {
+    const vm = toVm(
+      githubEntry({
+        owner: {
+          name: 'NVIDIA',
+          avatar_url: 'https://demo-assets.local/avatars/gh-NVIDIA.png',
+          type: 'organisation',
+        },
+      }),
+    )
+
+    expect(vm.avatar).toEqual({
+      type: 'image',
+      src: `${window.location.origin}/demo/avatars/gh-NVIDIA.png`,
+      alt: 'NVIDIA',
+    })
+  })
+
   it('falls back to an initials tile for a person without an image', () => {
     const vm = toVm(githubEntry({ owner: { name: 'abenzerps', type: 'person' } }))
 
@@ -202,6 +250,18 @@ describe('GitHub projection', () => {
 
     expect(vm.meta).toBe('Rust · 13,659 ★ · +2,503 today')
     expect(vm.previewUrl).toBe('https://opengraph.githubassets.com/1/NVIDIA/OpenShell')
+  })
+
+  it('rewrites a demo preview url onto the page origin', () => {
+    const vm = toVm(
+      githubEntry({
+        preview_image_url: 'https://demo-assets.local/previews/gh-og-NVIDIA-OpenShell.png',
+      }),
+    )
+
+    expect(vm.previewUrl).toBe(
+      `${window.location.origin}/demo/previews/gh-og-NVIDIA-OpenShell.png`,
+    )
   })
 
   it('drops each null meta segment independently', () => {
