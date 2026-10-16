@@ -103,6 +103,7 @@ interface StoreOptions {
   loadMessages?: ThreadDeps['loadMessages']
   schedule?: ThreadDeps['schedule']
   now?: () => Date
+  onSessionChanged?: ThreadDeps['onSessionChanged']
 }
 
 function makeStore(options: StoreOptions = {}) {
@@ -122,6 +123,7 @@ function makeStore(options: StoreOptions = {}) {
     lifecycle,
     now: options.now ?? (() => at(20, 14, 1)),
     schedule: options.schedule ?? (() => undefined),
+    onSessionChanged: options.onSessionChanged,
   })
   return { controller, lifecycle, reloads }
 }
@@ -205,6 +207,105 @@ describe('thread store pending user message', () => {
     await store.controller.openSession(sessionOut({ id: 's2' }))
 
     expect(store.controller.visibleMessages.value).toEqual([])
+  })
+})
+
+describe('thread store sidebar refresh', () => {
+  it('asks for a refreshed record once the run is under way and again when it settles', async () => {
+    const gate = deferred()
+    const onSessionChanged = vi.fn()
+    const store = makeStore({
+      onSessionChanged,
+      loadMessages: async () => [],
+      post: async () =>
+        (async function* generate() {
+          await gate.promise
+          yield started
+          yield progress('Done github: Found 3 github results.', 'github', 'done', 3)
+          yield {
+            event: 'done',
+            data: { request_id: 'r1', message_id: 4, run_id: 9, path: 'digest' },
+          }
+        })(),
+    })
+
+    await store.controller.openSession(sessionOut())
+    onSessionChanged.mockClear()
+
+    const sending = store.lifecycle.send('s1', { content: 'digest please' })
+    expect(store.controller.snapshot.value.state).toBe('streaming')
+    // The server has no request row for this run yet, so there is nothing to pick up.
+    expect(onSessionChanged).not.toHaveBeenCalled()
+
+    gate.resolve()
+    await sending
+
+    expect(onSessionChanged).toHaveBeenCalledTimes(2)
+  })
+
+  it('asks for a refreshed record when a run is cancelled', async () => {
+    const onSessionChanged = vi.fn()
+    const store = makeStore({
+      onSessionChanged,
+      loadMessages: async () => [],
+      post: async () =>
+        events([
+          started,
+          {
+            event: 'error',
+            data: {
+              request_id: 'r1',
+              code: 'cancelled',
+              message: 'The request was cancelled.',
+              correlation_id: 'c1',
+            },
+          },
+        ]),
+    })
+
+    await store.controller.openSession(sessionOut())
+    onSessionChanged.mockClear()
+
+    await store.lifecycle.send('s1', { content: 'digest please' })
+
+    expect(onSessionChanged).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('thread store session sync', () => {
+  it('takes a refreshed record into the live run without reloading the transcript', async () => {
+    const hold = deferred()
+    const loadMessages = vi.fn<ThreadDeps['loadMessages']>(async () => [])
+    const store = makeStore({
+      loadMessages,
+      post: async () =>
+        (async function* generate() {
+          yield started
+          yield progress('Calling juya…', 'juya', 'running')
+          await hold.promise
+        })(),
+    })
+    await store.controller.openSession(sessionOut({ connector_names: ['juya', 'github'] }))
+    const sending = store.lifecycle.send('s1', { content: 'what is new?' })
+    await waitFor(() => store.controller.run.value !== null)
+    loadMessages.mockClear()
+
+    store.controller.syncSession(sessionOut({ connector_names: ['zhihu'] }))
+
+    expect(store.controller.run.value?.steps.map((step) => step.source)).toEqual(['zhihu', 'juya'])
+    expect(loadMessages).not.toHaveBeenCalled()
+
+    hold.resolve()
+    await sending
+  })
+
+  it('ignores a record for a conversation that is not open', async () => {
+    const store = makeStore({ loadMessages: async () => [] })
+    await store.controller.openSession(sessionOut({ connector_names: ['juya'] }))
+
+    store.controller.syncSession(sessionOut({ id: 's2', connector_names: ['zhihu'] }))
+
+    expect(store.controller.session.value?.connector_names).toEqual(['juya'])
   })
 })
 

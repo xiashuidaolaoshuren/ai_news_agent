@@ -47,6 +47,17 @@ watch(
   },
 )
 
+/**
+ * A run or a preference save replaces the record in the sidebar. The thread reads
+ * the conversation's stored sources, so hand the fresh record over as well.
+ */
+watch(
+  () => sessions.sessions.find((item) => item.id === sessions.activeId),
+  (next) => {
+    thread.syncSession(next ?? null)
+  },
+)
+
 onMounted(() => {
   themeStore.initFromDocument()
   document.addEventListener('keydown', onKeydown)

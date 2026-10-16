@@ -12,6 +12,7 @@ import {
 } from '@/api/lifecycle'
 import { setupApiClient } from '@/api/setupClient'
 import { prefersReducedMotion } from '@/lib/motion'
+import { useSessionsStore } from '@/stores/sessions'
 import { toMessageVm, toRequestStateVm, type MessageVm, type RequestStateVm } from '@/vm/session'
 import {
   toCancelledVm,
@@ -37,11 +38,17 @@ export interface ThreadDeps {
   lifecycle: RequestLifecycle
   now(): Date
   schedule(handler: () => void, ms: number): void
+  /**
+   * Called when the server has changed something about the open session: the title
+   * it assigned to the first message, its digest count, or the request it is running.
+   */
+  onSessionChanged?(): void
 }
 
 /** Production dependencies wired to the generated client and the request lifecycle. */
 export function defaultThreadDeps(): ThreadDeps {
   setupApiClient()
+  const sessions = useSessionsStore()
   return {
     async loadMessages(sessionId: string): Promise<MessageOut[]> {
       const result = await listMessagesApiV1SessionsSessionIdMessagesGet({
@@ -56,6 +63,9 @@ export function defaultThreadDeps(): ThreadDeps {
     now: () => new Date(),
     schedule: (handler, ms) => {
       setTimeout(handler, ms)
+    },
+    onSessionChanged: () => {
+      void sessions.refreshSessions()
     },
   }
 }
@@ -122,6 +132,11 @@ export function createThreadController(deps: ThreadDeps) {
       resetRunClocks()
       startedAt.value = next.state === 'streaming' ? clock() : null
     }
+    if (next.state === 'streaming' && previous.requestId === null && next.requestId !== null) {
+      // The server now holds this conversation's request row, so the sidebar can pick
+      // up the title it assigned and show that the conversation is running.
+      deps.onSessionChanged?.()
+    }
     if (next.progress.length > progressTimes.value.length) {
       const added = next.progress.length - progressTimes.value.length
       progressTimes.value = [
@@ -165,6 +180,8 @@ export function createThreadController(deps: ThreadDeps) {
     }
     // The backend persists its own terminal row; refresh so the digest reply lands.
     if (!active && wasActive && isTerminalState(next.state)) {
+      // The settled run carries the new digest count and no active request.
+      deps.onSessionChanged?.()
       // A follow-up reply types itself out, and the server finishes sending it long
       // before the reveal catches up, so the live reply keeps the slot until then.
       const live = next.state === 'succeeded' ? toRunVm(runInput(next, true)) : null
@@ -342,6 +359,18 @@ export function createThreadController(deps: ThreadDeps) {
     }
   }
 
+  /**
+   * Take a refreshed record for the conversation that is open. The sidebar reloads
+   * the list after a run or a preference save, and the run card reads its sources
+   * from here; the transcript and the live run themselves stay as they are.
+   */
+  function syncSession(next: SessionOut | null): void {
+    if (next === null || session.value?.id !== next.id) {
+      return
+    }
+    session.value = next
+  }
+
   /** "Run again" refills the composer; it never resends by itself. */
   function runAgain(): void {
     const last = [...messages.value].reverse().find((message) => message.kind === 'user')
@@ -371,6 +400,7 @@ export function createThreadController(deps: ThreadDeps) {
     lifecycle: deps.lifecycle,
     loadMessages,
     openSession,
+    syncSession,
     runAgain,
     markUserSent,
     revealFinished,

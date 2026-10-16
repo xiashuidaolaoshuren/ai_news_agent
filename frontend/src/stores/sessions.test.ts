@@ -58,15 +58,68 @@ describe('loadSessions', () => {
   })
 })
 
+describe('refreshSessions', () => {
+  it('replaces the records with the server list and keeps the selection', async () => {
+    const listSessions = vi
+      .fn<SessionsDeps['listSessions']>()
+      .mockResolvedValueOnce({
+        sessions: [sessionOut({ id: 's1', title: null, digest_count: 0 })],
+        next_cursor: null,
+      })
+      .mockResolvedValueOnce({
+        sessions: [
+          sessionOut({ id: 's1', title: 'Qwen notes', digest_count: 1, active_request_id: 'r1' }),
+        ],
+        next_cursor: null,
+      })
+    const store = createSessionsController(fakeDeps({ listSessions }), { now: NOW })
+    await store.loadSessions()
+    store.activeId.value = 's1'
+
+    await store.refreshSessions()
+
+    expect(store.sessions.value[0]?.title).toBe('Qwen notes')
+    expect(store.sessions.value[0]?.digest_count).toBe(1)
+    expect(store.sessions.value[0]?.active_request_id).toBe('r1')
+    expect(store.activeId.value).toBe('s1')
+    expect(store.loading.value).toBe(false)
+  })
+
+  it('keeps the list it had when the refresh fails', async () => {
+    const listSessions = vi
+      .fn<SessionsDeps['listSessions']>()
+      .mockResolvedValueOnce({
+        sessions: [sessionOut({ id: 's1', title: 'Qwen notes' })],
+        next_cursor: null,
+      })
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+    const store = createSessionsController(fakeDeps({ listSessions }), { now: NOW })
+    await store.loadSessions()
+
+    await store.refreshSessions()
+
+    expect(store.sessions.value.map((session) => session.id)).toEqual(['s1'])
+    expect(store.sessions.value[0]?.title).toBe('Qwen notes')
+  })
+})
+
 describe('createOrReuse', () => {
   it('selects an existing empty session and flashes it without creating one', async () => {
     const createSession = vi.fn<SessionsDeps['createSession']>()
-    const store = createSessionsController(fakeDeps({ createSession }), { now: NOW })
+    const store = createSessionsController(
+      fakeDeps({
+        createSession,
+        listSessions: vi.fn(async () => ({
+          sessions: [
+            sessionOut({ id: 's2', title: 'Earlier', digest_count: 2 }),
+            sessionOut({ id: 's1', title: null, digest_count: 0 }),
+          ],
+          next_cursor: null,
+        })),
+      }),
+      { now: NOW },
+    )
     await store.loadSessions()
-    store.sessions.value = [
-      sessionOut({ id: 's2', title: 'Earlier', digest_count: 2 }),
-      sessionOut({ id: 's1', title: null, digest_count: 0 }),
-    ]
 
     await store.createOrReuse()
 
@@ -78,9 +131,17 @@ describe('createOrReuse', () => {
   it('creates a session only when no empty one exists', async () => {
     const created = sessionOut({ id: 's9', title: null, digest_count: 0 })
     const createSession = vi.fn<SessionsDeps['createSession']>(async () => created)
-    const store = createSessionsController(fakeDeps({ createSession }), { now: NOW })
+    const store = createSessionsController(
+      fakeDeps({
+        createSession,
+        listSessions: vi.fn(async () => ({
+          sessions: [sessionOut({ id: 's2', title: 'Earlier', digest_count: 2 })],
+          next_cursor: null,
+        })),
+      }),
+      { now: NOW },
+    )
     await store.loadSessions()
-    store.sessions.value = [sessionOut({ id: 's2', title: 'Earlier', digest_count: 2 })]
 
     await store.createOrReuse()
 
@@ -88,6 +149,29 @@ describe('createOrReuse', () => {
     expect(store.sessions.value.map((session) => session.id)).toEqual(['s9', 's2'])
     expect(store.activeId.value).toBe('s9')
     expect(store.flashId.value).toBe('s9')
+  })
+
+  it('re-reads the list first, so a conversation used since the page loaded is not reused', async () => {
+    const created = sessionOut({ id: 's9', title: null, digest_count: 0 })
+    const createSession = vi.fn<SessionsDeps['createSession']>(async () => created)
+    const store = createSessionsController(
+      fakeDeps({
+        createSession,
+        listSessions: vi.fn(async () => ({
+          sessions: [sessionOut({ id: 's1', title: 'What shipped this week?', digest_count: 1 })],
+          next_cursor: null,
+        })),
+      }),
+      { now: NOW },
+    )
+    // The local copy still looks unused; only the server knows the run happened.
+    store.sessions.value = [sessionOut({ id: 's1', title: null, digest_count: 0 })]
+
+    await store.createOrReuse()
+
+    expect(createSession).toHaveBeenCalledTimes(1)
+    expect(store.activeId.value).toBe('s9')
+    expect(store.enterId.value).toBe('s9')
   })
 })
 

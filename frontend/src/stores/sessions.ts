@@ -162,20 +162,26 @@ export function createSessionsController(
     sessions.value = copy
   }
 
+  /** Read the session list from the first page to the last. */
+  async function fetchSessions(): Promise<SessionOut[]> {
+    const collected: SessionOut[] = []
+    let cursor: string | null = null
+    for (;;) {
+      const page = await deps.listSessions({ limit: pageLimit, cursor })
+      collected.push(...page.sessions)
+      cursor = page.next_cursor
+      if (cursor === null) {
+        break
+      }
+    }
+    return collected
+  }
+
   async function loadSessions(): Promise<void> {
     loading.value = true
     error.value = null
     try {
-      const collected: SessionOut[] = []
-      let cursor: string | null = null
-      for (;;) {
-        const page = await deps.listSessions({ limit: pageLimit, cursor })
-        collected.push(...page.sessions)
-        cursor = page.next_cursor
-        if (cursor === null) {
-          break
-        }
-      }
+      const collected = await fetchSessions()
       sessions.value = collected
       if (activeId.value === null && collected.length > 0) {
         activeId.value = collected[0]?.id ?? null
@@ -187,12 +193,29 @@ export function createSessionsController(
     }
   }
 
+  /**
+   * Re-read the list after a run or a preference save changed a session's title,
+   * digest count, or active request. The selection stays on the conversation the
+   * user is reading, the loading flag stays down so the sidebar never flashes a
+   * spinner mid-run, and a failed refresh keeps the list it already had.
+   */
+  async function refreshSessions(): Promise<void> {
+    try {
+      sessions.value = await fetchSessions()
+    } catch {
+      return
+    }
+  }
+
   /** A session is reusable when it is untitled and has produced no digests. */
   function isEmptySession(session: SessionOut): boolean {
     return session.title === null && (session.digest_count ?? 0) === 0
   }
 
   async function createOrReuse(): Promise<void> {
+    // The local record goes stale as soon as a run titles the conversation or adds a
+    // digest, so ask the server before deciding whether anything is reusable.
+    await refreshSessions()
     const empty = sessions.value.find(isEmptySession)
     if (empty !== undefined) {
       activeId.value = empty.id
@@ -319,6 +342,7 @@ export function createSessionsController(
     statusCopy,
     groups,
     loadSessions,
+    refreshSessions,
     createOrReuse,
     rename,
     cancelRename,
