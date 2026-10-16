@@ -15,6 +15,7 @@ function input(overrides: Partial<RunVmInput> = {}): RunVmInput {
     endedAt: null,
     reconnected: false,
     reconnectLeaving: false,
+    holding: false,
     ...overrides,
   }
 }
@@ -190,6 +191,19 @@ describe('toRunVm per-source steps', () => {
     })
 
     expect(vm.reconnect?.ok).toBe(true)
+  })
+
+  it('keeps the follow-up reply while the reveal catches up after the stream ended', () => {
+    const vm = run({ state: 'succeeded', holding: true, text: 'Alpha beta' })
+
+    expect(vm.mode).toBe('followup')
+    expect(vm.streamText).toBe('Alpha beta')
+  })
+
+  it('marks the reply ended once the stream stops so the reveal can drain', () => {
+    expect(run({ state: 'streaming', text: 'Alpha' }).ended).toBe(false)
+    expect(run({ state: 'reconnecting', text: 'Alpha' }).ended).toBe(false)
+    expect(run({ state: 'succeeded', holding: true, text: 'Alpha' }).ended).toBe(true)
   })
 })
 

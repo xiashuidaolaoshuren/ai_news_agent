@@ -303,6 +303,7 @@ function runInput(overrides: Partial<RunVmInput> = {}): RunVmInput {
     endedAt: null,
     reconnected: false,
     reconnectLeaving: false,
+    holding: false,
     ...overrides,
   }
 }

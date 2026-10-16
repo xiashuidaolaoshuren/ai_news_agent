@@ -19,6 +19,36 @@ function streamOf(chunks: string[]): ReadableStream<Uint8Array> {
   return byteStream(chunks.map((chunk) => encoder.encode(chunk)))
 }
 
+/** Settle `promise` on a timer too, so a stalled stream fails instead of hanging. */
+function within<T>(promise: Promise<T>, ms = 100): Promise<T | 'stalled'> {
+  return Promise.race([
+    promise,
+    new Promise<'stalled'>((resolve) => {
+      setTimeout(() => resolve('stalled'), ms)
+    }),
+  ])
+}
+
+/** A stream the test pushes frames into by hand, to observe when each is parsed. */
+function openStream(): {
+  stream: ReadableStream<Uint8Array>
+  push: (frame: string) => void
+  close: () => void
+} {
+  const encoder = new TextEncoder()
+  let controller!: ReadableStreamDefaultController<Uint8Array>
+  const stream = new ReadableStream<Uint8Array>({
+    start(next) {
+      controller = next
+    },
+  })
+  return {
+    stream,
+    push: (frame) => controller.enqueue(encoder.encode(frame)),
+    close: () => controller.close(),
+  }
+}
+
 async function collect(readable: AsyncIterable<SseEvent>): Promise<SseEvent[]> {
   const events: SseEvent[] = []
   for await (const event of readable) {
@@ -65,6 +95,30 @@ describe('parseSseStream', () => {
         data: { request_id: 'r1', message_id: 3, run_id: null, path: 'followup' },
       },
     ])
+  })
+
+  it('yields each frame as it arrives, before the stream closes', async () => {
+    const source = openStream()
+    const events = parseSseStream(source.stream)
+
+    const first = events.next()
+    source.push('event: delta\ndata: {"text":"one"}\n\n')
+
+    await expect(within(first)).resolves.toEqual({
+      done: false,
+      value: { event: 'delta', data: { text: 'one' } },
+    })
+
+    const second = events.next()
+    source.push('event: delta\ndata: {"text":"two"}\n\n')
+
+    await expect(within(second)).resolves.toEqual({
+      done: false,
+      value: { event: 'delta', data: { text: 'two' } },
+    })
+
+    source.close()
+    await expect(events.next()).resolves.toEqual({ done: true, value: undefined })
   })
 
   it('ignores comments, unknown events, and malformed payloads', async () => {

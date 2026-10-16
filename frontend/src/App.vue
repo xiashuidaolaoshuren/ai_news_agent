@@ -101,6 +101,7 @@ onUnmounted(() => {
         @run-again="composer.runAgain()"
         @followup="composer.prefillFollowUp($event)"
         @suggest="composer.prefill($event)"
+        @reveal-done="thread.revealFinished()"
       />
     </template>
 

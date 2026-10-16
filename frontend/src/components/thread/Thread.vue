@@ -29,6 +29,8 @@ const emit = defineEmits<{
   followup: [title: string]
   suggest: [text: string]
   runAgain: []
+  /** The live reply finished typing itself out; the transcript can take over. */
+  revealDone: []
 }>()
 
 /**
@@ -201,6 +203,8 @@ onUnmounted(() => {
               v-if="props.run.mode === 'followup'"
               :text="props.run.streamText"
               streaming
+              :ended="props.run.ended"
+              @revealed="emit('revealDone')"
             />
             <RunCard v-else :run="props.run" />
           </div>

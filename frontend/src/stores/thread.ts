@@ -91,6 +91,9 @@ export function createThreadController(deps: ThreadDeps) {
 
   const clock = () => clockLabel(deps.now())
 
+  /** True while a finished reply's reveal is still catching up in the live slot. */
+  const holding = ref(false)
+
   /** Drop the ambient clocks that belong to the previous request. */
   function resetRunClocks(): void {
     progressTimes.value = []
@@ -106,6 +109,16 @@ export function createThreadController(deps: ThreadDeps) {
     const active = next.state === 'streaming' || next.state === 'reconnecting'
     const wasActive = previous.state === 'streaming' || previous.state === 'reconnecting'
     if (active && !wasActive) {
+      if (holding.value) {
+        // A new question arrived while the last reply was still typing itself out.
+        // Bring its persisted row back instead of leaving a hole in the transcript,
+        // and leave the pending row alone: it now stands in for the new question.
+        holding.value = false
+        const heldSession = session.value?.id
+        if (heldSession !== undefined) {
+          void loadMessages(heldSession)
+        }
+      }
       resetRunClocks()
       startedAt.value = next.state === 'streaming' ? clock() : null
     }
@@ -152,17 +165,43 @@ export function createThreadController(deps: ThreadDeps) {
     }
     // The backend persists its own terminal row; refresh so the digest reply lands.
     if (!active && wasActive && isTerminalState(next.state)) {
-      pendingUser.value = null
-      const sessionId = session.value?.id
-      if (sessionId !== undefined) {
-        void loadMessages(sessionId, { markFresh: true })
+      // A follow-up reply types itself out, and the server finishes sending it long
+      // before the reveal catches up, so the live reply keeps the slot until then.
+      const live = next.state === 'succeeded' ? toRunVm(runInput(next, true)) : null
+      if (live?.mode === 'followup') {
+        holding.value = true
+      } else {
+        settleRun()
       }
     }
     snapshot.value = next
   })
 
-  function runInput(): RunVmInput {
-    const current = snapshot.value
+  /**
+   * Take the row the backend persisted for the finished request, and stop standing
+   * in for it with the pending question. Held back while a reveal is still running.
+   */
+  function settleRun(): void {
+    holding.value = false
+    pendingUser.value = null
+    const sessionId = session.value?.id
+    if (sessionId !== undefined) {
+      void loadMessages(sessionId, { markFresh: true })
+    }
+  }
+
+  /** The live reply's reveal caught up, so the transcript can take the row over. */
+  function revealFinished(): void {
+    if (!holding.value) {
+      return
+    }
+    settleRun()
+  }
+
+  function runInput(
+    current: RequestSnapshot = snapshot.value,
+    holds = holding.value,
+  ): RunVmInput {
     const progress: RunProgress[] = current.progress.map((event, index) => ({
       stage: event.stage,
       source: event.source ?? null,
@@ -182,6 +221,7 @@ export function createThreadController(deps: ThreadDeps) {
       endedAt: endedAt.value,
       reconnected: reconnected.value,
       reconnectLeaving: reconnectLeaving.value,
+      holding: holds,
     }
   }
 
@@ -289,6 +329,9 @@ export function createThreadController(deps: ThreadDeps) {
     draft.value = ''
     pendingUser.value = null
     freshIds.value = []
+    // A reply that was still typing out in the conversation being left behind is
+    // gone with it; its transcript reloads from the server on its own.
+    holding.value = false
     if (next === null) {
       return
     }
@@ -330,6 +373,7 @@ export function createThreadController(deps: ThreadDeps) {
     openSession,
     runAgain,
     markUserSent,
+    revealFinished,
   }
 }
 

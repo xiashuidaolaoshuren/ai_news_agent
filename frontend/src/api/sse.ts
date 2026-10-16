@@ -18,24 +18,8 @@ export type SseEvent =
   | { event: 'done'; data: DonePayload }
   | { event: 'error'; data: ErrorPayload }
 
-async function readAll(readable: ReadableStream<Uint8Array>): Promise<string> {
-  const reader = readable.getReader()
-  const decoder = new TextDecoder()
-  let text = ''
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) {
-        break
-      }
-      text += decoder.decode(value, { stream: true })
-    }
-    text += decoder.decode()
-  } finally {
-    reader.releaseLock()
-  }
-  return text
-}
+/** Blank line that ends one SSE frame, in LF or CRLF form. */
+const FRAME_SEPARATOR = /\r?\n\r?\n/
 
 const KNOWN_EVENTS = ['started', 'progress', 'delta', 'digest', 'done', 'error'] as const
 
@@ -65,16 +49,41 @@ function parseFrame(frame: string): SseEvent | null {
   }
 }
 
-/** Parse `event: …\ndata: …\n\n` frames from a byte stream. */
+/**
+ * Parse `event: …\ndata: …\n\n` frames from a byte stream, yielding each frame
+ * as soon as it completes rather than after the response ends. The reply, the
+ * progress steps, and the run card all depend on that live delivery.
+ */
 export async function* parseSseStream(
   readable: ReadableStream<Uint8Array>,
 ): AsyncGenerator<SseEvent> {
-  const text = await readAll(readable)
-  for (const frame of text.split(/\r?\n\r?\n/)) {
-    const event = parseFrame(frame)
-    if (event !== null) {
-      yield event
+  const reader = readable.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
+      buffer += decoder.decode(value, { stream: true })
+      for (let match = FRAME_SEPARATOR.exec(buffer); match !== null; ) {
+        const frame = buffer.slice(0, match.index)
+        buffer = buffer.slice(match.index + match[0].length)
+        const event = parseFrame(frame)
+        if (event !== null) {
+          yield event
+        }
+        match = FRAME_SEPARATOR.exec(buffer)
+      }
     }
+    buffer += decoder.decode()
+  } finally {
+    reader.releaseLock()
+  }
+  const trailing = parseFrame(buffer)
+  if (trailing !== null) {
+    yield trailing
   }
 }
 

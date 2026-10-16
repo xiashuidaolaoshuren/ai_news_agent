@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { MessageOut, RequestOut, SessionOut } from '@/api/generated/types.gen'
 import { createRequestLifecycle, type LifecycleDeps } from '@/api/lifecycle'
@@ -444,5 +444,156 @@ describe('thread store run again', () => {
 
     expect(store.controller.draft.value).toBe('What shipped this week?')
     expect(store.controller.run.value).toBeNull()
+  })
+})
+
+/** A follow-up answer: the streamed text, then the terminal `done` the store waits on. */
+const followUpDelta: SseEvent = {
+  event: 'delta',
+  data: { text: 'Alpha beta gamma delta' },
+}
+
+const followUpDone: SseEvent = {
+  event: 'done',
+  data: { request_id: 'r1', message_id: 3, run_id: null, path: 'followup' },
+}
+
+describe('thread store streamed follow-up reply', () => {
+  /** Run a follow-up through its stream and stop the moment it reaches the hold. */
+  async function heldAfterFollowUp() {
+    const gate = deferred()
+    const loadMessages = vi.fn<ThreadDeps['loadMessages']>(async () => [])
+    const store = makeStore({
+      loadMessages,
+      post: async () =>
+        (async function* generate() {
+          yield started
+          yield followUpDelta
+          await gate.promise
+          yield followUpDone
+        })(),
+    })
+
+    await store.controller.openSession(sessionOut())
+    loadMessages.mockClear()
+
+    store.controller.markUserSent('Why is it quantized?')
+    const sending = store.lifecycle.send('s1', { content: 'Why is it quantized?' })
+    await waitFor(() => store.controller.run.value?.streamText === 'Alpha beta gamma delta')
+
+    gate.resolve()
+    await sending
+    await waitFor(() => store.controller.run.value?.ended === true)
+
+    return { controller: store.controller, loadMessages }
+  }
+
+  it('stays up with the pending question until the reveal catches up', async () => {
+    const { controller, loadMessages } = await heldAfterFollowUp()
+
+    expect(controller.run.value?.ended).toBe(true)
+    expect(controller.run.value?.streamText).toBe('Alpha beta gamma delta')
+    expect(loadMessages).not.toHaveBeenCalled()
+    expect(controller.visibleMessages.value.map((item) => item.text)).toEqual([
+      'Why is it quantized?',
+    ])
+  })
+
+  it('takes the persisted row once the reveal catches up', async () => {
+    const { controller, loadMessages } = await heldAfterFollowUp()
+
+    controller.revealFinished()
+    await waitFor(() => loadMessages.mock.calls.length > 0)
+
+    expect(loadMessages).toHaveBeenCalledWith('s1')
+    expect(controller.run.value).toBeNull()
+    expect(controller.visibleMessages.value).toEqual([])
+  })
+
+  it('brings the finished reply back when the next question is sent mid-reveal', async () => {
+    const gate = deferred()
+    const stalled = deferred()
+    let calls = 0
+    const loadMessages = vi.fn<ThreadDeps['loadMessages']>(async () => [])
+    const store = makeStore({
+      loadMessages,
+      post: async () => {
+        calls += 1
+        if (calls > 1) {
+          return (async function* generate() {
+            yield started
+            await stalled.promise
+          })()
+        }
+        return (async function* generate() {
+          yield started
+          yield followUpDelta
+          await gate.promise
+          yield followUpDone
+        })()
+      },
+    })
+
+    await store.controller.openSession(sessionOut())
+    store.controller.markUserSent('Why is it quantized?')
+    const first = store.lifecycle.send('s1', { content: 'Why is it quantized?' })
+    await waitFor(() => store.controller.run.value?.streamText === 'Alpha beta gamma delta')
+
+    gate.resolve()
+    await first
+    expect(store.controller.run.value?.ended).toBe(true)
+
+    loadMessages.mockClear()
+    store.controller.markUserSent('One more thing')
+    void store.lifecycle.send('s1', { content: 'One more thing' })
+    await waitFor(() => loadMessages.mock.calls.length > 0)
+
+    expect(loadMessages).toHaveBeenCalledWith('s1')
+    expect(store.controller.visibleMessages.value.map((item) => item.text)).toEqual([
+      'One more thing',
+    ])
+  })
+
+  it('drops the hold when another conversation is opened', async () => {
+    const { controller, loadMessages } = await heldAfterFollowUp()
+
+    await controller.openSession(sessionOut({ id: 's2' }))
+    loadMessages.mockClear()
+
+    controller.revealFinished()
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0)
+    })
+
+    expect(loadMessages).not.toHaveBeenCalled()
+  })
+})
+
+describe('thread store streamed digest reply', () => {
+  it('hands the transcript over as soon as the run succeeds', async () => {
+    const loadMessages = vi.fn<ThreadDeps['loadMessages']>(async () => [])
+    const store = makeStore({
+      loadMessages,
+      post: async () =>
+        events([
+          started,
+          progress('Done github: Found 3 github results.', 'github', 'done', 3),
+          {
+            event: 'done',
+            data: { request_id: 'r1', message_id: 4, run_id: 9, path: 'digest' },
+          },
+        ]),
+    })
+
+    await store.controller.openSession(sessionOut())
+    loadMessages.mockClear()
+
+    store.controller.markUserSent('Digest please')
+    await store.lifecycle.send('s1', { content: 'Digest please' })
+    await waitFor(() => loadMessages.mock.calls.length > 0)
+
+    expect(loadMessages).toHaveBeenCalledWith('s1')
+    expect(store.controller.run.value).toBeNull()
+    expect(store.controller.visibleMessages.value).toEqual([])
   })
 })

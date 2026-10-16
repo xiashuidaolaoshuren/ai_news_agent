@@ -36,6 +36,8 @@ export interface RunVmInput {
   reconnected: boolean
   /** True once the reconnected banner is collapsing out, just before it clears. */
   reconnectLeaving: boolean
+  /** The stream ended but the reply's paced reveal is still catching up. */
+  holding: boolean
 }
 
 export interface ReconnectVm {
@@ -65,6 +67,8 @@ export interface RunVm {
   structured: boolean
   fallbackStage: string | null
   streamText: string
+  /** The stream has stopped, so the reply's reveal should drain and then finish. */
+  ended: boolean
   reconnect: ReconnectVm | null
   /** The reconnected banner is on its way out; it collapses as it goes. */
   reconnectLeaving: boolean
@@ -186,7 +190,7 @@ function reconnectVm(input: RunVmInput): ReconnectVm | null {
 
 /** The card mounts while a run has evidence, while reconnecting, or during the dwell. */
 function showsCard(input: RunVmInput): boolean {
-  if (input.state === 'reconnecting' || input.reconnected) {
+  if (input.state === 'reconnecting' || input.reconnected || input.holding) {
     return true
   }
   return input.state === 'streaming' && (input.progress.length > 0 || input.text !== '')
@@ -214,6 +218,7 @@ export function toRunVm(input: RunVmInput): RunVm | null {
     structured,
     fallbackStage: fallback?.stage ?? null,
     streamText: mode === 'followup' ? input.text : '',
+    ended: input.state !== 'streaming' && input.state !== 'reconnecting',
     reconnect: reconnectVm(input),
     reconnectLeaving: input.reconnectLeaving,
   }
