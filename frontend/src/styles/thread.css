@@ -213,6 +213,18 @@
   padding: 2px 0 10px;
 }
 
+.jump-latest {
+  position: sticky;
+  /* The thread's own bottom padding already reserves the composer dock, and a
+     sticky bottom offset is measured from the padded content box, so this needs
+     no dock-height arithmetic. */
+  bottom: 8px;
+  display: flex;
+  width: fit-content;
+  margin: 0 auto;
+  box-shadow: var(--shadow);
+}
+
 .bubble {
   background: var(--surface);
   border: 1px solid var(--border);

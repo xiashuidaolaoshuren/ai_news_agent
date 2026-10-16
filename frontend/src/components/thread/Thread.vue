@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-
 import CancelledReply from '@/components/thread/CancelledReply.vue'
 import DigestReply from '@/components/thread/DigestReply.vue'
 import EmptyConversation from '@/components/thread/EmptyConversation.vue'
@@ -14,6 +13,7 @@ import AppIcon from '@/components/ui/AppIcon.vue'
 import { formatClock } from '@/components/thread/format'
 import { installHoverPreviewListeners } from '@/lib/useHoverPreview'
 import { prefersReducedMotion } from '@/lib/motion'
+import { shouldStickToBottom } from '@/lib/scroll'
 import { PENDING_MESSAGE_ID } from '@/stores/thread'
 import type { MessageVm, RequestStateVm } from '@/vm'
 import type { DigestVm } from '@/vm/digest'
@@ -64,6 +64,76 @@ const liveSlot = ref<HTMLElement | null>(null)
 let uninstall: (() => void) | null = null
 let swapTimer: number | null = null
 let swapFrom: number | null = null
+
+/**
+ * True while the reader is at the end of the transcript, so new content may follow
+ * them. Scrolling away parks it until they come back or send again.
+ */
+const stick = ref(true)
+
+/** The end of the transcript moved, so this decides whether the reader moves too. */
+const arrival = computed(() => ({
+  count: props.messages.length,
+  firstId: props.messages[0]?.id ?? null,
+  lastId: props.messages.at(-1)?.id ?? null,
+  live:
+    props.run !== null ||
+    props.liveDigest !== null ||
+    props.cancelled !== null ||
+    props.alert !== null,
+  pending: props.messages.some((message) => message.id === PENDING_MESSAGE_ID),
+}))
+
+function onScroll(): void {
+  const element = thread.value
+  if (element !== null) {
+    stick.value = shouldStickToBottom(element)
+  }
+}
+
+function scrollToLatest(): void {
+  const element = thread.value
+  if (element === null) {
+    return
+  }
+  element.scrollTop = element.scrollHeight
+  stick.value = true
+}
+
+/**
+ * The transcript changed. A question the user just sent belongs in view whatever
+ * they were reading; an earlier page must not move the row under their eye; and
+ * another conversation opens at its newest content.
+ */
+watch(arrival, (next, previous) => {
+  const element = thread.value
+  if (element === null) {
+    return
+  }
+  if (next.pending) {
+    stick.value = true
+  }
+  const previousLast = previous?.lastId ?? null
+  const swapped =
+    previousLast !== null && !props.messages.some((message) => message.id === previousLast)
+  if (swapped) {
+    stick.value = true
+  }
+  if (previous !== undefined && next.firstId !== previous.firstId && !swapped) {
+    // An earlier page arrived above: hold the row the reader is on in place.
+    const fromEnd = element.scrollHeight - element.scrollTop
+    void nextTick(() => {
+      const box = thread.value
+      if (box !== null) {
+        box.scrollTop = box.scrollHeight - fromEnd
+      }
+    })
+    return
+  }
+  if (stick.value) {
+    void nextTick(scrollToLatest)
+  }
+})
 
 /** The run label shows the `HH:MM` clock, while the card head carries the seconds. */
 const runClock = computed(() => props.run?.startedAt?.slice(0, 5) ?? '')
@@ -119,10 +189,13 @@ watch(
 onMounted(() => {
   if (thread.value !== null) {
     uninstall = installHoverPreviewListeners(thread.value)
+    thread.value.addEventListener('scroll', onScroll, { passive: true })
+    stick.value = shouldStickToBottom(thread.value)
   }
 })
 
 onUnmounted(() => {
+  thread.value?.removeEventListener('scroll', onScroll)
   uninstall?.()
   uninstall = null
   if (swapTimer !== null) {
@@ -268,5 +341,14 @@ onUnmounted(() => {
       </div>
     </div>
     <HoverPreview />
+    <button
+      v-if="!stick"
+      type="button"
+      class="btn btn-sm jump-latest"
+      data-od-id="jump-to-latest"
+      @click="scrollToLatest()"
+    >
+      <AppIcon name="down" />Jump to latest
+    </button>
   </div>
 </template>

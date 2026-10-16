@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowUp,
   Ban,
   Check,
@@ -48,6 +49,7 @@ const props = defineProps<{
     | 'refresh'
     | 'ban'
     | 'up'
+    | 'down'
     | 'stop'
 }>()
 
@@ -73,6 +75,7 @@ const ICONS = {
   refresh: RefreshCw,
   ban: Ban,
   up: ArrowUp,
+  down: ArrowDown,
   stop: Square,
 } as const
 

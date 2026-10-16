@@ -24,6 +24,7 @@ const emit = defineEmits<{
  */
 const OPENED_NOTE = 'Opened from history. The current conversation is unchanged.'
 
+/** The result actions are the prototype's row of buttons under the saved entry. */
 function text(event: Event): string {
   return (event.target as HTMLInputElement | HTMLSelectElement).value
 }
@@ -157,6 +158,9 @@ function text(event: Event): string {
           <span class="ref">{{ props.vm.opened.match.token }}</span>
           <span class="mono">{{ props.vm.opened.match.dateLabel }}</span>
           <SourceTag :kind="props.vm.opened.match.sourceKind" />
+          <span v-if="props.vm.opened.match.topics.length > 0">{{
+            props.vm.opened.match.topics.join(' · ')
+          }}</span>
         </div>
         <h3 v-if="props.vm.opened.item?.entry == null">
           {{ props.vm.opened.match.title }}
@@ -172,6 +176,23 @@ function text(event: Event): string {
           v-else-if="props.vm.opened.item"
           :text="props.vm.opened.item.markdown"
         />
+        <div class="opened-actions">
+          <a
+            v-if="props.vm.opened.match.url"
+            class="btn btn-sm"
+            :href="props.vm.opened.match.url"
+            target="_blank"
+            rel="noopener"
+            ><AppIcon name="ext" />Open source page</a
+          >
+          <button
+            type="button"
+            class="btn btn-sm btn-ghost"
+            @click="emit('ask', props.vm.opened.match.title)"
+          >
+            <AppIcon name="reply" />Ask in chat
+          </button>
+        </div>
       </div>
     </div>
 
