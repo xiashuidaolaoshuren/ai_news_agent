@@ -174,11 +174,49 @@ class _ConcurrentOverwriteRouter:
         )
 
 
+def test_materialize_fake_db_leaves_source_bytes_unchanged(tmp_path: Path) -> None:
+    from ai_news_agent.app.fake_runtime_db import materialize_fake_db
+    from ai_news_agent.dev.prototype_demo import seed_prototype_demo
+    from ai_news_agent.repositories.session_store import SessionStore
+
+    source = tmp_path / "prototype.sqlite"
+    seed_prototype_demo(source)
+    before = source.read_bytes()
+
+    runtime_db = materialize_fake_db(source)
+    try:
+        SessionStore(runtime_db).create_session("runtime-only")
+        assert runtime_db.exists()
+        assert source.read_bytes() == before
+    finally:
+        from ai_news_agent.app.fake_runtime_db import remove_fake_runtime_db
+
+        remove_fake_runtime_db(runtime_db)
+
+
+def test_materialize_fake_db_does_not_create_missing_source(tmp_path: Path) -> None:
+    from ai_news_agent.app.fake_runtime_db import materialize_fake_db, remove_fake_runtime_db
+
+    source = tmp_path / "missing.sqlite"
+    runtime_db = materialize_fake_db(source)
+    try:
+        assert not source.exists()
+        assert runtime_db.exists()
+    finally:
+        remove_fake_runtime_db(runtime_db)
+
+
 def test_main_runs_uvicorn_with_composition_app(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import uvicorn
+
+    from ai_news_agent.dev.prototype_demo import seed_prototype_demo
+
+    source = tmp_path / "main.db"
+    seed_prototype_demo(source)
+    source_bytes = source.read_bytes()
 
     captured: dict[str, object] = {}
 
@@ -203,7 +241,7 @@ def test_main_runs_uvicorn_with_composition_app(
             "--port",
             "9999",
             "--db-path",
-            str(tmp_path / "main.db"),
+            str(source),
         ]
     )
 
@@ -212,6 +250,9 @@ def test_main_runs_uvicorn_with_composition_app(
     assert captured["kwargs"]["port"] == 9999
     paths = {route.path for route in captured["app"].routes}
     assert {"/health", "/digest", "/followup"} <= paths
+    application = captured["app"].state.application
+    assert application.db_path.resolve() != source.resolve()
+    assert source.read_bytes() == source_bytes
 
 
 def test_build_digest_request_payload_maps_hints() -> None:

@@ -162,7 +162,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--fake",
         action="store_true",
-        help="Offline deterministic mode (fake connectors and summarizer; no API keys).",
+        help=(
+            "Offline deterministic mode (fake connectors and summarizer; no API keys). "
+            "Writes go to a temporary database copy; --db-path is left unchanged."
+        ),
     )
     parser.add_argument(
         "--db-path",
@@ -191,16 +194,28 @@ def main(argv: list[str] | None = None) -> int:
         log_bilibili_env_diagnostics(logger)
         configure_bilibili_network_from_env(logger)
 
-    try:
-        service = _build_service(fake=ns.fake, db_path=ns.db_path)
-    except ValueError as e:
-        logger.exception("failed to build service")
-        print(str(e), file=sys.stderr)
-        return 2
+    from ai_news_agent.app.fake_runtime_db import materialize_fake_db, remove_fake_runtime_db
 
-    demo = create_app(service)
-    logger.info("gradio launch on port=%s", ns.port)
-    demo.launch(server_port=ns.port)
+    runtime_db: Path | None = None
+    db_path = ns.db_path
+    if ns.fake:
+        runtime_db = materialize_fake_db(ns.db_path)
+        db_path = runtime_db
+
+    try:
+        try:
+            service = _build_service(fake=ns.fake, db_path=db_path)
+        except ValueError as e:
+            logger.exception("failed to build service")
+            print(str(e), file=sys.stderr)
+            return 2
+
+        demo = create_app(service)
+        logger.info("gradio launch on port=%s db_path=%s", ns.port, db_path)
+        demo.launch(server_port=ns.port)
+    finally:
+        if runtime_db is not None:
+            remove_fake_runtime_db(runtime_db)
     return 0
 
 

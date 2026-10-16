@@ -341,24 +341,38 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
     parser.add_argument(
         "--fake",
         action="store_true",
-        help="Offline deterministic mode (no network, no OpenAI key)",
+        help=(
+            "Offline deterministic mode (no network, no OpenAI key). "
+            "Writes go to a temporary database copy; --db-path is left unchanged."
+        ),
     )
 
     ns = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
     from ai_news_agent.api.app import create_app
+    from ai_news_agent.app.fake_runtime_db import materialize_fake_db, remove_fake_runtime_db
     from ai_news_agent.services.composition import build_application
 
-    application = build_application(fake=ns.fake, db_path=ns.db_path)
-    app = create_app(application)
-    logger.info(
-        "digest service listening on http://%s:%s fake=%s db_path=%s",
-        ns.host,
-        ns.port,
-        ns.fake,
-        ns.db_path,
-    )
-    uvicorn.run(app, host=ns.host, port=ns.port)
+    runtime_db: Path | None = None
+    db_path = ns.db_path
+    if ns.fake:
+        runtime_db = materialize_fake_db(ns.db_path)
+        db_path = runtime_db
+
+    try:
+        application = build_application(fake=ns.fake, db_path=db_path)
+        app = create_app(application)
+        logger.info(
+            "digest service listening on http://%s:%s fake=%s db_path=%s",
+            ns.host,
+            ns.port,
+            ns.fake,
+            db_path,
+        )
+        uvicorn.run(app, host=ns.host, port=ns.port)
+    finally:
+        if runtime_db is not None:
+            remove_fake_runtime_db(runtime_db)
     return 0
 
 
