@@ -182,17 +182,44 @@ def test_seed_stores_prototype_digest_evidence(tmp_path: Path) -> None:
     assert "timed out" in warning_text["bilibili"]
 
     qwen = _digest_message(db_path, "demo-s3")
-    assert qwen["digest"]["entries"][0]["title"] == "Qwen开源图形生成与编辑模型Qwen-Image-2.1"
+    qwen_entries = qwen["digest"]["entries"]
+    assert qwen_entries[0]["title"] == "Qwen开源图形生成与编辑模型Qwen-Image-2.1"
+    assert (
+        qwen_entries[0]["issue"]["cover_url"]
+        == "https://demo-assets.local/previews/juya-cover-20260921.png"
+    )
+    assert qwen_entries[0]["story"]["number"] == 1
+    assert qwen_entries[2]["story"]["number"] == 4
     weekend = _digest_message(db_path, "demo-s4")
     assert weekend["digest"]["entries"][0]["title"].startswith("DeepSeek API")
+    assert (
+        weekend["digest"]["entries"][0]["issue"]["cover_url"]
+        == "https://demo-assets.local/previews/juya-cover-20260920.png"
+    )
     repos = _digest_message(db_path, "demo-s6")
     assert [entry["title"] for entry in repos["digest"]["entries"]] == [
         "obra/superpowers",
         "earendil-works/pi",
     ]
+    assert (
+        repos["digest"]["entries"][0]["owner"]["avatar_url"]
+        == "https://demo-assets.local/avatars/gh-obra.png"
+    )
+    assert (
+        repos["digest"]["entries"][0]["preview_image_url"]
+        == "https://demo-assets.local/previews/gh-og-obra-superpowers.png"
+    )
     video = _digest_message(db_path, "demo-s5")
     assert video["digest"]["entries"][0]["title"] == "Lightricks/LTX-2.5"
     assert video["digest"]["entries"][0]["downloads_30d"] == 1588619
+    assert (
+        video["digest"]["entries"][0]["owner"]["avatar_url"]
+        == "https://demo-assets.local/avatars/hf-Lightricks.png"
+    )
+    assert (
+        video["digest"]["entries"][1]["owner"]["avatar_url"]
+        == "https://demo-assets.local/avatars/hf-Qwen.jpeg"
+    )
 
 
 def test_seed_is_searchable(tmp_path: Path) -> None:

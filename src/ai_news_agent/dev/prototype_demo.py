@@ -613,7 +613,15 @@ _GITHUB_ROWS: list[dict[str, object]] = [
 ]
 
 
-def _archived_juya(date: str, number: int, title: str, topic: str, summary: str) -> dict[str, object]:
+def _archived_juya(
+    date: str,
+    number: int,
+    title: str,
+    topic: str,
+    summary: str,
+    *,
+    cover: str,
+) -> dict[str, object]:
     return {
         "kind": "juya",
         "source_id": f"juya-{date}-{number}",
@@ -621,13 +629,14 @@ def _archived_juya(date: str, number: int, title: str, topic: str, summary: str)
         "url": "https://daily.juya.uk",
         "source_name": f"AI 早报 {date}",
         "summary": summary,
-        "why": f"From AI 早报 {date}.",
+        "why": "",
         "topic": topic,
         "evidence": {
             "juya_item_type": "story",
             "issue_id": f"juya-{date}",
             "issue_date": date,
             "issue_url": "https://daily.juya.uk",
+            "issue_cover_url": _demo_preview(cover),
             "issue_lead_title": title if number == 1 else None,
             "story_section": topic,
             "story_original_url": "https://daily.juya.uk",
@@ -644,6 +653,7 @@ _ARCHIVED_ROWS: dict[str, list[dict[str, object]]] = {
             "Qwen开源图形生成与编辑模型Qwen-Image-2.1",
             "Model releases",
             "From AI 早报 2026-09-21, item #1.",
+            cover="juya-cover-20260921.png",
         ),
         _archived_juya(
             "2026-09-21",
@@ -651,6 +661,7 @@ _ARCHIVED_ROWS: dict[str, list[dict[str, object]]] = {
             "阶跃发布 Step 5 Preview，目前已全量开放",
             "Headlines",
             "From AI 早报 2026-09-21, item #2.",
+            cover="juya-cover-20260921.png",
         ),
         _archived_juya(
             "2026-09-21",
@@ -658,6 +669,7 @@ _ARCHIVED_ROWS: dict[str, list[dict[str, object]]] = {
             "Google开源Agentic编排器AX，支持有状态任务暂停与恢复",
             "Developer ecosystem",
             "From AI 早报 2026-09-21, item #4.",
+            cover="juya-cover-20260921.png",
         ),
         _archived_juya(
             "2026-09-21",
@@ -665,6 +677,7 @@ _ARCHIVED_ROWS: dict[str, list[dict[str, object]]] = {
             "腾讯开源端到端文档解析模型WeVisDoc",
             "Model releases",
             "From AI 早报 2026-09-21, item #5.",
+            cover="juya-cover-20260921.png",
         ),
     ],
     "demo-s4": [
@@ -674,6 +687,7 @@ _ARCHIVED_ROWS: dict[str, list[dict[str, object]]] = {
             "DeepSeek API明确节假日及调休周末全天按空闲时段计费",
             "Developer ecosystem",
             "From AI 早报 2026-09-20, item #1.",
+            cover="juya-cover-20260920.png",
         ),
         _archived_juya(
             "2026-09-20",
@@ -681,6 +695,7 @@ _ARCHIVED_ROWS: dict[str, list[dict[str, object]]] = {
             "千问发布Qwen3.8-LiveTranslate",
             "Model releases",
             "From AI 早报 2026-09-20, item #4.",
+            cover="juya-cover-20260920.png",
         ),
     ],
     "demo-s6": [
@@ -697,6 +712,8 @@ _ARCHIVED_ROWS: dict[str, list[dict[str, object]]] = {
                 "owner_name": "obra",
                 "owner_type": "person",
                 "owner_profile_url": "https://github.com/obra",
+                "owner_avatar_url": _demo_avatar("gh-obra.png"),
+                "preview_image_url": _demo_preview("gh-og-obra-superpowers.png"),
             },
         },
         {
@@ -712,6 +729,8 @@ _ARCHIVED_ROWS: dict[str, list[dict[str, object]]] = {
                 "owner_name": "earendil-works",
                 "owner_type": "organisation",
                 "owner_profile_url": "https://github.com/earendil-works",
+                "owner_avatar_url": _demo_avatar("gh-earendil-works.png"),
+                "preview_image_url": _demo_preview("gh-og-earendil-works-pi.png"),
             },
         },
     ],
@@ -729,6 +748,7 @@ _ARCHIVED_ROWS: dict[str, list[dict[str, object]]] = {
                 "owner_name": "Lightricks",
                 "owner_type": "organisation",
                 "owner_profile_url": "https://huggingface.co/Lightricks",
+                "owner_avatar_url": _demo_avatar("hf-Lightricks.png"),
                 "pipeline_tag": "image-to-video",
                 "downloads_30d": 1588619,
                 "likes": 5781,
@@ -747,6 +767,7 @@ _ARCHIVED_ROWS: dict[str, list[dict[str, object]]] = {
                 "owner_name": "Qwen",
                 "owner_type": "organisation",
                 "owner_profile_url": "https://huggingface.co/Qwen",
+                "owner_avatar_url": _demo_avatar("hf-Qwen.jpeg"),
                 "pipeline_tag": "image-text-to-text",
                 "downloads_30d": 6950834,
                 "likes": 16687,

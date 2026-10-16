@@ -147,6 +147,8 @@ describe('Juya issue grouping', () => {
       topic: 'Model releases',
       originalUrl: 'https://example.com/4',
     })
+    expect(group?.stories.map((story) => story.rank)).toEqual([1, 4])
+    expect(sections[0]?.rangeEnd).toBe(4)
   })
 
   it('builds the eyebrow from the issue date with no issue number', () => {

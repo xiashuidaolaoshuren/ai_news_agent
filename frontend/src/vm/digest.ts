@@ -91,6 +91,11 @@ export function toJuyaIssuesVm(
 /** Entry with its Juya story presentation attached. */
 function toJuyaEntryVm(api: JuyaDigestEntryView): EntryVm {
   const vm = toVm(api)
+  // Bulletin numbers can skip, as the prototype archive does (#1, #2, #4).
+  const storyNumber = api.story?.number
+  if (typeof storyNumber === 'number') {
+    vm.rank = storyNumber
+  }
   vm.juya = {
     topic: textOrNull(api.story?.section ?? null),
     originalUrl: safeHttpUrl(api.story?.original_url),
