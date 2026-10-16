@@ -23,6 +23,8 @@ export interface RequestStateVm {
   kind: 'failed' | 'interrupted'
   message: string
   canRunAgain: boolean
+  /** Offered while the request may still be running, after the polls ran out. */
+  canRetryPoll?: boolean
 }
 
 const INTERRUPTED_MESSAGE = 'This request was interrupted by a restart'
@@ -32,6 +34,8 @@ export interface RequestStateInput {
   status: string
   error_code?: string | null
   error_message?: string | null
+  /** True when the client does not know the outcome yet and can poll again. */
+  canRetryPoll?: boolean
 }
 
 /**
@@ -49,6 +53,7 @@ export function toRequestStateVm(request: RequestStateInput): RequestStateVm | n
       kind: 'failed',
       message: textOrNull(request.error_message ?? null) ?? FAILED_MESSAGE,
       canRunAgain: true,
+      ...(request.canRetryPoll === true ? { canRetryPoll: true } : {}),
     }
   }
   return null

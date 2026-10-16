@@ -14,6 +14,7 @@ import { installHoverPreviewListeners } from '@/lib/useHoverPreview'
 import { prefersReducedMotion } from '@/lib/motion'
 import { PENDING_MESSAGE_ID } from '@/stores/thread'
 import type { MessageVm, RequestStateVm } from '@/vm'
+import type { DigestVm } from '@/vm/digest'
 import type { CancelledVm, RunVm } from '@/vm/run'
 
 const props = defineProps<{
@@ -23,12 +24,16 @@ const props = defineProps<{
   run?: RunVm | null
   cancelled?: CancelledVm | null
   alert?: RequestStateVm | null
+  /** The digest a run has streamed and the backend has not persisted back yet. */
+  liveDigest?: DigestVm | null
 }>()
 
 const emit = defineEmits<{
   followup: [title: string]
   suggest: [text: string]
   runAgain: []
+  /** Poll the request again after the reconnect attempts ran out. */
+  retryPoll: []
   /** The live reply finished typing itself out; the transcript can take over. */
   revealDone: []
 }>()
@@ -128,7 +133,8 @@ onUnmounted(() => {
           props.messages.length === 0 &&
           !props.run &&
           !props.cancelled &&
-          !props.alert
+          !props.alert &&
+          !props.liveDigest
         "
         @suggest="emit('suggest', $event)"
       />
@@ -170,7 +176,7 @@ onUnmounted(() => {
       </template>
 
       <div
-        v-if="props.alert || props.cancelled || props.run"
+        v-if="props.alert || props.cancelled || props.run || props.liveDigest"
         ref="liveSlot"
         class="live-slot"
       >
@@ -182,6 +188,7 @@ onUnmounted(() => {
             v-if="props.alert.kind === 'failed'"
             :state="props.alert"
             @run-again="emit('runAgain')"
+            @retry-poll="emit('retryPoll')"
           />
           <InterruptedReply v-else :state="props.alert" @run-again="emit('runAgain')" />
         </div>
@@ -191,6 +198,21 @@ onUnmounted(() => {
             <b>Agent</b>
           </div>
           <CancelledReply :cancelled="props.cancelled" @run-again="emit('runAgain')" />
+        </div>
+
+        <div
+          v-else-if="props.liveDigest"
+          class="msg-ai"
+          data-od-id="digest-reply"
+        >
+          <div class="ai-label">
+            <b>Agent</b>
+          </div>
+          <DigestReply
+            :digest="props.liveDigest"
+            animate
+            @followup="emit('followup', $event)"
+          />
         </div>
 
         <template v-else-if="props.run">

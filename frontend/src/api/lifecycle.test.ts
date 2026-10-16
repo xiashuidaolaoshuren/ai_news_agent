@@ -280,6 +280,26 @@ describe('createRequestLifecycle streaming', () => {
 })
 
 describe('createRequestLifecycle terminal status', () => {
+  it('keeps the safe failure message a polled status carries', async () => {
+    const lifecycle = makeLifecycle({
+      backoffMs: [10],
+      post: async () => events([started]),
+      getRequest: async () =>
+        requestOut({
+          status: 'failed',
+          error_code: 'workflow_error',
+          error_message: 'Digest generation failed.',
+        }),
+    })
+
+    await lifecycle.send('s1', { content: 'hi' })
+
+    expect(lifecycle.state.state).toBe('failed')
+    expect(lifecycle.state.terminalStatus).toBe('failed')
+    expect(lifecycle.state.error?.code).toBe('workflow_error')
+    expect(lifecycle.state.error?.message).toBe('Digest generation failed.')
+  })
+
   it('records a polled interruption so it is distinguishable from a failure', async () => {
     const lifecycle = makeLifecycle({
       backoffMs: [10],
@@ -371,6 +391,78 @@ describe('createRequestLifecycle terminal status', () => {
 })
 
 describe('createRequestLifecycle reconnect', () => {
+  it('polls a stream that broke mid-flight instead of staying streaming', async () => {
+    const sleeps: number[] = []
+    const reloads: string[] = []
+    let polls = 0
+    const lifecycle = makeLifecycle({
+      backoffMs: [10, 20],
+      post: async () =>
+        (async function* generate() {
+          yield started
+          yield {
+            event: 'progress',
+            data: { stage: 'Calling github…', source: 'github', status: 'running' },
+          } satisfies SseEvent
+          throw new Error('network error')
+        })(),
+      getRequest: async () => {
+        polls += 1
+        return requestOut({ status: polls === 1 ? 'active' : 'succeeded' })
+      },
+      sleep: async (ms) => {
+        sleeps.push(ms)
+      },
+      reloadMessages: async (sessionId) => {
+        reloads.push(sessionId)
+      },
+    })
+
+    await lifecycle.send('s1', { content: 'hi' })
+
+    expect(polls).toBe(2)
+    expect(sleeps).toEqual([10, 20])
+    expect(lifecycle.state.state).toBe('succeeded')
+    expect(reloads).toEqual(['s1'])
+  })
+
+  it('counts a failing status poll as an attempt and keeps polling', async () => {
+    let polls = 0
+    const lifecycle = makeLifecycle({
+      backoffMs: [10, 20, 30],
+      post: async () =>
+        (async function* generate() {
+          yield started
+          throw new Error('network error')
+        })(),
+      getRequest: async () => {
+        polls += 1
+        if (polls < 3) {
+          throw new Error('offline')
+        }
+        return requestOut({ status: 'succeeded' })
+      },
+    })
+
+    await lifecycle.send('s1', { content: 'hi' })
+
+    expect(polls).toBe(3)
+    expect(lifecycle.state.state).toBe('succeeded')
+  })
+
+  it('rethrows a send that never reached the server, so the composer can report it', async () => {
+    const lifecycle = makeLifecycle({
+      post: async () => {
+        throw new Error('backend unreachable')
+      },
+    })
+
+    await expect(lifecycle.send('s1', { content: 'hi' })).rejects.toThrow(
+      'backend unreachable',
+    )
+    expect(lifecycle.state.state).toBe('streaming')
+  })
+
   it('reconnects with backoff after a dropped stream and never reopens the stream', async () => {
     const sleeps: number[] = []
     const reloads: string[] = []

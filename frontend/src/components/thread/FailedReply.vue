@@ -4,7 +4,7 @@ import type { RequestStateVm } from '@/vm'
 
 const props = defineProps<{ state: RequestStateVm }>()
 
-const emit = defineEmits<{ runAgain: [] }>()
+const emit = defineEmits<{ runAgain: []; retryPoll: [] }>()
 </script>
 
 <template>
@@ -18,6 +18,14 @@ const emit = defineEmits<{ runAgain: [] }>()
       @click="emit('runAgain')"
     >
       <AppIcon name="refresh" />Run again
+    </button>
+    <button
+      v-if="props.state.canRetryPoll === true"
+      type="button"
+      class="btn btn-sm btn-ghost"
+      @click="emit('retryPoll')"
+    >
+      <AppIcon name="refresh" />Keep polling
     </button>
   </div>
 </template>

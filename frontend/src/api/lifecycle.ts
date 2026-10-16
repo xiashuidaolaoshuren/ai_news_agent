@@ -1,6 +1,5 @@
 import type {
   DigestPayload,
-  ErrorPayload,
   PostMessageBody,
   ProgressPayload,
   RequestOut,
@@ -29,13 +28,21 @@ export type BlockedCode = 'session_busy' | 'request_in_progress'
 /** Durable request status once the run reaches an outcome. */
 export type TerminalStatus = 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
 
+/** Why a run ended badly: the backend's code plus the safe message for the alert. */
+export interface FailurePayload {
+  code: string
+  message: string
+}
+
 export interface RequestSnapshot {
   state: LifecycleState
   requestId: string | null
+  /** The conversation this run was sent from, so a thread can claim it. */
+  sessionId: string | null
   text: string
   progress: ProgressPayload[]
   digest: DigestPayload | null
-  error: ErrorPayload | null
+  error: FailurePayload | null
   attempt: number
   nextDelayMs: number | null
   blocked: BlockedCode | null
@@ -62,10 +69,12 @@ export interface RequestLifecycle {
 
 const DEFAULT_BACKOFF_MS = [1000, 2000, 4000, 8000, 16000]
 
-function idleSnapshot(): RequestSnapshot {
+/** No run: what the lifecycle starts from, and what a thread shows for another run's owner. */
+export function idleRequestSnapshot(): RequestSnapshot {
   return {
     state: 'idle',
     requestId: null,
+    sessionId: null,
     text: '',
     progress: [],
     digest: null,
@@ -98,7 +107,7 @@ function isBlockedCode(code: string | null): code is BlockedCode {
 /** Own the request state machine for one conversation. */
 export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
   const backoffMs = deps.backoffMs ?? DEFAULT_BACKOFF_MS
-  let snapshot: RequestSnapshot = idleSnapshot()
+  let snapshot: RequestSnapshot = idleRequestSnapshot()
   let currentSessionId: string | null = null
   let runToken = 0
   let settleTerminal: (() => void) | null = null
@@ -198,19 +207,27 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
       if (isSuperseded(token)) {
         return
       }
-      const record = await deps.getRequest(sessionId, requestId)
+      // A poll that fails is one used attempt, not the end of the recovery: the
+      // request is still running on the server, so the next attempt may find it.
+      let record: RequestOut | null = null
+      try {
+        record = await deps.getRequest(sessionId, requestId)
+      } catch {
+        record = null
+      }
       if (isSuperseded(token)) {
         return
       }
-      if (record.status !== 'active') {
-        await settleFromStatus(sessionId, record.status)
+      if (record !== null && record.status !== 'active') {
+        await settleFromStatus(sessionId, record)
         return
       }
     }
     emit({ state: 'failed', nextDelayMs: null })
   }
 
-  async function settleFromStatus(sessionId: string, status: string): Promise<void> {
+  async function settleFromStatus(sessionId: string, record: RequestOut): Promise<void> {
+    const status = record.status
     const terminalStatus = toTerminalStatus(status)
     if (status === 'succeeded') {
       emit({ state: 'succeeded', attempt: 0, nextDelayMs: null, terminalStatus })
@@ -223,7 +240,18 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
       return
     }
     if (status === 'failed' || status === 'interrupted') {
-      emit({ state: 'failed', attempt: 0, nextDelayMs: null, terminalStatus })
+      emit({
+        state: 'failed',
+        attempt: 0,
+        nextDelayMs: null,
+        terminalStatus,
+        // The polled record carries the backend's safe copy, which is what the
+        // alert shows and what the transcript row it also persisted carries.
+        error: {
+          code: record.error_code ?? status,
+          message: record.error_message ?? '',
+        },
+      })
       await deps.reloadMessages(sessionId)
     }
   }
@@ -231,7 +259,7 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
   async function send(sessionId: string, body: PostMessageBody): Promise<void> {
     currentSessionId = sessionId
     const token = beginRun()
-    emit({ ...idleSnapshot(), state: 'streaming' })
+    emit({ ...idleRequestSnapshot(), sessionId, state: 'streaming' })
     try {
       await pumpStream(sessionId, body, token)
     } catch (error) {
@@ -241,7 +269,14 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
         isBlockedCode(error.code) &&
         !isSuperseded(token)
       ) {
-        emit({ ...idleSnapshot(), blocked: error.code })
+        emit({ ...idleRequestSnapshot(), sessionId, blocked: error.code })
+        return
+      }
+      // A stream that breaks mid-flight is the dropped-stream case: the server keeps
+      // running, so poll for the outcome. Without a request id there is nothing to
+      // poll, and the send failure belongs to the caller.
+      if (!isSuperseded(token) && snapshot.requestId !== null) {
+        await reconnect(sessionId, 1, token)
         return
       }
       throw error
@@ -260,13 +295,13 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
       return
     }
     const record = await deps.getRequest(sessionId, requestId)
-    await settleFromStatus(sessionId, record.status)
+    await settleFromStatus(sessionId, record)
   }
 
   async function resume(sessionId: string, requestId: string): Promise<void> {
     currentSessionId = sessionId
     const token = beginRun()
-    emit({ ...idleSnapshot(), requestId, state: 'reconnecting' })
+    emit({ ...idleRequestSnapshot(), sessionId, requestId, state: 'reconnecting' })
     await reconnect(sessionId, 1, token)
   }
 

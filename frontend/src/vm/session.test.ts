@@ -119,6 +119,37 @@ describe('toRequestStateVm', () => {
     })
   })
 
+  it('offers to keep polling while the outcome is still unknown', () => {
+    const vm = toRequestStateVm({
+      status: 'failed',
+      error_code: null,
+      error_message: null,
+      canRetryPoll: true,
+    })
+
+    expect(vm).toEqual({
+      kind: 'failed',
+      message: 'The request failed.',
+      canRunAgain: true,
+      canRetryPoll: true,
+    })
+  })
+
+  it('leaves the polling offer out of every other alert', () => {
+    expect(
+      toRequestStateVm({ status: 'interrupted', canRetryPoll: true }),
+    ).toEqual({
+      kind: 'interrupted',
+      message: 'This request was interrupted by a restart',
+      canRunAgain: true,
+    })
+    expect(toRequestStateVm({ status: 'failed', canRetryPoll: false })).toEqual({
+      kind: 'failed',
+      message: 'The request failed.',
+      canRunAgain: true,
+    })
+  })
+
   it('has no state for a request that is not failed or interrupted', () => {
     expect(toRequestStateVm({ status: 'succeeded', error_code: null, error_message: null })).toBeNull()
     expect(toRequestStateVm({ status: 'active', error_code: null, error_message: null })).toBeNull()

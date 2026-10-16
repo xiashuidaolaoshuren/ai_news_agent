@@ -35,6 +35,7 @@ function idleSnapshot(): RequestSnapshot {
   return {
     state: 'idle',
     requestId: null,
+    sessionId: null,
     text: '',
     progress: [],
     digest: null,

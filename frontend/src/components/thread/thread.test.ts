@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 
 import Thread from '@/components/thread/Thread.vue'
 import type { DigestView, MessageOut } from '@/api/generated/types.gen'
-import { toMessageVm } from '@/vm'
+import { toDigestVm, toMessageVm } from '@/vm'
+import { toRunVm } from '@/vm/run'
 
 const GITHUB_ENTRY = {
   source_kind: 'github',
@@ -145,5 +146,64 @@ describe('Thread', () => {
     })
 
     expect(wrapper.find('.empty').exists()).toBe(false)
+  })
+
+  it('renders the digest a run has streamed but not yet persisted', () => {
+    const run = toRunVm({
+      state: 'streaming',
+      progress: [{ stage: 'Calling github…', source: 'github', status: 'done', count: 3 }],
+      text: '',
+      attempt: 0,
+      nextDelayMs: null,
+      selectedSources: ['github'],
+      startedAt: '20:14:01',
+      droppedAt: null,
+      endedAt: null,
+      reconnected: false,
+      reconnectLeaving: false,
+      holding: false,
+    })
+    const wrapper = mount(Thread, {
+      props: {
+        messages: [],
+        run,
+        liveDigest: toDigestVm({ digest: DIGEST, digestId: 15 }),
+      },
+    })
+
+    // The digest event replaces the progress card, as the spec requires.
+    expect(wrapper.get('.live-slot .digest-reply .ref').text()).toBe('d15')
+    expect(wrapper.find('[data-od-id="streaming-progress"]').exists()).toBe(false)
+    expect(wrapper.find('.empty').exists()).toBe(false)
+  })
+
+  it('offers to keep polling only while the outcome is still unknown', async () => {
+    const wrapper = mount(Thread, {
+      props: {
+        messages: [],
+        alert: {
+          kind: 'failed',
+          message: 'The request failed.',
+          canRunAgain: true,
+          canRetryPoll: true,
+        },
+      },
+    })
+
+    const buttons = wrapper.findAll('.alert button')
+    expect(buttons.map((button) => button.text())).toEqual(['Run again', 'Keep polling'])
+
+    await buttons[1]!.trigger('click')
+
+    expect(wrapper.emitted('retryPoll')).toHaveLength(1)
+
+    const known = mount(Thread, {
+      props: {
+        messages: [],
+        alert: { kind: 'failed', message: 'Digest generation failed.', canRunAgain: true },
+      },
+    })
+
+    expect(known.text()).not.toContain('Keep polling')
   })
 })

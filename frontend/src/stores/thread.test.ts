@@ -272,6 +272,128 @@ describe('thread store sidebar refresh', () => {
   })
 })
 
+describe('thread store run ownership', () => {
+  it('keeps a running request out of the conversation that is not running it', async () => {
+    const hold = deferred()
+    const poll = deferred<RequestOut>()
+    const store = makeStore({
+      loadMessages: async () => [],
+      getRequest: async () => poll.promise,
+      post: async () =>
+        (async function* generate() {
+          yield started
+          yield progress('Calling github…', 'github', 'running')
+          await hold.promise
+        })(),
+    })
+
+    await store.controller.openSession(sessionOut({ id: 's1' }))
+    const sending = store.lifecycle.send('s1', { content: 'what is new?' })
+    await waitFor(() => store.controller.run.value !== null)
+
+    // The other conversation shows neither the run card nor the busy state the
+    // composer reads, so a request of its own can start while the first one runs.
+    await store.controller.openSession(sessionOut({ id: 's2' }))
+
+    expect(store.controller.run.value).toBeNull()
+    expect(store.controller.snapshot.value.state).toBe('idle')
+
+    // Coming back to the running conversation picks its request up again.
+    void store.controller.openSession(sessionOut({ id: 's1', active_request_id: 'r1' }))
+    await waitFor(() => store.controller.snapshot.value.state === 'reconnecting')
+
+    expect(store.controller.run.value?.reconnect).not.toBeNull()
+
+    poll.resolve(requestOut({ status: 'succeeded' }))
+    hold.resolve()
+    await sending
+  })
+
+  it('does not show another conversation the failure that ended while it was open', async () => {
+    const gate = deferred()
+    const store = makeStore({
+      loadMessages: async () => [],
+      post: async () =>
+        (async function* generate() {
+          yield started
+          await gate.promise
+          yield {
+            event: 'error',
+            data: {
+              request_id: 'r1',
+              code: 'workflow_error',
+              message: 'Digest generation failed.',
+              correlation_id: 'c1',
+            },
+          } satisfies SseEvent
+        })(),
+    })
+
+    await store.controller.openSession(sessionOut({ id: 's1' }))
+    const sending = store.lifecycle.send('s1', { content: 'digest please' })
+    await waitFor(() => store.controller.snapshot.value.state === 'streaming')
+
+    await store.controller.openSession(sessionOut({ id: 's2' }))
+    gate.resolve()
+    await sending
+
+    expect(store.controller.alert.value).toBeNull()
+  })
+})
+
+describe('thread store exhausted polling', () => {
+  it('offers to keep polling, and polls the request again when asked', async () => {
+    const polls: string[] = []
+    const store = makeStore({
+      loadMessages: async () => [],
+      post: async () => events([started]),
+      getRequest: async (_sessionId, requestId) => {
+        polls.push(requestId)
+        return requestOut({ status: polls.length === 1 ? 'active' : 'succeeded' })
+      },
+    })
+
+    await store.controller.openSession(sessionOut())
+    await store.lifecycle.send('s1', { content: 'digest please' })
+
+    expect(store.controller.snapshot.value.state).toBe('failed')
+    expect(store.controller.alert.value).toEqual({
+      kind: 'failed',
+      message: 'The request failed.',
+      canRunAgain: true,
+      canRetryPoll: true,
+    })
+
+    await store.controller.retryPoll()
+
+    expect(polls).toEqual(['r1', 'r1'])
+    expect(store.controller.snapshot.value.state).toBe('succeeded')
+  })
+
+  it('does not offer polling once the outcome is known', async () => {
+    const store = makeStore({
+      post: async () =>
+        events([
+          started,
+          {
+            event: 'error',
+            data: {
+              request_id: 'r1',
+              code: 'workflow_error',
+              message: 'Digest generation failed.',
+              correlation_id: 'c1',
+            },
+          },
+        ]),
+    })
+
+    await store.controller.openSession(sessionOut())
+    await store.lifecycle.send('s1', { content: 'digest please' })
+
+    expect(store.controller.alert.value?.canRetryPoll).toBeUndefined()
+  })
+})
+
 describe('thread store session sync', () => {
   it('takes a refreshed record into the live run without reloading the transcript', async () => {
     const hold = deferred()
@@ -357,6 +479,7 @@ describe('thread store live run clocks', () => {  it('stamps the run start and e
       },
     })
 
+    await store.controller.openSession(sessionOut())
     const first = store.lifecycle.send('s1', { content: 'first' })
     await waitFor(() => store.controller.run.value?.startedAt === '20:14:01')
 
@@ -424,6 +547,7 @@ describe('thread store live run clocks', () => {  it('stamps the run start and e
         ]),
     })
 
+    await store.controller.openSession(sessionOut())
     await store.lifecycle.send('s1', { content: 'what is new?' })
 
     expect(store.controller.alert.value).toEqual({
@@ -558,6 +682,112 @@ const followUpDone: SseEvent = {
   event: 'done',
   data: { request_id: 'r1', message_id: 3, run_id: null, path: 'followup' },
 }
+
+/** The structured reply a digest run sends before it ends. */
+const digestPayload: SseEvent = {
+  event: 'digest',
+  data: {
+    run_id: 9,
+    digest_id: 12,
+    digest: { generated_at: '2026-10-01T20:04:00Z', entries: [] },
+    markdown: '# digest',
+    warnings: [],
+    errors: [],
+  },
+}
+
+const digestDone: SseEvent = {
+  event: 'done',
+  data: { request_id: 'r1', message_id: 4, run_id: 9, path: 'digest' },
+}
+
+/** The row the backend persists for that digest. */
+function persistedDigest(): MessageOut {
+  return message({
+    id: 4,
+    sequence: 4,
+    role: 'assistant',
+    content: 'Digest generated.',
+    run_id: 9,
+    digest_id: 12,
+    digest: { generated_at: '2026-10-01T20:04:00Z', entries: [] },
+  })
+}
+
+describe('thread store live digest', () => {
+  it('shows the digest event while the run is still open', async () => {
+    const hold = deferred()
+    const store = makeStore({
+      loadMessages: async () => [],
+      post: async () =>
+        (async function* generate() {
+          yield started
+          yield progress('Done github: Found 3 github results.', 'github', 'done', 3)
+          yield digestPayload
+          await hold.promise
+          yield digestDone
+        })(),
+    })
+
+    await store.controller.openSession(sessionOut())
+    const sending = store.lifecycle.send('s1', { content: 'digest please' })
+    await waitFor(() => store.controller.liveDigest.value !== null)
+
+    expect(store.controller.snapshot.value.state).toBe('streaming')
+    expect(store.controller.liveDigest.value?.ref).toBe('d12')
+    expect(store.controller.liveDigest.value?.generatedAt).toBe('2026-10-01T20:04:00Z')
+
+    hold.resolve()
+    await sending
+    await waitFor(() => store.controller.liveDigest.value === null)
+
+    expect(store.controller.run.value).toBeNull()
+  })
+
+  it('never shows the live digest and the persisted one at the same time', async () => {
+    const store = makeStore({
+      loadMessages: async () => [persistedDigest()],
+      post: async () => events([started, digestPayload, digestDone]),
+    })
+
+    await store.controller.openSession(sessionOut())
+    await store.lifecycle.send('s1', { content: 'digest please' })
+    await waitFor(() => store.controller.liveDigest.value === null)
+
+    const digests = store.controller.visibleMessages.value.filter(
+      (item) => item.kind === 'digest',
+    )
+
+    expect(digests).toHaveLength(1)
+    expect(store.controller.liveDigest.value).toBeNull()
+  })
+
+  it('drops the live digest when another conversation is opened', async () => {
+    const hold = deferred()
+    const store = makeStore({
+      loadMessages: async () => [],
+      post: async () =>
+        (async function* generate() {
+          yield started
+          yield progress('Done github: Found 3 github results.', 'github', 'done', 3)
+          yield digestPayload
+          await hold.promise
+          yield digestDone
+        })(),
+    })
+
+    await store.controller.openSession(sessionOut())
+    const sending = store.lifecycle.send('s1', { content: 'digest please' })
+    await waitFor(() => store.controller.liveDigest.value !== null)
+
+    await store.controller.openSession(sessionOut({ id: 's2' }))
+
+    expect(store.controller.liveDigest.value).toBeNull()
+
+    hold.resolve()
+    await sending
+  })
+})
 
 describe('thread store streamed follow-up reply', () => {
   /** Run a follow-up through its stream and stop the moment it reaches the hold. */

@@ -6,6 +6,7 @@ import { listMessagesApiV1SessionsSessionIdMessagesGet } from '@/api/generated/s
 import {
   createRequestLifecycle,
   defaultLifecycleDeps,
+  idleRequestSnapshot,
   type LifecycleState,
   type RequestLifecycle,
   type RequestSnapshot,
@@ -13,6 +14,7 @@ import {
 import { setupApiClient } from '@/api/setupClient'
 import { prefersReducedMotion } from '@/lib/motion'
 import { useSessionsStore } from '@/stores/sessions'
+import { toDigestVm, type DigestVm } from '@/vm/digest'
 import { toMessageVm, toRequestStateVm, type MessageVm, type RequestStateVm } from '@/vm/session'
 import {
   toCancelledVm,
@@ -91,7 +93,7 @@ export function createThreadController(deps: ThreadDeps) {
   const draft = ref('')
   const pendingUser = ref<string | null>(null)
   const freshIds = ref<number[]>([])
-  const snapshot = shallowRef<RequestSnapshot>(deps.lifecycle.state)
+  const rawSnapshot = shallowRef<RequestSnapshot>(deps.lifecycle.state)
   const progressTimes = ref<string[]>([])
   const startedAt = ref<string | null>(null)
   const droppedAt = ref<string | null>(null)
@@ -99,7 +101,31 @@ export function createThreadController(deps: ThreadDeps) {
   const reconnected = ref(false)
   const reconnectLeaving = ref(false)
 
+  /**
+   * The digest a run is streaming. It stands in for the reply between the `digest`
+   * event and the reload that brings the row the backend persisted for it.
+   */
+  const liveDigest = ref<DigestVm | null>(null)
+
   const clock = () => clockLabel(deps.now())
+
+  /**
+   * True when a run belongs to the conversation that is open.
+   *
+   * A request belongs to the conversation it was sent from, so another conversation
+   * shows neither its card nor its outcome, and can start a request of its own.
+   */
+  function ownsRun(next: RequestSnapshot): boolean {
+    if (next.sessionId === null) {
+      return true
+    }
+    return next.sessionId === (session.value?.id ?? null)
+  }
+
+  /** The open conversation's run. Another conversation's run reads as idle. */
+  const snapshot = computed<RequestSnapshot>(() =>
+    ownsRun(rawSnapshot.value) ? rawSnapshot.value : idleRequestSnapshot(),
+  )
 
   /** True while a finished reply's reveal is still catching up in the live slot. */
   const holding = ref(false)
@@ -112,99 +138,121 @@ export function createThreadController(deps: ThreadDeps) {
     endedAt.value = null
     reconnected.value = false
     reconnectLeaving.value = false
+    liveDigest.value = null
   }
 
   deps.lifecycle.subscribe((next) => {
-    const previous = snapshot.value
+    const previous = rawSnapshot.value
     const active = next.state === 'streaming' || next.state === 'reconnecting'
-    const wasActive = previous.state === 'streaming' || previous.state === 'reconnecting'
-    if (active && !wasActive) {
-      if (holding.value) {
-        // A new question arrived while the last reply was still typing itself out.
-        // Bring its persisted row back instead of leaving a hole in the transcript,
-        // and leave the pending row alone: it now stands in for the new question.
-        holding.value = false
-        const heldSession = session.value?.id
-        if (heldSession !== undefined) {
-          void loadMessages(heldSession)
-        }
-      }
-      resetRunClocks()
-      startedAt.value = next.state === 'streaming' ? clock() : null
-    }
+    // A run's clocks follow the conversation it was sent from; the sidebar refresh
+    // follows it anywhere, because the list reports every conversation's request.
+    const sameRun = previous.sessionId === next.sessionId
+    const wasActive =
+      sameRun && (previous.state === 'streaming' || previous.state === 'reconnecting')
+    const settled = !active && wasActive && isTerminalState(next.state)
     if (next.state === 'streaming' && previous.requestId === null && next.requestId !== null) {
       // The server now holds this conversation's request row, so the sidebar can pick
       // up the title it assigned and show that the conversation is running.
       deps.onSessionChanged?.()
     }
-    if (next.progress.length > progressTimes.value.length) {
-      const added = next.progress.length - progressTimes.value.length
-      progressTimes.value = [
-        ...progressTimes.value,
-        ...Array.from({ length: added }, () => clock()),
-      ]
-    }
-    if (next.state === 'reconnecting' && previous.state !== 'reconnecting') {
-      droppedAt.value = clock()
-    }
-    if (next.state === 'cancelled' && previous.state !== 'cancelled') {
-      endedAt.value = clock()
-    }
-    if (previous.state === 'reconnecting' && next.state === 'succeeded') {
-      reconnected.value = true
-      reconnectLeaving.value = false
-      // The banner collapses a beat before the reconnect is dropped, as the
-      // prototype's shut-then-clear step does. With reduced motion it vanishes
-      // whole at the end of the dwell instead.
-      const lead = prefersReducedMotion()
-        ? RECONNECTED_DWELL_MS
-        : RECONNECTED_DWELL_MS - RECONNECT_COLLAPSE_MS
-      const dwellSession = session.value?.id ?? null
-      deps.schedule(() => {
-        if ((session.value?.id ?? null) !== dwellSession) {
-          return
-        }
-        reconnectLeaving.value = true
-      }, lead)
-      deps.schedule(() => {
-        if ((session.value?.id ?? null) !== dwellSession) {
-          return
-        }
-        reconnectLeaving.value = false
-        reconnected.value = false
-      }, RECONNECTED_DWELL_MS)
-    }
-    if (active) {
-      reconnected.value = false
-      reconnectLeaving.value = false
-    }
-    // The backend persists its own terminal row; refresh so the digest reply lands.
-    if (!active && wasActive && isTerminalState(next.state)) {
+    if (settled) {
       // The settled run carries the new digest count and no active request.
       deps.onSessionChanged?.()
-      // A follow-up reply types itself out, and the server finishes sending it long
-      // before the reveal catches up, so the live reply keeps the slot until then.
-      const live = next.state === 'succeeded' ? toRunVm(runInput(next, true)) : null
-      if (live?.mode === 'followup') {
-        holding.value = true
-      } else {
-        settleRun()
+    }
+    if (ownsRun(next)) {
+      if (active && !wasActive) {
+        if (holding.value) {
+          // A new question arrived while the last reply was still typing itself out.
+          // Bring its persisted row back instead of leaving a hole in the transcript,
+          // and leave the pending row alone: it now stands in for the new question.
+          holding.value = false
+          const heldSession = session.value?.id
+          if (heldSession !== undefined) {
+            void loadMessages(heldSession)
+          }
+        }
+        resetRunClocks()
+        startedAt.value = next.state === 'streaming' ? clock() : null
+      }
+      if (next.digest !== null) {
+        // The `digest` event is the reply: show it now rather than waiting for `done`
+        // and the reload that follows it.
+        liveDigest.value = toDigestVm({
+          digest: next.digest.digest,
+          digestId: next.digest.digest_id,
+          warnings: next.digest.warnings,
+          connectorNames: session.value?.connector_names ?? null,
+        })
+      }
+      if (next.progress.length > progressTimes.value.length) {
+        const added = next.progress.length - progressTimes.value.length
+        progressTimes.value = [
+          ...progressTimes.value,
+          ...Array.from({ length: added }, () => clock()),
+        ]
+      }
+      if (next.state === 'reconnecting' && previous.state !== 'reconnecting') {
+        droppedAt.value = clock()
+      }
+      if (next.state === 'cancelled' && previous.state !== 'cancelled') {
+        endedAt.value = clock()
+      }
+      if (sameRun && previous.state === 'reconnecting' && next.state === 'succeeded') {
+        reconnected.value = true
+        reconnectLeaving.value = false
+        // The banner collapses a beat before the reconnect is dropped, as the
+        // prototype's shut-then-clear step does. With reduced motion it vanishes
+        // whole at the end of the dwell instead.
+        const lead = prefersReducedMotion()
+          ? RECONNECTED_DWELL_MS
+          : RECONNECTED_DWELL_MS - RECONNECT_COLLAPSE_MS
+        const dwellSession = session.value?.id ?? null
+        deps.schedule(() => {
+          if ((session.value?.id ?? null) !== dwellSession) {
+            return
+          }
+          reconnectLeaving.value = true
+        }, lead)
+        deps.schedule(() => {
+          if ((session.value?.id ?? null) !== dwellSession) {
+            return
+          }
+          reconnectLeaving.value = false
+          reconnected.value = false
+        }, RECONNECTED_DWELL_MS)
+      }
+      if (active) {
+        reconnected.value = false
+        reconnectLeaving.value = false
+      }
+      // The backend persists its own terminal row; refresh so the digest reply lands.
+      if (settled) {
+        // A follow-up reply types itself out, and the server finishes sending it long
+        // before the reveal catches up, so the live reply keeps the slot until then.
+        const live = next.state === 'succeeded' ? toRunVm(runInput(next, true)) : null
+        if (live?.mode === 'followup') {
+          holding.value = true
+        } else {
+          settleRun()
+        }
       }
     }
-    snapshot.value = next
+    rawSnapshot.value = next
   })
 
   /**
    * Take the row the backend persisted for the finished request, and stop standing
    * in for it with the pending question. Held back while a reveal is still running.
    */
-  function settleRun(): void {
+  async function settleRun(): Promise<void> {
     holding.value = false
     pendingUser.value = null
     const sessionId = session.value?.id
     if (sessionId !== undefined) {
-      void loadMessages(sessionId, { markFresh: true })
+      await loadMessages(sessionId, { markFresh: true })
     }
+    // The reloaded transcript carries the digest now, so the live copy stands down.
+    liveDigest.value = null
   }
 
   /** The live reply's reveal caught up, so the transcript can take the row over. */
@@ -264,19 +312,25 @@ export function createThreadController(deps: ThreadDeps) {
               warnings: [],
             },
           ]
-    if (cancelled.value !== null) {
-      return [...messages.value.filter((item) => item.kind !== 'cancelled'), ...pending]
-    }
-    const outcome = alert.value?.message ?? null
-    if (outcome === null) {
-      return [...messages.value, ...pending]
-    }
-    return [...messages.value.filter((item) => item.text !== outcome), ...pending]
+    const cancelledOutcome = cancelled.value !== null
+    const outcome = cancelledOutcome ? null : (alert.value?.message ?? null)
+    const digestRef = liveDigest.value?.ref ?? null
+    const rows = messages.value.filter((item) => {
+      if (cancelledOutcome && item.kind === 'cancelled') {
+        return false
+      }
+      if (outcome !== null && item.text === outcome) {
+        return false
+      }
+      return !(digestRef !== null && item.digest?.ref === digestRef)
+    })
+    return [...rows, ...pending]
   })
 
   /**
    * A failed run shows the safe message with Run again. `interrupted` arrives as a
-   * `failed` state, so the durable status picks the alert copy.
+   * `failed` state, so the durable status picks the alert copy. While the outcome is
+   * unknown the alert also offers to poll the request again.
    */
   const alert = computed<RequestStateVm | null>(() => {
     const current = snapshot.value
@@ -287,6 +341,7 @@ export function createThreadController(deps: ThreadDeps) {
       status: current.terminalStatus ?? 'failed',
       error_code: current.error?.code ?? null,
       error_message: current.error?.message ?? null,
+      canRetryPoll: current.terminalStatus === null && current.requestId !== null,
     })
   })
 
@@ -346,6 +401,9 @@ export function createThreadController(deps: ThreadDeps) {
     draft.value = ''
     pendingUser.value = null
     freshIds.value = []
+    // A digest that was streaming in the conversation being left behind belongs to
+    // it, not to this one.
+    liveDigest.value = null
     // A reply that was still typing out in the conversation being left behind is
     // gone with it; its transcript reloads from the server on its own.
     holding.value = false
@@ -378,6 +436,19 @@ export function createThreadController(deps: ThreadDeps) {
   }
 
   /**
+   * Poll the request once more after the attempts ran out. The server may still be
+   * running it, and the outcome is what ends the alert.
+   */
+  async function retryPoll(): Promise<void> {
+    const requestId = rawSnapshot.value.requestId
+    const sessionId = session.value?.id
+    if (requestId === null || sessionId === undefined) {
+      return
+    }
+    await deps.lifecycle.resume(sessionId, requestId)
+  }
+
+  /**
    * The message the user just sent. It stands in for the row the backend persists
    * until the terminal reload brings that row back with the reply.
    */
@@ -397,11 +468,13 @@ export function createThreadController(deps: ThreadDeps) {
     run,
     cancelled,
     alert,
+    liveDigest,
     lifecycle: deps.lifecycle,
     loadMessages,
     openSession,
     syncSession,
     runAgain,
+    retryPoll,
     markUserSent,
     revealFinished,
   }
