@@ -5,6 +5,7 @@ import type { PostMessageBody, SessionOut, SessionPatch } from '@/api/generated/
 import type { RequestLifecycle, RequestSnapshot } from '@/api/lifecycle'
 import { createComposerController, type ComposerDeps } from '@/stores/composer'
 import { COUNT_INVALID, PREFS_FAILED, TEXT_REQUIRED, parseSources } from '@/vm/composer'
+import type { SentSourcesInput } from '@/vm/session'
 
 const CATALOG = parseSources({
   defaults: ['juya'],
@@ -36,6 +37,7 @@ function idleSnapshot(): RequestSnapshot {
     state: 'idle',
     requestId: null,
     sessionId: null,
+    userMessageId: null,
     text: '',
     progress: [],
     digest: null,
@@ -57,7 +59,7 @@ interface Harness {
   applied: SessionOut[]
   cancelCount: { value: number }
   patchError: { value: string | null }
-  marked: string[]
+  marked: { text: string; sources: SentSourcesInput }[]
 }
 
 /** Composer controller wired to spies, so no HTTP layer is involved. */
@@ -70,7 +72,7 @@ function makeComposer(overrides: Partial<ComposerDeps> = {}): Harness {
   const applied: SessionOut[] = []
   const cancelCount = { value: 0 }
   const patchError = { value: null as string | null }
-  const marked: string[] = []
+  const marked: Harness['marked'] = []
   let ids = 0
 
   const lifecycle = {
@@ -110,8 +112,8 @@ function makeComposer(overrides: Partial<ComposerDeps> = {}): Harness {
       applied.push(next)
     },
     runAgain: () => {},
-    markUserSent: (text) => {
-      marked.push(text)
+    markUserSent: (text, sources) => {
+      marked.push({ text, sources })
     },
     newId: () => {
       ids += 1
@@ -181,13 +183,29 @@ describe('composer send', () => {
     expect(sends.map((item) => item.body.client_request_id)).toEqual(['req-1', 'req-2'])
   })
 
-  it('hands the sent text to the thread so its bubble shows at once', async () => {
+  it('hands the sent text and its sources to the thread so its bubble shows at once', async () => {
     const { controller, marked, draft } = await ready()
+    await controller.toggleSource('github')
     draft.value = '  What shipped this week?  '
 
     controller.send()
 
-    expect(marked).toEqual(['What shipped this week?'])
+    expect(marked).toEqual([
+      {
+        text: 'What shipped this week?',
+        sources: { names: ['juya', 'github'], perSource: 5 },
+      },
+    ])
+  })
+
+  it('counts a typed item count among the sent sources', async () => {
+    const { controller, marked, draft } = await ready()
+    await controller.commitCount('8')
+    draft.value = 'What shipped this week?'
+
+    controller.send()
+
+    expect(marked[0]?.sources).toEqual({ names: ['juya'], perSource: 8 })
   })
 })
 

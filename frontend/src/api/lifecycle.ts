@@ -39,6 +39,8 @@ export interface RequestSnapshot {
   requestId: string | null
   /** The conversation this run was sent from, so a thread can claim it. */
   sessionId: string | null
+  /** The row the backend persisted for the question, once the run has started. */
+  userMessageId: number | null
   text: string
   progress: ProgressPayload[]
   digest: DigestPayload | null
@@ -75,6 +77,7 @@ export function idleRequestSnapshot(): RequestSnapshot {
     state: 'idle',
     requestId: null,
     sessionId: null,
+    userMessageId: null,
     text: '',
     progress: [],
     digest: null,
@@ -156,7 +159,7 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
       }
       switch (event.event) {
         case 'started':
-          emit({ requestId: event.data.request_id })
+          emit({ requestId: event.data.request_id, userMessageId: event.data.user_message_id })
           break
         case 'progress':
           emit({ progress: [...snapshot.progress, event.data] })

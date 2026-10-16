@@ -67,7 +67,12 @@ export function toVmFromFixture(fixture: FixtureEntry): EntryVm {
     }
   }
   if (fixture.kind === 'juya') {
-    vm.juya = { topic: fixture.topic ?? null, originalUrl: url }
+    vm.juya = {
+      topic: fixture.topic ?? null,
+      originalUrl: url,
+      // Prototype fixtures carry a prototype rank and no bulletin number.
+      storyNumber: null,
+    }
   }
   return vm
 }

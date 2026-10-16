@@ -1,12 +1,49 @@
 import type { MessageOut, SessionOut } from '@/api/generated/types.gen'
-import { toDigestVm, toWarningVm } from '@/vm/digest'
+import { sourceKindOf, sourceLabel, toDigestVm, toWarningVm } from '@/vm/digest'
 import type { DigestVm, WarningVm } from '@/vm/digest'
 import { textOrNull } from '@/vm/entries'
+import type { EntryKind } from '@/vm/types'
 
 /** Exact assistant content the backend writes when a request is cancelled. */
 export const CANCELLED_ASSISTANT_MESSAGE = 'The request was cancelled.'
 
-export type MessageKind = 'user' | 'digest' | 'markdown' | 'cancelled'
+/** Exact assistant content the backend writes when the digest workflow fails. */
+export const WORKFLOW_FAILED_MESSAGE = 'Digest generation failed.'
+
+/** Exact assistant content the backend writes when the request itself fails. */
+export const REQUEST_FAILED_MESSAGE = 'Request failed.'
+
+/** The failure rows the backend persists, which load back as a danger alert. */
+const FAILED_ASSISTANT_MESSAGES = [WORKFLOW_FAILED_MESSAGE, REQUEST_FAILED_MESSAGE]
+
+/** What the composer knows about the question it is sending. */
+export interface SentSourcesInput {
+  names: string[]
+  perSource: number
+}
+
+/** The chip row under a question: one chip per source, plus the count chip. */
+export interface SentSourcesVm {
+  sources: { kind: EntryKind; label: string }[]
+  perSource: number
+}
+
+/**
+ * The source chips a question carries. Only messages the user sent during this page
+ * session have them, and unknown connector names are dropped rather than labelled.
+ */
+export function toSentSourcesVm(input: SentSourcesInput): SentSourcesVm {
+  const sources: SentSourcesVm['sources'] = []
+  for (const name of input.names) {
+    const kind = sourceKindOf(name)
+    if (kind !== null) {
+      sources.push({ kind, label: sourceLabel(kind) })
+    }
+  }
+  return { sources, perSource: input.perSource }
+}
+
+export type MessageKind = 'user' | 'digest' | 'markdown' | 'cancelled' | 'failed'
 
 export interface MessageVm {
   id: number
@@ -15,6 +52,10 @@ export interface MessageVm {
   text: string
   createdAt: string
   digest?: DigestVm
+  /** The alert a persisted failure carries; set only on a `failed` row. */
+  alert?: RequestStateVm
+  /** The sources a question was sent with, for messages sent in this page session. */
+  chips?: SentSourcesVm
   warnings: WarningVm[]
 }
 
@@ -183,6 +224,13 @@ export function toMessageVm(message: MessageOut): MessageVm {
   }
   if (message.content === CANCELLED_ASSISTANT_MESSAGE) {
     vm.kind = 'cancelled'
+    return vm
+  }
+  if (FAILED_ASSISTANT_MESSAGES.includes(message.content.trim())) {
+    // The backend persists the safe failure text as the run's assistant row, so the
+    // row the transcript carries is the same alert the live run showed.
+    vm.kind = 'failed'
+    vm.alert = { kind: 'failed', message: vm.text, canRunAgain: true }
     return vm
   }
   return vm

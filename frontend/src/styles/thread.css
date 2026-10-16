@@ -180,6 +180,39 @@
   justify-items: end;
 }
 
+.req-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 4px;
+  background: var(--active);
+  color: var(--fg);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.chip .logo {
+  width: 12px;
+  height: 12px;
+}
+
+.thread-more {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 10px;
+}
+
 .bubble {
   background: var(--surface);
   border: 1px solid var(--border);

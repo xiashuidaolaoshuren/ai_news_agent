@@ -46,6 +46,11 @@ export function sourceLabel(kind: SourceKind): string {
   return SOURCE_LABELS[kind]
 }
 
+/** Entry kind for a connector name, or null when the name is not a known source. */
+export function sourceKindOf(name: string): EntryKind | null {
+  return name in SOURCE_LABELS ? (name as EntryKind) : null
+}
+
 function juyaEyebrow(date: string | null | undefined): string {
   const day = textOrNull(date ?? null)
   return day === null ? 'AI 早报' : `AI 早报 · ${day}`
@@ -88,17 +93,19 @@ export function toJuyaIssuesVm(
   return [...groups.values()]
 }
 
-/** Entry with its Juya story presentation attached. */
+/**
+ * Entry with its Juya story presentation attached.
+ *
+ * `rank` stays the digest-wide `display_rank`: a bulletin number is local to its
+ * issue and can skip (#1, #2, #4), so it is kept beside the rank rather than in it.
+ */
 function toJuyaEntryVm(api: JuyaDigestEntryView): EntryVm {
   const vm = toVm(api)
-  // Bulletin numbers can skip, as the prototype archive does (#1, #2, #4).
   const storyNumber = api.story?.number
-  if (typeof storyNumber === 'number') {
-    vm.rank = storyNumber
-  }
   vm.juya = {
     topic: textOrNull(api.story?.section ?? null),
     originalUrl: safeHttpUrl(api.story?.original_url),
+    storyNumber: typeof storyNumber === 'number' ? storyNumber : null,
   }
   return vm
 }

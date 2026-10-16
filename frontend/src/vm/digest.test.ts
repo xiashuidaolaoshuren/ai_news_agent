@@ -142,13 +142,35 @@ describe('Juya issue grouping', () => {
     expect(group?.stories[0]?.juya).toEqual({
       topic: 'Headlines',
       originalUrl: 'https://example.com/1',
+      storyNumber: 1,
     })
     expect(group?.stories[1]?.juya).toEqual({
       topic: 'Model releases',
       originalUrl: 'https://example.com/4',
+      storyNumber: 4,
     })
-    expect(group?.stories.map((story) => story.rank)).toEqual([1, 4])
-    expect(sections[0]?.rangeEnd).toBe(4)
+    expect(group?.stories.map((story) => story.rank)).toEqual([1, 2])
+    expect(group?.stories.map((story) => story.juya?.storyNumber)).toEqual([1, 4])
+    expect(sections[0]?.rangeEnd).toBe(2)
+  })
+
+  it('keeps the digest display rank when the bulletin numbers differ', () => {
+    const sections = toSectionsVm([
+      juyaEntry('A', 6, { story: { number: 1, section: 'Headlines' } }),
+      juyaEntry('B', 7, { story: { number: 4, section: 'Model releases' } }),
+    ])
+
+    expect(sections[0]?.rangeStart).toBe(6)
+    expect(sections[0]?.rangeEnd).toBe(7)
+    expect(sections[0]?.entries.map((entry) => entry.rank)).toEqual([6, 7])
+    expect(sections[0]?.entries.map((entry) => entry.juya?.storyNumber)).toEqual([1, 4])
+  })
+
+  it('has no story number for a Juya entry that is not a story', () => {
+    const sections = toSectionsVm([juyaEntry('A', 1)])
+
+    expect(sections[0]?.entries[0]?.rank).toBe(1)
+    expect(sections[0]?.entries[0]?.juya?.storyNumber).toBeNull()
   })
 
   it('builds the eyebrow from the issue date with no issue number', () => {

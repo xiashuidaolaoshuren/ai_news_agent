@@ -76,6 +76,32 @@ describe('toMessageVm kinds', () => {
     expect(vm.text).toBe(CANCELLED_TEXT)
   })
 
+  it('marks the failure rows the backend persists for a failed run', () => {
+    for (const content of ['Digest generation failed.', 'Request failed.']) {
+      const vm = toMessageVm(
+        message({ id: 6, sequence: 6, role: 'assistant', content, run_id: 5 }),
+      )
+
+      expect(vm.kind).toBe('failed')
+      expect(vm.alert).toEqual({ kind: 'failed', message: content, canRunAgain: true })
+    }
+  })
+
+  it('leaves a reply that only mentions a failure as markdown', () => {
+    const vm = toMessageVm(
+      message({
+        id: 7,
+        sequence: 7,
+        role: 'assistant',
+        content: 'Digest generation failed. Here is what to try next.',
+        run_id: 5,
+      }),
+    )
+
+    expect(vm.kind).toBe('markdown')
+    expect(vm.alert).toBeUndefined()
+  })
+
   it('carries the persisted connector warnings on a digest reply', () => {
     const vm = toMessageVm(
       message({

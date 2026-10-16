@@ -32,6 +32,8 @@ export interface HfVm {
 export interface JuyaVm {
   topic: string | null
   originalUrl: string | null
+  /** The story's number in its bulletin, which is not its digest rank. */
+  storyNumber: number | null
 }
 
 export interface EntryVm {

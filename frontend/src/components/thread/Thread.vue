@@ -9,6 +9,8 @@ import HoverPreview from '@/components/thread/HoverPreview.vue'
 import InterruptedReply from '@/components/thread/InterruptedReply.vue'
 import MarkdownReply from '@/components/thread/MarkdownReply.vue'
 import RunCard from '@/components/thread/RunCard.vue'
+import SourceLogo from '@/components/thread/SourceLogo.vue'
+import AppIcon from '@/components/ui/AppIcon.vue'
 import { formatClock } from '@/components/thread/format'
 import { installHoverPreviewListeners } from '@/lib/useHoverPreview'
 import { prefersReducedMotion } from '@/lib/motion'
@@ -26,6 +28,9 @@ const props = defineProps<{
   alert?: RequestStateVm | null
   /** The digest a run has streamed and the backend has not persisted back yet. */
   liveDigest?: DigestVm | null
+  /** True while the transcript has a page before the oldest row on screen. */
+  canLoadOlder?: boolean
+  loadingOlder?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -34,6 +39,8 @@ const emit = defineEmits<{
   runAgain: []
   /** Poll the request again after the reconnect attempts ran out. */
   retryPoll: []
+  /** Ask for the page of messages before the oldest row on screen. */
+  loadOlder: []
   /** The live reply finished typing itself out; the transcript can take over. */
   revealDone: []
 }>()
@@ -128,6 +135,18 @@ onUnmounted(() => {
 <template>
   <div ref="thread" class="thread">
     <div class="thread-inner">
+      <div v-if="props.canLoadOlder" class="thread-more">
+        <button
+          type="button"
+          class="btn btn-sm btn-ghost"
+          data-od-id="load-older"
+          :disabled="props.loadingOlder === true"
+          @click="emit('loadOlder')"
+        >
+          <AppIcon name="load" :class="{ spin: props.loadingOlder === true }" />
+          Load earlier messages
+        </button>
+      </div>
       <EmptyConversation
         v-if="
           props.messages.length === 0 &&
@@ -146,6 +165,16 @@ onUnmounted(() => {
           data-od-id="user-message"
         >
           <div class="bubble">{{ message.text }}</div>
+          <div v-if="message.chips" class="req-meta">
+            <span
+              v-for="source in message.chips.sources"
+              :key="source.kind"
+              class="chip"
+            >
+              <SourceLogo :kind="source.kind" />{{ source.label }}
+            </span>
+            <span class="chip mono">{{ message.chips.perSource }}/source</span>
+          </div>
         </div>
 
         <div
@@ -169,6 +198,11 @@ onUnmounted(() => {
           <CancelledReply
             v-else-if="message.kind === 'cancelled'"
             :cancelled="PERSISTED_CANCELLED"
+            @run-again="emit('runAgain')"
+          />
+          <FailedReply
+            v-else-if="message.kind === 'failed' && message.alert"
+            :state="message.alert"
             @run-again="emit('runAgain')"
           />
           <MarkdownReply v-else :text="message.text" />

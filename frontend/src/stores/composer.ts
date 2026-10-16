@@ -26,6 +26,7 @@ import {
   type ComposerVm,
   type SourceOption,
 } from '@/vm/composer'
+import type { SentSourcesInput } from '@/vm/session'
 
 /** Server calls and shared state the composer needs, injected for tests. */
 export interface ComposerDeps {
@@ -37,7 +38,7 @@ export interface ComposerDeps {
   patchPrefs(sessionId: string, body: SessionPatch): Promise<SessionOut>
   applySession(next: SessionOut): void
   runAgain(): void
-  markUserSent(text: string): void
+  markUserSent(text: string, sources: SentSourcesInput): void
   newId(): string
 }
 
@@ -81,8 +82,8 @@ export function defaultComposerDeps(): ComposerDeps {
     runAgain: () => {
       thread.runAgain()
     },
-    markUserSent: (text) => {
-      thread.markUserSent(text)
+    markUserSent: (text, sources) => {
+      thread.markUserSent(text, sources)
     },
     newId: randomId,
   }
@@ -272,7 +273,10 @@ export function createComposerController(deps: ComposerDeps) {
     sendBlocked.value = false
     const content = draft.trim()
     deps.draft.value = ''
-    deps.markUserSent(content)
+    deps.markUserSent(content, {
+      names: [...selected.value],
+      perSource: Number(count.value),
+    })
     void deps.lifecycle
       .send(sessionId, {
         content,

@@ -28,9 +28,12 @@ export type {
 } from '@/vm/history'
 export {
   CANCELLED_ASSISTANT_MESSAGE,
+  REQUEST_FAILED_MESSAGE,
+  WORKFLOW_FAILED_MESSAGE,
   groupSessions,
   toMessageVm,
   toRequestStateVm,
+  toSentSourcesVm,
   toSessionVm,
 } from '@/vm/session'
 export type {
@@ -38,6 +41,8 @@ export type {
   MessageVm,
   RequestStateInput,
   RequestStateVm,
+  SentSourcesInput,
+  SentSourcesVm,
   SessionGroupVm,
   SessionVm,
 } from '@/vm/session'
@@ -46,6 +51,7 @@ export {
   toJuyaIssuesVm,
   toSectionsVm,
   toWarningVm,
+  sourceKindOf,
   sourceLabel,
 } from '@/vm/digest'
 export type {

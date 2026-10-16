@@ -15,7 +15,7 @@ import { setupApiClient } from '@/api/setupClient'
 import { prefersReducedMotion } from '@/lib/motion'
 import { useSessionsStore } from '@/stores/sessions'
 import { toDigestVm, type DigestVm } from '@/vm/digest'
-import { toMessageVm, toRequestStateVm, type MessageVm, type RequestStateVm } from '@/vm/session'
+import { toMessageVm, toRequestStateVm, toSentSourcesVm, type MessageVm, type RequestStateVm, type SentSourcesInput, type SentSourcesVm } from '@/vm/session'
 import {
   toCancelledVm,
   toRunVm,
@@ -34,9 +34,15 @@ const RECONNECT_COLLAPSE_MS = 340
 /** The id the transcript renders for the message the user just sent. */
 export const PENDING_MESSAGE_ID = -1
 
+/** One page of the transcript: the rows, and the cursor for the page before it. */
+export interface MessagePage {
+  messages: MessageOut[]
+  nextCursor: string | null
+}
+
 /** Server calls and ambient services the thread store needs, injected for tests. */
 export interface ThreadDeps {
-  loadMessages(sessionId: string): Promise<MessageOut[]>
+  loadMessages(sessionId: string, cursor?: string | null): Promise<MessagePage>
   lifecycle: RequestLifecycle
   now(): Date
   schedule(handler: () => void, ms: number): void
@@ -52,14 +58,15 @@ export function defaultThreadDeps(): ThreadDeps {
   setupApiClient()
   const sessions = useSessionsStore()
   return {
-    async loadMessages(sessionId: string): Promise<MessageOut[]> {
+    async loadMessages(sessionId: string, cursor?: string | null): Promise<MessagePage> {
       const result = await listMessagesApiV1SessionsSessionIdMessagesGet({
         path: { session_id: sessionId },
+        ...(cursor === undefined || cursor === null ? {} : { query: { cursor } }),
       })
       if (result.data === undefined) {
         throw new Error(`message list failed with status ${result.response?.status ?? 0}`)
       }
-      return result.data.messages
+      return { messages: result.data.messages, nextCursor: result.data.next_cursor ?? null }
     },
     lifecycle: createRequestLifecycle(defaultLifecycleDeps()),
     now: () => new Date(),
@@ -88,10 +95,13 @@ export function clockLabel(date: Date): string {
 export function createThreadController(deps: ThreadDeps) {
   const messages = ref<MessageVm[]>([])
   const loading = ref(false)
+  const loadingOlder = ref(false)
+  /** The cursor for the page before the oldest row on screen, or null at the start. */
+  const nextCursor = ref<string | null>(null)
   const loadError = ref<string | null>(null)
   const session = shallowRef<SessionOut | null>(null)
   const draft = ref('')
-  const pendingUser = ref<string | null>(null)
+  const pendingUser = ref<{ text: string; chips: SentSourcesVm } | null>(null)
   const freshIds = ref<number[]>([])
   const rawSnapshot = shallowRef<RequestSnapshot>(deps.lifecycle.state)
   const progressTimes = ref<string[]>([])
@@ -106,6 +116,13 @@ export function createThreadController(deps: ThreadDeps) {
    * event and the reload that brings the row the backend persisted for it.
    */
   const liveDigest = ref<DigestVm | null>(null)
+
+  /**
+   * The sources of every question sent during this page session, by the id the
+   * backend gave its row. Chips belong to those questions alone, so nothing that
+   * was loaded from the server on its own has them.
+   */
+  const sentSources = ref<Map<number, SentSourcesVm>>(new Map())
 
   const clock = () => clockLabel(deps.now())
 
@@ -173,6 +190,17 @@ export function createThreadController(deps: ThreadDeps) {
         }
         resetRunClocks()
         startedAt.value = next.state === 'streaming' ? clock() : null
+      }
+      if (
+        next.userMessageId !== null &&
+        next.userMessageId !== previous.userMessageId &&
+        pendingUser.value !== null
+      ) {
+        // The row the backend persisted for the question the user just sent keeps
+        // the chips of that send, even after the reload replaces the pending bubble.
+        const nextSources = new Map(sentSources.value)
+        nextSources.set(next.userMessageId, pendingUser.value.chips)
+        sentSources.value = nextSources
       }
       if (next.digest !== null) {
         // The `digest` event is the reply: show it now rather than waiting for `done`
@@ -307,15 +335,16 @@ export function createThreadController(deps: ThreadDeps) {
               id: PENDING_MESSAGE_ID,
               sequence: PENDING_MESSAGE_ID,
               kind: 'user' as const,
-              text: pendingUser.value,
+              text: pendingUser.value.text,
               createdAt: '',
+              chips: pendingUser.value.chips,
               warnings: [],
             },
           ]
     const cancelledOutcome = cancelled.value !== null
     const outcome = cancelledOutcome ? null : (alert.value?.message ?? null)
     const digestRef = liveDigest.value?.ref ?? null
-    const rows = messages.value.filter((item) => {
+    const rows = messages.value.map(withChips).filter((item) => {
       if (cancelledOutcome && item.kind === 'cancelled') {
         return false
       }
@@ -326,6 +355,15 @@ export function createThreadController(deps: ThreadDeps) {
     })
     return [...rows, ...pending]
   })
+
+  /** A question sent in this page session carries the sources it was sent with. */
+  function withChips(message: MessageVm): MessageVm {
+    if (message.kind !== 'user') {
+      return message
+    }
+    const chips = sentSources.value.get(message.id)
+    return chips === undefined ? message : { ...message, chips }
+  }
 
   /**
    * A failed run shows the safe message with Run again. `interrupted` arrives as a
@@ -362,14 +400,15 @@ export function createThreadController(deps: ThreadDeps) {
     loading.value = true
     loadError.value = null
     try {
-      const loaded = await deps.loadMessages(sessionId)
+      const page = await deps.loadMessages(sessionId)
       // The user may have opened another conversation while this was in flight.
       if ((session.value?.id ?? null) !== sessionId) {
         return
       }
-      const next = toMessages(loaded)
+      const next = toMessages(page.messages)
       const known = new Set(messages.value.map((message) => message.id))
       messages.value = next
+      nextCursor.value = page.nextCursor
       freshIds.value =
         options.markFresh === true
           ? next
@@ -383,6 +422,38 @@ export function createThreadController(deps: ThreadDeps) {
       }
     } finally {
       loading.value = false
+    }
+  }
+
+  /**
+   * Load the page before the oldest row on screen and put it in front. Rows the
+   * transcript already carries are dropped, since a page boundary can repeat one.
+   */
+  async function loadOlder(): Promise<void> {
+    const cursor = nextCursor.value
+    const sessionId = session.value?.id
+    if (cursor === null || sessionId === undefined || loadingOlder.value) {
+      return
+    }
+    loadingOlder.value = true
+    try {
+      const page = await deps.loadMessages(sessionId, cursor)
+      if ((session.value?.id ?? null) !== sessionId) {
+        return
+      }
+      nextCursor.value = page.nextCursor
+      const known = new Set(messages.value.map((message) => message.id))
+      const older = page.messages
+        .filter((message) => !known.has(message.id))
+        .map(toMessageVm)
+      messages.value = [...older, ...messages.value].sort((a, b) => a.sequence - b.sequence)
+    } catch (caught) {
+      if ((session.value?.id ?? null) === sessionId) {
+        loadError.value =
+          caught instanceof Error ? caught.message : 'Failed to load this conversation'
+      }
+    } finally {
+      loadingOlder.value = false
     }
   }
 
@@ -401,6 +472,7 @@ export function createThreadController(deps: ThreadDeps) {
     draft.value = ''
     pendingUser.value = null
     freshIds.value = []
+    nextCursor.value = null
     // A digest that was streaming in the conversation being left behind belongs to
     // it, not to this one.
     liveDigest.value = null
@@ -449,11 +521,12 @@ export function createThreadController(deps: ThreadDeps) {
   }
 
   /**
-   * The message the user just sent. It stands in for the row the backend persists
-   * until the terminal reload brings that row back with the reply.
+   * The message the user just sent, with the sources it goes out with. It stands in
+   * for the row the backend persists until the terminal reload brings that row back
+   * with the reply.
    */
-  function markUserSent(text: string): void {
-    pendingUser.value = text
+  function markUserSent(text: string, sources: SentSourcesInput): void {
+    pendingUser.value = { text, chips: toSentSourcesVm(sources) }
   }
 
   return {
@@ -461,6 +534,8 @@ export function createThreadController(deps: ThreadDeps) {
     visibleMessages,
     freshIds,
     loading,
+    loadingOlder,
+    nextCursor,
     loadError,
     session,
     draft,
@@ -471,6 +546,7 @@ export function createThreadController(deps: ThreadDeps) {
     liveDigest,
     lifecycle: deps.lifecycle,
     loadMessages,
+    loadOlder,
     openSession,
     syncSession,
     runAgain,

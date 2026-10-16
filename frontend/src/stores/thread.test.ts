@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { MessageOut, RequestOut, SessionOut } from '@/api/generated/types.gen'
 import { createRequestLifecycle, type LifecycleDeps } from '@/api/lifecycle'
 import type { SseEvent } from '@/api/sse'
-import { createThreadController, type ThreadDeps } from '@/stores/thread'
+import { createThreadController, PENDING_MESSAGE_ID, type MessagePage, type ThreadDeps } from '@/stores/thread'
 import { toMessageVm } from '@/vm/session'
 
 function deferred<T = void>() {
@@ -100,7 +100,10 @@ function at(hour: number, minute: number, second: number): Date {
 interface StoreOptions {
   post?: LifecycleDeps['post']
   getRequest?: LifecycleDeps['getRequest']
-  loadMessages?: ThreadDeps['loadMessages']
+  loadMessages?: (
+    sessionId: string,
+    cursor?: string | null,
+  ) => Promise<MessageOut[] | MessagePage>
   schedule?: ThreadDeps['schedule']
   now?: () => Date
   onSessionChanged?: ThreadDeps['onSessionChanged']
@@ -119,7 +122,13 @@ function makeStore(options: StoreOptions = {}) {
     backoffMs: [1],
   })
   const controller = createThreadController({
-    loadMessages: options.loadMessages ?? (async () => []),
+    // Most tests stub one page of rows; a page object carries a cursor as well. The
+    // stub is called with the cursor only when the store asked for one.
+    loadMessages: async (sessionId, cursor) => {
+      const load = options.loadMessages ?? (async () => [])
+      const page = await (cursor === undefined ? load(sessionId) : load(sessionId, cursor))
+      return Array.isArray(page) ? { messages: page, nextCursor: null } : page
+    },
     lifecycle,
     now: options.now ?? (() => at(20, 14, 1)),
     schedule: options.schedule ?? (() => undefined),
@@ -127,6 +136,9 @@ function makeStore(options: StoreOptions = {}) {
   })
   return { controller, lifecycle, reloads }
 }
+
+/** The sources a send carries, as the composer passes them to the thread. */
+const SENT_SOURCES = { names: ['juya', 'github'], perSource: 5 }
 
 describe('thread store session loading', () => {
   it('renders a loaded page in reading order and resumes an active request', async () => {
@@ -182,7 +194,7 @@ describe('thread store pending user message', () => {
     })
     await store.controller.openSession(sessionOut())
 
-    store.controller.markUserSent('What shipped this week?')
+    store.controller.markUserSent('What shipped this week?', SENT_SOURCES)
     const sending = store.lifecycle.send('s1', { content: 'What shipped this week?' })
     await waitFor(() => store.controller.run.value !== null)
 
@@ -201,7 +213,7 @@ describe('thread store pending user message', () => {
     const store = makeStore({ loadMessages: async () => [] })
     await store.controller.openSession(sessionOut())
 
-    store.controller.markUserSent('What shipped this week?')
+    store.controller.markUserSent('What shipped this week?', SENT_SOURCES)
     expect(store.controller.visibleMessages.value).toHaveLength(1)
 
     await store.controller.openSession(sessionOut({ id: 's2' }))
@@ -394,10 +406,30 @@ describe('thread store exhausted polling', () => {
   })
 })
 
+describe('thread store requested outcomes', () => {
+  it('shows the interrupted alert for a request that ended that way', async () => {
+    const store = makeStore({
+      loadMessages: async () => [],
+      getRequest: async () => requestOut({ status: 'interrupted' }),
+    })
+
+    await store.controller.openSession(sessionOut({ active_request_id: 'r1' }))
+
+    expect(store.controller.alert.value).toEqual({
+      kind: 'interrupted',
+      message: 'This request was interrupted by a restart',
+      canRunAgain: true,
+    })
+  })
+})
+
 describe('thread store session sync', () => {
   it('takes a refreshed record into the live run without reloading the transcript', async () => {
     const hold = deferred()
-    const loadMessages = vi.fn<ThreadDeps['loadMessages']>(async () => [])
+    const loadMessages = vi.fn<ThreadDeps['loadMessages']>(async () => ({
+      messages: [],
+      nextCursor: null,
+    }))
     const store = makeStore({
       loadMessages,
       post: async () =>
@@ -655,6 +687,176 @@ describe('thread store transcript refresh', () => {
   })
 })
 
+describe('thread store sent sources', () => {
+  it('chips the question, then the row the backend persisted for it', async () => {
+    const gate = deferred()
+    const store = makeStore({
+      loadMessages: async () => [
+        message({ id: 1, sequence: 1, content: 'What shipped this week?' }),
+      ],
+      post: async () =>
+        (async function* generate() {
+          yield started
+          await gate.promise
+          yield {
+            event: 'done',
+            data: { request_id: 'r1', message_id: 2, run_id: 9, path: 'digest' },
+          }
+        })(),
+    })
+    await store.controller.openSession(sessionOut())
+
+    store.controller.markUserSent('What shipped this week?', SENT_SOURCES)
+
+    const pending = store.controller.visibleMessages.value.find(
+      (item) => item.id === PENDING_MESSAGE_ID,
+    )
+    expect(pending?.chips).toEqual({
+      sources: [
+        { kind: 'juya', label: 'Juya' },
+        { kind: 'github', label: 'GitHub' },
+      ],
+      perSource: 5,
+    })
+
+    const sending = store.lifecycle.send('s1', { content: 'What shipped this week?' })
+    await waitFor(() => store.controller.snapshot.value.requestId === 'r1')
+    gate.resolve()
+    await sending
+    await waitFor(() => store.controller.visibleMessages.value.length === 1)
+
+    // The reloaded row is the same question, so it keeps the chips of the send.
+    expect(store.controller.visibleMessages.value[0]?.id).toBe(1)
+    expect(store.controller.visibleMessages.value[0]?.chips?.perSource).toBe(5)
+  })
+
+  it('leaves a question that was already in the transcript plain', async () => {
+    const store = makeStore({
+      loadMessages: async () => [
+        message({ id: 1, sequence: 1, content: 'Loaded from the server' }),
+      ],
+    })
+
+    await store.controller.openSession(sessionOut())
+
+    expect(store.controller.visibleMessages.value[0]?.chips).toBeUndefined()
+  })
+
+  it('keeps the chips when the conversation is opened again in this page session', async () => {
+    const store = makeStore({
+      loadMessages: async (sessionId) =>
+        sessionId === 's1' ? [message({ id: 1, sequence: 1, content: 'Asked here' })] : [],
+      post: async () =>
+        (async function* generate() {
+          yield started
+          yield {
+            event: 'done',
+            data: { request_id: 'r1', message_id: 2, run_id: 9, path: 'digest' },
+          }
+        })(),
+    })
+    await store.controller.openSession(sessionOut())
+    store.controller.markUserSent('Asked here', { names: ['juya'], perSource: 5 })
+    await store.lifecycle.send('s1', { content: 'Asked here' })
+
+    await store.controller.openSession(sessionOut({ id: 's2' }))
+    expect(store.controller.visibleMessages.value).toEqual([])
+
+    await store.controller.openSession(sessionOut())
+
+    expect(store.controller.visibleMessages.value[0]?.chips?.perSource).toBe(5)
+  })
+})
+
+describe('thread store older messages', () => {
+  it('keeps the cursor the loaded page carries', async () => {
+    const store = makeStore({
+      loadMessages: async () => ({ messages: [], nextCursor: 'older-1' }),
+    })
+
+    await store.controller.openSession(sessionOut())
+
+    expect(store.controller.nextCursor.value).toBe('older-1')
+  })
+
+  it('prepends the older page in reading order without repeating a row', async () => {
+    const asked: (string | null | undefined)[] = []
+    const store = makeStore({
+      loadMessages: async (_sessionId, cursor) => {
+        asked.push(cursor)
+        if (cursor === undefined || cursor === null) {
+          return {
+            messages: [
+              message({ id: 3, sequence: 3, role: 'assistant', content: 'Newest' }),
+              message({ id: 2, sequence: 2, content: 'Second' }),
+            ],
+            nextCursor: 'older-1',
+          }
+        }
+        return {
+          // The page boundary repeats the oldest row the first page carried.
+          messages: [
+            message({ id: 1, sequence: 1, content: 'First' }),
+            message({ id: 2, sequence: 2, content: 'Second' }),
+          ],
+          nextCursor: null,
+        }
+      },
+    })
+
+    await store.controller.openSession(sessionOut())
+    expect(store.controller.messages.value.map((item) => item.text)).toEqual([
+      'Second',
+      'Newest',
+    ])
+
+    await store.controller.loadOlder()
+
+    expect(asked).toEqual([undefined, 'older-1'])
+    expect(store.controller.messages.value.map((item) => item.text)).toEqual([
+      'First',
+      'Second',
+      'Newest',
+    ])
+    expect(store.controller.nextCursor.value).toBeNull()
+  })
+
+  it('asks for nothing once the transcript is complete', async () => {
+    const asked: (string | null | undefined)[] = []
+    const store = makeStore({
+      loadMessages: async (_sessionId, cursor) => {
+        asked.push(cursor)
+        return { messages: [], nextCursor: null }
+      },
+    })
+    await store.controller.openSession(sessionOut())
+
+    await store.controller.loadOlder()
+
+    expect(asked).toEqual([undefined])
+  })
+
+  it('drops the older page of a conversation that was left behind', async () => {
+    const gate = deferred<MessagePage>()
+    const store = makeStore({
+      loadMessages: async (_sessionId, cursor) => {
+        if (cursor === undefined || cursor === null) {
+          return { messages: [], nextCursor: 'older-1' }
+        }
+        return gate.promise
+      },
+    })
+    await store.controller.openSession(sessionOut())
+
+    const loading = store.controller.loadOlder()
+    await store.controller.openSession(sessionOut({ id: 's2' }))
+    gate.resolve({ messages: [message({ id: 9, sequence: 9, content: 'Older' })], nextCursor: null })
+    await loading
+
+    expect(store.controller.messages.value).toEqual([])
+  })
+})
+
 describe('thread store run again', () => {
   it('refills the draft from the last user message without sending', async () => {
     const store = makeStore({
@@ -793,7 +995,10 @@ describe('thread store streamed follow-up reply', () => {
   /** Run a follow-up through its stream and stop the moment it reaches the hold. */
   async function heldAfterFollowUp() {
     const gate = deferred()
-    const loadMessages = vi.fn<ThreadDeps['loadMessages']>(async () => [])
+    const loadMessages = vi.fn<ThreadDeps['loadMessages']>(async () => ({
+      messages: [],
+      nextCursor: null,
+    }))
     const store = makeStore({
       loadMessages,
       post: async () =>
@@ -808,7 +1013,7 @@ describe('thread store streamed follow-up reply', () => {
     await store.controller.openSession(sessionOut())
     loadMessages.mockClear()
 
-    store.controller.markUserSent('Why is it quantized?')
+    store.controller.markUserSent('Why is it quantized?', SENT_SOURCES)
     const sending = store.lifecycle.send('s1', { content: 'Why is it quantized?' })
     await waitFor(() => store.controller.run.value?.streamText === 'Alpha beta gamma delta')
 
@@ -845,7 +1050,10 @@ describe('thread store streamed follow-up reply', () => {
     const gate = deferred()
     const stalled = deferred()
     let calls = 0
-    const loadMessages = vi.fn<ThreadDeps['loadMessages']>(async () => [])
+    const loadMessages = vi.fn<ThreadDeps['loadMessages']>(async () => ({
+      messages: [],
+      nextCursor: null,
+    }))
     const store = makeStore({
       loadMessages,
       post: async () => {
@@ -866,7 +1074,7 @@ describe('thread store streamed follow-up reply', () => {
     })
 
     await store.controller.openSession(sessionOut())
-    store.controller.markUserSent('Why is it quantized?')
+    store.controller.markUserSent('Why is it quantized?', SENT_SOURCES)
     const first = store.lifecycle.send('s1', { content: 'Why is it quantized?' })
     await waitFor(() => store.controller.run.value?.streamText === 'Alpha beta gamma delta')
 
@@ -875,7 +1083,7 @@ describe('thread store streamed follow-up reply', () => {
     expect(store.controller.run.value?.ended).toBe(true)
 
     loadMessages.mockClear()
-    store.controller.markUserSent('One more thing')
+    store.controller.markUserSent('One more thing', SENT_SOURCES)
     void store.lifecycle.send('s1', { content: 'One more thing' })
     await waitFor(() => loadMessages.mock.calls.length > 0)
 
@@ -902,7 +1110,10 @@ describe('thread store streamed follow-up reply', () => {
 
 describe('thread store streamed digest reply', () => {
   it('hands the transcript over as soon as the run succeeds', async () => {
-    const loadMessages = vi.fn<ThreadDeps['loadMessages']>(async () => [])
+    const loadMessages = vi.fn<ThreadDeps['loadMessages']>(async () => ({
+      messages: [],
+      nextCursor: null,
+    }))
     const store = makeStore({
       loadMessages,
       post: async () =>
@@ -919,7 +1130,7 @@ describe('thread store streamed digest reply', () => {
     await store.controller.openSession(sessionOut())
     loadMessages.mockClear()
 
-    store.controller.markUserSent('Digest please')
+    store.controller.markUserSent('Digest please', SENT_SOURCES)
     await store.lifecycle.send('s1', { content: 'Digest please' })
     await waitFor(() => loadMessages.mock.calls.length > 0)
 

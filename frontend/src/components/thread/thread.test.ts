@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import Thread from '@/components/thread/Thread.vue'
 import type { DigestView, MessageOut } from '@/api/generated/types.gen'
-import { toDigestVm, toMessageVm } from '@/vm'
+import { toDigestVm, toMessageVm, toSentSourcesVm } from '@/vm'
 import { toRunVm } from '@/vm/run'
 
 const GITHUB_ENTRY = {
@@ -175,6 +175,92 @@ describe('Thread', () => {
     expect(wrapper.get('.live-slot .digest-reply .ref').text()).toBe('d15')
     expect(wrapper.find('[data-od-id="streaming-progress"]').exists()).toBe(false)
     expect(wrapper.find('.empty').exists()).toBe(false)
+  })
+
+  it('shows the source chips on a question sent in this page session', () => {
+    const wrapper = mount(Thread, {
+      props: {
+        messages: [
+          {
+            ...toMessageVm(
+              assistantMessage({
+                id: 1,
+                role: 'user',
+                content: 'What shipped this week?',
+                digest: null,
+                digest_id: null,
+                warnings: [],
+              }),
+            ),
+            chips: toSentSourcesVm({ names: ['juya', 'github'], perSource: 5 }),
+          },
+        ],
+      },
+    })
+
+    const chips = wrapper.get('.msg-user .req-meta')
+
+    expect(chips.text()).toContain('Juya')
+    expect(chips.text()).toContain('GitHub')
+    expect(chips.text()).toContain('5/source')
+  })
+
+  it('leaves a question with no chips alone', () => {
+    const wrapper = mount(Thread, {
+      props: {
+        messages: [
+          toMessageVm(
+            assistantMessage({
+              id: 1,
+              role: 'user',
+              content: 'What shipped this week?',
+              digest: null,
+              digest_id: null,
+              warnings: [],
+            }),
+          ),
+        ],
+      },
+    })
+
+    expect(wrapper.find('.msg-user .req-meta').exists()).toBe(false)
+  })
+
+  it('offers earlier messages while the transcript is paged', async () => {
+    const wrapper = mount(Thread, {
+      props: { messages: [], canLoadOlder: true },
+    })
+
+    await wrapper.get('[data-od-id="load-older"]').trigger('click')
+
+    expect(wrapper.emitted('loadOlder')).toHaveLength(1)
+  })
+
+  it('has no earlier-messages control for a complete transcript', () => {
+    const wrapper = mount(Thread, { props: { messages: [] } })
+
+    expect(wrapper.find('[data-od-id="load-older"]').exists()).toBe(false)
+  })
+
+  it('renders a persisted failure as the danger alert', () => {
+    const wrapper = mount(Thread, {
+      props: {
+        messages: [
+          toMessageVm(
+            assistantMessage({
+              content: 'Digest generation failed.',
+              digest: null,
+              digest_id: null,
+              warnings: [],
+            }),
+          ),
+        ],
+      },
+    })
+
+    expect(wrapper.get('[data-od-id="failed-reply"]').text()).toContain(
+      'Digest generation failed.',
+    )
   })
 
   it('offers to keep polling only while the outcome is still unknown', async () => {
