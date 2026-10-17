@@ -245,6 +245,40 @@ def _add_history_show_parser(sub: Any) -> argparse.ArgumentParser:
     return p
 
 
+def _add_demo_db_parser(sub: Any) -> argparse.ArgumentParser:
+    p = sub.add_parser(
+        "demo-db",
+        help="Write the prototype demo SQLite database",
+    )
+    p.add_argument(
+        "--db-path",
+        type=Path,
+        default=Path(".demo") / "prototype.sqlite",
+        help="SQLite path to create (default: .demo/prototype.sqlite)",
+    )
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace the database if it already exists",
+    )
+    return p
+
+
+def _run_demo_db_command(ns: argparse.Namespace, *, stdout: TextIO) -> int:
+    from ai_news_agent.dev.prototype_demo import write_prototype_demo
+
+    try:
+        write_prototype_demo(ns.db_path, force=ns.force)
+    except FileExistsError:
+        print(
+            f"demo database already exists: {ns.db_path} (pass --force to replace)",
+            file=sys.stderr,
+        )
+        return 2
+    stdout.write(f"wrote {ns.db_path}\n")
+    return 0
+
+
 def _add_service_parser(sub: Any) -> argparse.ArgumentParser:
     from ai_news_agent.app.digest_service import main as service_main
 
@@ -333,6 +367,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     _add_digest_parser(sub)
     _add_history_search_parser(sub)
     _add_history_show_parser(sub)
+    _add_demo_db_parser(sub)
     _add_service_parser(sub)
     _add_openclaw_digest_parser(sub)
     _add_openclaw_followup_parser(sub)
@@ -486,6 +521,9 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
 
     if ns.command == "history-show":
         return _run_history_show_command(ns, stdout=out)
+
+    if ns.command == "demo-db":
+        return _run_demo_db_command(ns, stdout=out)
 
     handler = getattr(ns, "_handler", None)
     if handler is None:

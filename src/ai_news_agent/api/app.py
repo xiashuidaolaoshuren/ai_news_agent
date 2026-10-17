@@ -96,6 +96,15 @@ def create_app(application: Application) -> FastAPI:
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Accept", "Content-Type"],
     )
+    @app.get("/")
+    def root() -> dict[str, str]:
+        return {
+            "service": "ai-news-agent",
+            "health": "/api/v1/health",
+            "docs": "/docs",
+            "app": "http://localhost:5173",
+        }
+
     app.include_router(meta.router, prefix="/api/v1")
     app.include_router(sessions.router, prefix="/api/v1")
     app.include_router(history.router, prefix="/api/v1")

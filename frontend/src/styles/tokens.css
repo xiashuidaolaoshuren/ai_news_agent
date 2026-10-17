@@ -1,0 +1,126 @@
+:root {
+  color-scheme: light;
+  --bg: oklch(98% 0.005 250);
+  --surface: oklch(100% 0 0);
+  --fg: oklch(22% 0.02 240);
+  --muted: oklch(50% 0.018 240);
+  --border: oklch(90% 0.008 240);
+  --accent: oklch(58% 0.16 145);
+  --font-display: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --accent-strong: oklch(47% 0.14 145);
+  --accent-hover: oklch(40% 0.13 145);
+  --on-accent: oklch(99% 0 0);
+  --hover: oklch(95.5% 0.007 240);
+  --active: oklch(93% 0.012 240);
+  --sunken: oklch(97% 0.006 240);
+  --border-strong: oklch(82% 0.012 240);
+  --input-hover: oklch(74% 0.015 240);
+  --warn-fg: oklch(43% 0.1 65);
+  --warn-bg: oklch(96.5% 0.04 85);
+  --warn-bd: oklch(85% 0.08 80);
+  --warn-ink: oklch(32% 0.08 65);
+  --warn-dot: oklch(70% 0.14 75);
+  --danger: oklch(50% 0.19 27);
+  --danger-hover: oklch(43% 0.17 27);
+  --on-danger: oklch(99% 0 0);
+  --danger-bg: oklch(96.5% 0.025 27);
+  --danger-bd: oklch(84% 0.07 27);
+  --danger-ink: oklch(34% 0.12 27);
+  --info: oklch(46% 0.14 255);
+  --info-bg: oklch(96.5% 0.022 255);
+  --info-bd: oklch(86% 0.05 255);
+  --info-ink: oklch(32% 0.1 255);
+  --ring: oklch(58% 0.15 255);
+  --composer-focus: oklch(70% 0.06 255);
+  --chk: oklch(95% 0.012 240);
+  --chk-hover: oklch(91% 0.015 240);
+  --chk-bd: oklch(62% 0.02 240);
+  --mono-bg: oklch(92% 0.03 250);
+  --mono-fg: oklch(36% 0.08 250);
+  --frost: oklch(100% 0 0 / 0.72);
+  --frost-side: oklch(97% 0.006 240 / 0.86);
+  --frost-panel: oklch(100% 0 0 / 0.86);
+  --scrim: oklch(22% 0.02 240 / 0.32);
+  --logo-invert: 0;
+  --shadow: 0 1px 2px oklch(22% 0.02 240 / 0.06), 0 4px 16px oklch(22% 0.02 240 / 0.06);
+  --shadow-lg: 0 12px 40px oklch(22% 0.02 240 / 0.18);
+  --d1: 120ms;
+  --d2: 200ms;
+  --d3: 320ms;
+  --stagger: 40ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: oklch(16.5% 0.01 250);
+  --surface: oklch(20.5% 0.012 250);
+  --fg: oklch(94% 0.006 250);
+  --muted: oklch(71% 0.014 250);
+  --border: oklch(29% 0.014 250);
+  --accent: oklch(74% 0.15 150);
+  --accent-strong: oklch(74% 0.15 150);
+  --accent-hover: oklch(82% 0.13 150);
+  --on-accent: oklch(18% 0.03 150);
+  --hover: oklch(25% 0.014 250);
+  --active: oklch(28.5% 0.016 250);
+  --sunken: oklch(18.5% 0.011 250);
+  --border-strong: oklch(38% 0.016 250);
+  --input-hover: oklch(48% 0.018 250);
+  --warn-fg: oklch(84% 0.12 82);
+  --warn-bg: oklch(26% 0.045 75);
+  --warn-bd: oklch(42% 0.07 75);
+  --warn-ink: oklch(90% 0.06 85);
+  --warn-dot: oklch(78% 0.13 80);
+  --danger: oklch(72% 0.15 25);
+  --danger-hover: oklch(80% 0.12 25);
+  --on-danger: oklch(18% 0.03 25);
+  --danger-bg: oklch(25% 0.05 25);
+  --danger-bd: oklch(42% 0.09 25);
+  --danger-ink: oklch(90% 0.05 25);
+  --info: oklch(77% 0.11 245);
+  --info-bg: oklch(25% 0.045 250);
+  --info-bd: oklch(38% 0.07 250);
+  --info-ink: oklch(88% 0.05 245);
+  --ring: oklch(72% 0.13 250);
+  --composer-focus: oklch(52% 0.08 250);
+  --chk: oklch(30% 0.02 250);
+  --chk-hover: oklch(34% 0.022 250);
+  --chk-bd: oklch(60% 0.02 250);
+  --mono-bg: oklch(32% 0.04 250);
+  --mono-fg: oklch(86% 0.05 250);
+  --frost: oklch(20.5% 0.012 250 / 0.74);
+  --frost-side: oklch(18.5% 0.011 250 / 0.88);
+  --frost-panel: oklch(20.5% 0.012 250 / 0.88);
+  --scrim: oklch(8% 0.01 250 / 0.55);
+  --logo-invert: 1;
+  --shadow: 0 1px 2px oklch(0% 0 0 / 0.3), 0 4px 16px oklch(0% 0 0 / 0.25);
+  --shadow-lg: 0 12px 40px oklch(0% 0 0 / 0.5);
+}
+
+.theme-snap,
+.theme-snap *,
+.theme-snap *::before,
+.theme-snap *::after {
+  transition: none !important;
+}
+
+html.vt-theme::view-transition-group(root) {
+  animation: none;
+}
+
+html.vt-theme::view-transition-old(root),
+html.vt-theme::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+html.vt-shrink::view-transition-old(root) {
+  z-index: 2;
+}
+
+html.vt-shrink::view-transition-new(root) {
+  z-index: 1;
+}

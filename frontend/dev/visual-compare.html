@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Thread visual compare</title>
+    <script>
+      ;(function () {
+        var theme
+        try {
+          theme = localStorage.getItem('anra-theme')
+        } catch (e) {}
+        if (!theme) {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        }
+        document.documentElement.dataset.theme = theme
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <style>
+      /*
+       * Review-only chrome for the prototype state strip. Colours are the
+       * prototype's own review colours, not product tokens, because the strip is
+       * not part of the app.
+       */
+      .compare {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background: var(--bg);
+      }
+
+      /* Review-only stand-in for the app's `.chat`, so the dock is positioned. */
+      .stage {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: row;
+        overflow: hidden;
+      }
+
+      .stage-main {
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .stage-main > :last-child {
+        flex: none;
+      }
+
+      /* The history panel in its production width, as the app's own column. */
+      .panel {
+        flex: none;
+        width: 372px;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--surface);
+        border-left: 1px solid var(--border);
+        overflow: hidden;
+      }
+
+      .proto {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 12px;
+        background: oklch(24% 0.02 240);
+        color: oklch(92% 0.01 240);
+        overflow-x: auto;
+        scrollbar-width: none;
+        border-bottom: 1px solid oklch(32% 0.02 240);
+        flex: none;
+      }
+
+      .proto-label {
+        font: 500 11px/1 var(--font-mono);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: oklch(72% 0.015 240);
+        margin-right: 6px;
+        white-space: nowrap;
+      }
+
+      .proto button {
+        height: 26px;
+        padding: 0 10px;
+        border-radius: 5px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: oklch(86% 0.01 240);
+        font-size: 12.5px;
+        white-space: nowrap;
+      }
+
+      .proto button:hover {
+        background: oklch(32% 0.02 240);
+        color: oklch(97% 0 0);
+      }
+
+      .proto button[aria-pressed='true'] {
+        background: oklch(96% 0.005 240);
+        color: oklch(22% 0.02 240);
+      }
+
+      .proto button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+    </style>
+    <script type="module" src="./visual-compare.ts"></script>
+  </body></html>

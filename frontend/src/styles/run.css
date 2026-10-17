@@ -1,0 +1,172 @@
+/*
+ * Run card, segmented bar, and streaming reply chrome, ported from the approved
+ * prototype. This file carries the layout, the gradient border surface, and the
+ * state colors; the motion (sheen, segrun, segdone, stripes, shimmer, blink)
+ * lives in `motion.css`.
+ */
+
+@property --ang {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.run,
+.md.streaming {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    conic-gradient(from var(--ang), var(--border) 0 62%, var(--info) 80%, var(--border) 96%)
+      border-box;
+}
+
+.run {
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.run-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.run-head .ic {
+  color: var(--info);
+}
+
+.run-head .muted {
+  font-weight: 400;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.segbar {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 3px;
+}
+
+.segbar span {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--active);
+  overflow: hidden;
+}
+
+.segbar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  background: var(--info);
+}
+
+.segbar .s-run i {
+  width: 72%;
+}
+
+.segbar .s-done i {
+  width: 100%;
+  background: var(--accent-strong);
+}
+
+.segbar .s-warn i {
+  width: 100%;
+  background: var(--warn-dot);
+}
+
+.segbar.paused .s-run i {
+  background: repeating-linear-gradient(-45deg, var(--info) 0 6px, var(--info-bd) 6px 12px);
+  background-size: 17px 100%;
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 20px 16px 110px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 5px 0;
+  border-top: 1px dashed var(--border);
+}
+
+.steps li:first-child {
+  border-top: 0;
+}
+
+.steps .st {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.st-done > .ic {
+  color: var(--accent-strong);
+}
+
+.st-run > .ic {
+  color: var(--info);
+}
+
+.st-queued > .ic {
+  color: var(--border-strong);
+}
+
+.st-warn > .ic {
+  color: var(--warn-dot);
+}
+
+.writing {
+  display: grid;
+  gap: 7px;
+  padding-top: 4px;
+}
+
+.writing .line {
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--active), var(--hover), var(--active));
+  background-size: 200% 100%;
+}
+
+.caret {
+  display: inline-block;
+  width: 7px;
+  height: 15px;
+  background: var(--fg);
+  vertical-align: -2px;
+  margin-left: 2px;
+}
+
+.stream-text {
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.rc-wrap {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+@media (max-width: 560px) {
+  .steps li {
+    grid-template-columns: 20px 16px minmax(0, 1fr) auto;
+  }
+
+  .steps li > .mono {
+    display: none;
+  }
+}
