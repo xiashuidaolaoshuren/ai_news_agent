@@ -72,6 +72,7 @@ export function toVmFromFixture(fixture: FixtureEntry): EntryVm {
       originalUrl: url,
       // Prototype fixtures carry a prototype rank and no bulletin number.
       storyNumber: null,
+      background: null,
     }
   }
   return vm

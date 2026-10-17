@@ -17,6 +17,11 @@ _STORY_HEADING_RE = re.compile(
 _OVERVIEW_SECTIONS = frozenset({"概览", "overview"})
 _STORY_EVIDENCE_MAX = 2000
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)")
+_IMAGE_RE = re.compile(r"!\[[^\]]*\]\((?:https?://[^)\s]+)\)")
+_IMAGE_URL_RE = re.compile(r"\.(?:png|jpe?g|gif|webp|svg)(?:\?|#|$)", re.IGNORECASE)
+_RELATED_LINKS_HEADING = "相关链接"
+_SEPARATOR_RE = re.compile(r"^(?:-{3,}|\*{3,}|_{3,})$")
+_LEAD_NAVIGATION_MAX = 6
 
 
 @dataclass(frozen=True)
@@ -84,6 +89,8 @@ def build_juya_story_evidence(
     evidence["story_number"] = story.number
     if story.section:
         evidence["story_section"] = story.section
+    if story.summary:
+        evidence["story_summary"] = story.summary
     if story.original_url:
         evidence["story_original_url"] = story.original_url
     evidence["story_identity"] = f"{issue_id}:{story.number}"
@@ -92,6 +99,26 @@ def build_juya_story_evidence(
 
 def story_source_id(issue_id: str, story_number: int) -> str:
     return f"juya-story-{issue_id}-{story_number}"
+
+
+def split_linked_title(title: str) -> tuple[str, str | None]:
+    """Return a plain headline and its article URL when the title is a link."""
+    return _split_heading_title(title)
+
+
+def is_image_url(url: str | None) -> bool:
+    """True when a URL points at an image asset rather than an article."""
+    return bool(url) and _IMAGE_URL_RE.search(str(url)) is not None
+
+
+def clean_lead_title(value: str | None) -> str | None:
+    """Plain issue lead text, or ``None`` for promo, navigation and images."""
+    text = (value or "").strip()
+    if not text:
+        return None
+    if _is_navigation_line(text):
+        return None
+    return _clean_inline_text(text) or None
 
 
 def story_anchor(story_number: int) -> str:
@@ -138,11 +165,24 @@ def _extract_lead_title(lines: list[str]) -> str | None:
             continue
         if stripped.startswith("!["):
             continue
+        if _is_navigation_line(stripped):
+            continue
         if stripped.startswith("##"):
             break
         parts.append(stripped)
     lead = " ".join(parts).strip()
     return lead or None
+
+
+def _is_navigation_line(line: str) -> bool:
+    """True for separators, images, and link-only promo or navigation lines."""
+    if _SEPARATOR_RE.fullmatch(line) or _IMAGE_RE.fullmatch(line):
+        return True
+    if not _MARKDOWN_LINK_RE.search(line):
+        return False
+    without_links = _MARKDOWN_LINK_RE.sub("", line)
+    plain = re.sub(r"[*_`>#|｜·\-—–\s]", "", without_links)
+    return len(plain) < _LEAD_NAVIGATION_MAX
 
 
 def _extract_stories(lines: list[str]) -> list[JuyaParsedStory]:
@@ -171,7 +211,7 @@ def _extract_stories(lines: list[str]) -> list[JuyaParsedStory]:
             index += 1
             continue
 
-        title = heading_match.group(1).strip()
+        title, heading_url = _split_heading_title(heading_match.group(1))
         number_raw = heading_match.group(2) or heading_match.group(3)
         if not number_raw:
             index += 1
@@ -192,7 +232,7 @@ def _extract_stories(lines: list[str]) -> list[JuyaParsedStory]:
 
         body_text = "\n".join(body_lines).strip()
         summary = _extract_blockquote_summary(body_text)
-        original_url = _first_external_link(body_text)
+        original_url = heading_url or _first_external_link(body_text)
         evidence_text = _bounded_story_evidence(body_text)
         stories.append(
             JuyaParsedStory(
@@ -213,16 +253,49 @@ def _extract_blockquote_summary(body_text: str) -> str | None:
     for line in body_text.splitlines():
         stripped = line.strip()
         if stripped.startswith(">"):
-            summary = stripped.lstrip(">").strip()
+            summary = _clean_inline_text(stripped.lstrip(">"))
             return summary or None
     return None
 
 
+def _clean_inline_text(text: str) -> str:
+    """Plain inline text: links keep their label, images and emphasis drop out."""
+    cleaned = _IMAGE_RE.sub("", text)
+    cleaned = _MARKDOWN_LINK_RE.sub(r"\1", cleaned)
+    cleaned = re.sub(r"[*_`]+", "", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _split_heading_title(heading: str) -> tuple[str, str | None]:
+    """Split a linked heading into plain text and its article URL."""
+    text = heading.strip()
+    match = _MARKDOWN_LINK_RE.fullmatch(text)
+    if match is not None:
+        return match.group(1).strip(), match.group(2).strip()
+    return _MARKDOWN_LINK_RE.sub(r"\1", text).strip(), None
+
+
 def _first_external_link(body_text: str) -> str | None:
-    for match in _MARKDOWN_LINK_RE.finditer(body_text):
+    """Return an article URL, preferring the 相关链接 block and never an image."""
+    text = _IMAGE_RE.sub("", body_text)
+    related = _related_links_text(text)
+    for match in _MARKDOWN_LINK_RE.finditer(related if related is not None else text):
         url = match.group(2).strip()
-        if url.startswith(("http://", "https://")):
-            return url
+        if not url.startswith(("http://", "https://")):
+            continue
+        if _IMAGE_URL_RE.search(url):
+            continue
+        return url
+    return None
+
+
+def _related_links_text(body_text: str) -> str | None:
+    """Lines after a 相关链接 heading, or ``None`` when absent or link-free."""
+    lines = body_text.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().startswith(_RELATED_LINKS_HEADING):
+            block = "\n".join(lines[index + 1 :])
+            return block if _MARKDOWN_LINK_RE.search(block) else None
     return None
 
 
@@ -232,9 +305,17 @@ def _bounded_story_evidence(body_text: str) -> str:
         stripped = line.strip()
         if not stripped:
             continue
+        if _SEPARATOR_RE.fullmatch(stripped):
+            continue
+        if _IMAGE_RE.fullmatch(stripped):
+            continue
+        stripped = _IMAGE_RE.sub("", stripped)
         if stripped.startswith(">"):
             stripped = stripped.lstrip(">").strip()
         stripped = _MARKDOWN_LINK_RE.sub(r"\1", stripped)
+        stripped = stripped.strip()
+        if not stripped:
+            continue
         parts.append(stripped)
     plain = re.sub(r"\s+", " ", " ".join(parts)).strip()
     return plain[:_STORY_EVIDENCE_MAX]

@@ -145,7 +145,12 @@ describe('DigestReply', () => {
 
   it('shows the story topic and the original link on a Juya story row', () => {    const story = juyaEntry({
       rank: 1,
-      juya: { topic: 'Headlines', originalUrl: 'https://original.test/story-1', storyNumber: 1 },
+      juya: {
+        topic: 'Headlines',
+        originalUrl: 'https://original.test/story-1',
+        storyNumber: 1,
+        background: null,
+      },
     })
     const wrapper = mount(DigestReply, {
       props: {

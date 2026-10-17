@@ -22,6 +22,13 @@ from ai_news_agent.history_interface import (
 from ai_news_agent.history_search import search_digest_history, show_historical_item
 from ai_news_agent.rendering import format_connector_warnings_notice
 from ai_news_agent.request import DigestRequest
+from ai_news_agent.services.conversation import (
+    ConversationContext,
+    ConversationDecision,
+    interpret_message,
+    request_metadata,
+    request_payload,
+)
 from ai_news_agent.services.session_records import SessionRequestRecord
 from ai_news_agent.services.session_service import (
     CANCELLED_ASSISTANT_MESSAGE,
@@ -51,12 +58,57 @@ _WORKFLOW_ERROR_CODE = "workflow_error"
 _WORKFLOW_ERROR_MESSAGE = "Digest generation failed."
 _REQUEST_FAILED_CODE = "request_failed"
 _REQUEST_FAILED_MESSAGE = "Request failed."
+_CLARIFY_FALLBACK = (
+    "Tell me whether you want recent signals on that topic or a general explanation."
+)
+_GENERAL_FALLBACK = (
+    "I can answer general questions once a language model is configured. "
+    "For collected signals, ask for a digest, for example: “Give me today's AI digest”."
+)
+
+
+def _interpretation_payload(decision: ConversationDecision) -> dict[str, Any]:
+    payload: dict[str, Any] = {"intent": decision.intent}
+    if decision.intent == "digest" and decision.request is not None:
+        payload["request"] = request_payload(decision.request)
+        payload["public"] = request_metadata(decision.request)
+    if decision.intent == "clarify" and decision.pending:
+        payload["pending"] = decision.pending
+    return payload
+
+
+def _apply_session_defaults(
+    request: DigestRequest,
+    *,
+    session: Any | None,
+    juya_item_mode: str | None,
+) -> DigestRequest:
+    updates: dict[str, Any] = {}
+    if request.items_per_source is None and session is not None:
+        stored_count = getattr(session, "items_per_source", None)
+        if stored_count is not None:
+            updates["items_per_source"] = int(stored_count)
+    sources = list(request.connector_names or [])
+    if request.juya_item_mode is None:
+        if juya_item_mode is not None:
+            updates["juya_item_mode"] = juya_item_mode
+        if "juya" in sources and request.topics_are_filters:
+            updates["juya_item_mode"] = "stories"
+    if "items_per_source" in updates:
+        updates["max_items_per_source"] = max(
+            request.max_items_per_source, int(updates["items_per_source"])
+        )
+    return replace(request, **updates) if updates else request
 
 
 @dataclass(frozen=True)
 class StartedEvent:
     request_id: str
     user_message_id: int
+    #: Public resolved-request metadata when this message starts a digest.
+    request: dict[str, Any] | None = None
+    #: The interpreted intent: digest, followup, general, or clarify.
+    intent: str | None = None
 
 
 @dataclass(frozen=True)
@@ -124,6 +176,7 @@ class ChatService:
         tool_agent_runner: Any | None = None,
         interface_router: Any | None = None,
         session_service: SessionService | None = None,
+        conversation_model: Any | None = None,
     ) -> None:
         self._store = store
         self._workflow_runner = workflow_runner
@@ -132,6 +185,7 @@ class ChatService:
         self._tool_agent_runner = tool_agent_runner
         self._interface_router = interface_router
         self._session_service = session_service
+        self._conversation_model = conversation_model
 
     def handle_message(
         self,
@@ -358,14 +412,13 @@ class ChatService:
                 yield event
             return
 
-        yield StartedEvent(
-            request_id=record.id,
-            user_message_id=record.user_message_id,
-        )
-
         history_cmd = parse_history_chat_message(message)
         try:
             if history_cmd is not None:
+                yield StartedEvent(
+                    request_id=record.id,
+                    user_message_id=record.user_message_id,
+                )
                 async for event in self._stream_session_text_events(
                     session_id=session_id,
                     record=record,
@@ -377,12 +430,57 @@ class ChatService:
                     yield event
                 return
 
-            if _message_requests_digest(message):
+            decision = await self._resolve_conversation_decision(session_id, message)
+            interpretation = _interpretation_payload(decision)
+            self._session_service.set_request_interpretation(
+                session_id,
+                record.id,
+                interpretation,
+            )
+            yield StartedEvent(
+                request_id=record.id,
+                user_message_id=record.user_message_id,
+                request=interpretation.get("public") or None,
+                intent=decision.intent,
+            )
+
+            if decision.intent == "digest" and decision.request is not None:
+                request = _apply_session_defaults(
+                    decision.request,
+                    session=self._session_service.get_session(session_id),
+                    juya_item_mode=juya_item_mode,
+                )
                 async for event in self._stream_session_digest_events(
                     session_id=session_id,
                     record=record,
-                    message=message,
-                    juya_item_mode=juya_item_mode,
+                    request=request,
+                    chunk_size=chunk_size,
+                    chunk_delay_s=chunk_delay_s,
+                ):
+                    yield event
+                return
+
+            if decision.intent == "general":
+                text = await self._answer_general_question(
+                    decision.question or message
+                )
+                async for event in self._stream_session_text_events(
+                    session_id=session_id,
+                    record=record,
+                    text=text,
+                    path="general",
+                    chunk_size=chunk_size,
+                    chunk_delay_s=chunk_delay_s,
+                ):
+                    yield event
+                return
+
+            if decision.intent == "clarify":
+                async for event in self._stream_session_text_events(
+                    session_id=session_id,
+                    record=record,
+                    text=decision.clarification or _CLARIFY_FALLBACK,
+                    path="clarify",
                     chunk_size=chunk_size,
                     chunk_delay_s=chunk_delay_s,
                 ):
@@ -405,22 +503,47 @@ class ChatService:
             ):
                 yield event
 
+    async def _resolve_conversation_decision(
+        self,
+        session_id: str,
+        message: str,
+    ) -> ConversationDecision:
+        assert self._session_service is not None
+        ctx = self._store.get_followup_context_for_session(session_id)
+        session = self._session_service.get_session(session_id)
+        context = ConversationContext(
+            has_digest=ctx.run_id is not None or ctx.digest is not None,
+            pending=self._session_service.pending_clarification(session_id),
+            last_request=self._session_service.last_digest_request(session_id),
+            connector_names=session.connector_names if session is not None else None,
+        )
+        return await asyncio.to_thread(
+            interpret_message,
+            message,
+            context=context,
+            model=self._conversation_model,
+        )
+
+    async def _answer_general_question(self, question: str) -> str:
+        answer = getattr(self._conversation_model, "generate_general_answer", None)
+        if answer is not None and callable(answer):
+            try:
+                return str(await asyncio.to_thread(answer, question=question))
+            except Exception:  # noqa: BLE001 - a model failure gets guidance
+                logger.exception("general answer failed")
+        return _GENERAL_FALLBACK
+
     async def _stream_session_digest_events(
         self,
         *,
         session_id: str,
         record: SessionRequestRecord,
-        message: str,
-        juya_item_mode: str | None = None,
+        request: DigestRequest,
         chunk_size: int,
         chunk_delay_s: float,
     ) -> AsyncIterator[ChatEvent]:
         assert self._session_service is not None
-        req = self._session_service.build_request(
-            session_id,
-            message,
-            juya_item_mode=juya_item_mode,
-        )
+        req = request
         runner = self._iter_streaming_runner(
             req,
             session_id=session_id,
@@ -678,6 +801,8 @@ class ChatService:
         yield StartedEvent(
             request_id=record.id,
             user_message_id=record.user_message_id,
+            request=(record.interpretation or {}).get("public") or None,
+            intent=(record.interpretation or {}).get("intent"),
         )
         assert self._session_service is not None
         text = ""

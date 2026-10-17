@@ -503,6 +503,120 @@ def test_build_digest_view_juya_story_entry() -> None:
     assert juya_view.story.original_url == "https://www.deepseek.com"
 
 
+def test_build_digest_view_recovers_saved_juya_story_text_and_metadata() -> None:
+    from ai_news_agent.api.schemas.digests import JuyaDigestEntryView, build_digest_view
+
+    entry = DigestEntry(
+        source_kind=SourceKind.JUYA,
+        source_id="juya-story-issue-2",
+        title="[有关部门拟增列AI技术](https://example.com/export-control)",
+        source_name="Juya",
+        source_url="https://daily.juya.uk/issues/2026-10-17/#story-1",
+        summary=(
+            "Wait — I must output only the JSON object. "
+            '<｜end▁of▁thinking｜>{"summary": "有关部门公开征求意见，拟增列 23 项 AI 技术。",'
+            ' "why_it_matters": "出口规则直接影响模型出海。", "background_knowledge": "目录定期修订。"}'
+        ),
+        why_it_matters="",
+        background_knowledge="",
+        follow_up_action=FollowUpAction.READ,
+    )
+    digest = Digest(generated_at=_fixture_dt(), entries=[entry])
+    news_items = [
+        NewsItem(
+            source=SourceKind.JUYA,
+            source_id=entry.source_id,
+            url=entry.source_url,
+            title=entry.title,
+            source_evidence={
+                "juya_item_type": "story",
+                "issue_id": "issue-2026-10-17",
+                "issue_date": "2026-10-17",
+                "issue_url": "https://daily.juya.uk/issues/2026-10-17",
+                "issue_lead_title": (
+                    "**视频版**：[哔哩哔哩](https://www.bilibili.com/video/BV15pJY6KE32)"
+                    " ｜ [YouTube](https://www.youtube.com/watch?v=6VXBmYc0Dc8)"
+                ),
+                "story_number": 1,
+                "story_section": "要闻",
+                "story_original_url": "https://assets.juya.uk/imagehub/m001.png",
+            },
+        )
+    ]
+
+    view = build_digest_view(digest, news_items=news_items)
+    juya_view = view.entries[0]
+
+    assert isinstance(juya_view, JuyaDigestEntryView)
+    assert juya_view.title == "有关部门拟增列AI技术"
+    assert juya_view.summary == "有关部门公开征求意见，拟增列 23 项 AI 技术。"
+    assert juya_view.why_it_matters == "出口规则直接影响模型出海。"
+    assert juya_view.background_knowledge == "目录定期修订。"
+    assert juya_view.issue is not None
+    assert juya_view.issue.lead_title is None
+    assert juya_view.story is not None
+    assert juya_view.story.original_url == "https://example.com/export-control"
+
+
+def test_build_digest_view_falls_back_to_headline_when_saved_summary_unusable() -> None:
+    from ai_news_agent.api.schemas.digests import build_digest_view
+
+    entry = DigestEntry(
+        source_kind=SourceKind.JUYA,
+        source_id="juya-story-issue-3",
+        title="DeepSeek 新增搜索 API",
+        source_name="Juya",
+        source_url="https://daily.juya.uk/issues/2026-10-17/#story-2",
+        summary='{"summary": "截断的摘要',
+        why_it_matters="",
+        background_knowledge="",
+        follow_up_action=FollowUpAction.READ,
+    )
+    digest = Digest(generated_at=_fixture_dt(), entries=[entry])
+
+    view = build_digest_view(digest, news_items=[])
+    juya_view = view.entries[0]
+
+    assert juya_view.summary == ""
+    assert juya_view.confidence_caveat == "原摘要无法恢复，仅显示标题。"
+
+
+def test_build_digest_view_rejects_image_original_url() -> None:
+    from ai_news_agent.api.schemas.digests import build_digest_view
+
+    entry = DigestEntry(
+        source_kind=SourceKind.JUYA,
+        source_id="juya-story-issue-4",
+        title="Plain headline",
+        source_name="Juya",
+        source_url="https://daily.juya.uk/issues/2026-10-17/#story-3",
+        summary="Plain summary.",
+        why_it_matters="Why.",
+        background_knowledge="",
+        follow_up_action=FollowUpAction.READ,
+    )
+    digest = Digest(generated_at=_fixture_dt(), entries=[entry])
+    news_items = [
+        NewsItem(
+            source=SourceKind.JUYA,
+            source_id=entry.source_id,
+            url=entry.source_url,
+            title=entry.title,
+            source_evidence={
+                "juya_item_type": "story",
+                "issue_id": "issue-2026-10-17",
+                "story_number": 3,
+                "story_original_url": "https://assets.juya.uk/imagehub/m001.png",
+            },
+        )
+    ]
+
+    juya_view = build_digest_view(digest, news_items=news_items).entries[0]
+
+    assert juya_view.story is not None
+    assert juya_view.story.original_url is None
+
+
 def test_build_digest_view_huggingface_entry_without_matching_news_item() -> None:
     from ai_news_agent.api.schemas.digests import HuggingFaceDigestEntryView, build_digest_view
 

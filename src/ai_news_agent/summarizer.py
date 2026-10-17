@@ -28,6 +28,7 @@ def summarize_ranked_items(
     model: Any | None = None,
     output_style: str | None = None,
     output_language: str | None = None,
+    audience: str | None = None,
 ) -> Digest:
     """Build a digest from selected ranked rows using ``model.generate_entry_fields``."""
     ts = generated_at if generated_at is not None else utcnow()
@@ -64,6 +65,7 @@ def summarize_ranked_items(
             timeframe,
             output_style=output_style,
             output_language=output_language,
+            audience=audience,
         )
         raw = model.generate_entry_fields(ctx)
         entries.append(_build_digest_entry(r.item, raw))
@@ -78,13 +80,18 @@ def _context_payload(
     *,
     output_style: str | None = None,
     output_language: str | None = None,
+    audience: str | None = None,
 ) -> dict[str, Any]:
     it = ranked.item
+    evidence = dict(it.source_evidence)
+    juya_story = it.source is SourceKind.JUYA and bool(evidence.get("story_number"))
     payload = {
         "digest_topics": topics,
         "digest_timeframe": timeframe,
         "output_style": output_style or "",
-        "output_language": output_language or "",
+        "output_language": output_language or ("zh-CN" if juya_story else ""),
+        "audience": audience or "",
+        "juya_story": juya_story,
         "rank_score_total": ranked.score_total,
         "rank_selection_reason": ranked.selection_reason,
         "score_breakdown": dict(ranked.score_breakdown),
@@ -102,8 +109,11 @@ def _context_payload(
         "topic_matches": list(it.topic_matches),
         "content_confidence": it.content_confidence.value if it.content_confidence else "",
         "tags": list(it.tags),
-        "source_evidence": dict(it.source_evidence),
+        "source_evidence": evidence,
     }
+    story_summary = evidence.get("story_summary")
+    if isinstance(story_summary, str) and story_summary.strip():
+        payload["story_summary"] = story_summary.strip()
     return payload
 
 

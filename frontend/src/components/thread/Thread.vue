@@ -246,7 +246,9 @@ onUnmounted(() => {
             >
               <SourceLogo :kind="source.kind" />{{ source.label }}
             </span>
-            <span class="chip mono">{{ message.chips.perSource }}/source</span>
+            <span v-if="message.chips.perSource !== null" class="chip mono">{{
+              message.chips.perSource
+            }}/source</span>
           </div>
         </div>
 

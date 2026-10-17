@@ -1,4 +1,4 @@
-import type { MessageOut, SessionOut } from '@/api/generated/types.gen'
+import type { MessageOut, ResolvedRequestOut, SessionOut } from '@/api/generated/types.gen'
 import { sourceKindOf, sourceLabel, toDigestVm, toWarningVm } from '@/vm/digest'
 import type { DigestVm, WarningVm } from '@/vm/digest'
 import { textOrNull } from '@/vm/entries'
@@ -25,7 +25,7 @@ export interface SentSourcesInput {
 /** The chip row under a question: one chip per source, plus the count chip. */
 export interface SentSourcesVm {
   sources: { kind: EntryKind; label: string }[]
-  perSource: number
+  perSource: number | null
 }
 
 /**
@@ -41,6 +41,18 @@ export function toSentSourcesVm(input: SentSourcesInput): SentSourcesVm {
     }
   }
   return { sources, perSource: input.perSource }
+}
+
+/** The chips a saved question carries, from what its digest run actually used. */
+export function toResolvedSourcesVm(request: ResolvedRequestOut): SentSourcesVm {
+  const sources: SentSourcesVm['sources'] = []
+  for (const name of request.sources ?? []) {
+    const kind = sourceKindOf(name)
+    if (kind !== null) {
+      sources.push({ kind, label: sourceLabel(kind) })
+    }
+  }
+  return { sources, perSource: request.per_source ?? null }
 }
 
 export type MessageKind = 'user' | 'digest' | 'markdown' | 'cancelled' | 'failed'
@@ -210,6 +222,9 @@ export function toMessageVm(message: MessageOut): MessageVm {
   }
   if (message.role === 'user') {
     vm.kind = 'user'
+    if (message.request) {
+      vm.chips = toResolvedSourcesVm(message.request)
+    }
     return vm
   }
   if (message.digest !== null && message.digest !== undefined) {

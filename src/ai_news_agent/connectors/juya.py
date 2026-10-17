@@ -21,6 +21,7 @@ from ai_news_agent.juya_content import (
     story_source_id,
 )
 from ai_news_agent.models import ConfidenceLevel, ConnectorWarning, NewsItem, SourceKind
+from ai_news_agent.ranking import within_timeframe
 
 JUYA_OWNER = "jujuyaya"
 JUYA_REPO = "juya-ai-daily"
@@ -180,6 +181,10 @@ class JuyaConnector:
             collected_at=now,
             connector_name=self.name(),
             juya_item_mode=request.juya_item_mode or "issue",
+            timeframe=request.timeframe,
+            topics=list(request.topics or []),
+            topics_are_filters=request.topics_are_filters,
+            strict_timeframe=request.strict_timeframe,
         )
         return ConnectorResult(items=items, warnings=warnings, raw_count=raw_count)
 
@@ -191,6 +196,10 @@ async def fetch_juya_daily_items(
     collected_at: datetime,
     connector_name: str = "juya",
     juya_item_mode: str = "issue",
+    timeframe: str | None = None,
+    topics: list[str] | None = None,
+    topics_are_filters: bool = False,
+    strict_timeframe: bool = False,
 ) -> tuple[list[NewsItem], int, list[ConnectorWarning]]:
     warnings: list[ConnectorWarning] = []
     bounded = max(1, min(max_items, JUYA_RSS_MAX_ENTRIES))
@@ -255,15 +264,82 @@ async def fetch_juya_daily_items(
         )
         return [], 0, warnings
 
+    rows, scope_warnings = _scope_rows_to_request(
+        rows,
+        timeframe=timeframe,
+        strict_timeframe=strict_timeframe,
+        now=collected_at,
+        connector_name=connector_name,
+    )
+    warnings.extend(scope_warnings)
+    if not rows:
+        return [], 0, warnings
+
     enriched, enrich_warnings = await enrich_juya_items_with_markdown(
         client,
         rows,
         connector_name=connector_name,
         juya_item_mode=juya_item_mode,
         max_items=max_items,
+        topics=topics,
+        topics_are_filters=topics_are_filters,
     )
     warnings.extend(enrich_warnings)
     return enriched, len(enriched), warnings
+
+
+def _scope_rows_to_request(
+    rows: list[_ParsedJuyaRssRow],
+    *,
+    timeframe: str | None,
+    strict_timeframe: bool,
+    now: datetime,
+    connector_name: str,
+) -> tuple[list[_ParsedJuyaRssRow], list[ConnectorWarning]]:
+    """Pick the newest issue for "latest" and drop undated/older rows for dated asks."""
+    warnings: list[ConnectorWarning] = []
+    dated = [row for row in rows if row.item.published_at is not None]
+    if timeframe == "latest":
+        if not dated:
+            warnings.append(
+                ConnectorWarning(
+                    connector=connector_name,
+                    code="juya_issue_date_unavailable",
+                    message="Juya issues carried no date; showing the first feed entry",
+                )
+            )
+            return rows[:1], warnings
+        newest = max(dated, key=lambda row: row.item.published_at or now)
+        return [newest], warnings
+    if strict_timeframe and timeframe:
+        kept = [
+            row
+            for row in rows
+            if row.item.published_at is not None
+            and within_timeframe(row.item, timeframe, now)
+        ]
+        if not kept:
+            warnings.append(
+                ConnectorWarning(
+                    connector=connector_name,
+                    code="juya_no_recent_issues",
+                    message=f"No Juya issues were published within {timeframe}",
+                )
+            )
+        dropped = len(rows) - len(kept)
+        if kept and dropped:
+            warnings.append(
+                ConnectorWarning(
+                    connector=connector_name,
+                    code="juya_feed_window_limited",
+                    message=(
+                        f"Juya's recent feed covered only {len(kept)} in-window "
+                        f"issue(s); {dropped} older issue(s) were excluded"
+                    ),
+                )
+            )
+        return kept, warnings
+    return rows, warnings
 
 
 async def enrich_juya_items_with_markdown(
@@ -273,6 +349,8 @@ async def enrich_juya_items_with_markdown(
     connector_name: str = "juya",
     juya_item_mode: str = "issue",
     max_items: int | None = None,
+    topics: list[str] | None = None,
+    topics_are_filters: bool = False,
 ) -> tuple[list[NewsItem], list[ConnectorWarning]]:
     """Prefer per-issue markdown; fall back to RSS content:encoded."""
     warnings: list[ConnectorWarning] = []
@@ -308,6 +386,9 @@ async def enrich_juya_items_with_markdown(
                 raw_snippet_fallback=cleaned,
                 connector_name=connector_name,
                 story_cap=story_cap,
+                topics=topics,
+                topics_are_filters=topics_are_filters,
+                warn_on_empty=False,
             )
             if story_items:
                 enriched.extend(story_items)
@@ -323,6 +404,9 @@ async def enrich_juya_items_with_markdown(
                         message=f"Story mode unavailable for {item.title!r}",
                     )
                 )
+                continue
+            if topics_are_filters:
+                warnings.extend(story_warnings)
                 continue
 
         if not cleaned:
@@ -357,7 +441,80 @@ async def enrich_juya_items_with_markdown(
                 }
             )
         )
+    if topics_are_filters and topics:
+        focused = [entry for entry in enriched if _matches_topics(entry, topics)]
+        if not focused:
+            warnings.append(
+                ConnectorWarning(
+                    connector=connector_name,
+                    code="juya_no_topic_matches",
+                    message=(
+                        "No Juya story in the recent feed mentioned "
+                        + ", ".join(topics)
+                    ),
+                )
+            )
+        enriched = focused
     return enriched, warnings
+
+
+def _matches_topics(item: NewsItem, topics: list[str]) -> bool:
+    evidence = item.source_evidence or {}
+    haystack = " ".join(
+        [
+            item.title,
+            item.raw_snippet or "",
+            str(evidence.get("issue_lead_title") or ""),
+            str(evidence.get("story_summary") or ""),
+        ]
+    )
+    return any(_text_matches_topic(haystack, topic) for topic in topics if topic.strip())
+
+
+#: Common AI vocabulary bridged across English requests and Chinese bulletin text.
+_TOPIC_ALIASES: dict[str, tuple[str, ...]] = {
+    "model": ("\u6a21\u578b",),
+    "models": ("\u6a21\u578b",),
+    "open": ("\u5f00\u6e90", "\u5f00\u653e"),
+    "weight": ("\u6743\u91cd",),
+    "weights": ("\u6743\u91cd",),
+    "open-weight": ("\u5f00\u6e90", "\u5f00\u653e\u6743\u91cd"),
+    "open-weights": ("\u5f00\u6e90", "\u5f00\u653e\u6743\u91cd"),
+    "open-source": ("\u5f00\u6e90",),
+    "agent": ("\u667a\u80fd\u4f53", "agent"),
+    "agents": ("\u667a\u80fd\u4f53", "agent"),
+    "tool": ("\u5de5\u5177",),
+    "tooling": ("\u5de5\u5177",),
+    "release": ("\u53d1\u5e03", "\u4e0a\u7ebf"),
+    "released": ("\u53d1\u5e03", "\u4e0a\u7ebf"),
+    "launch": ("\u53d1\u5e03", "\u4e0a\u7ebf"),
+    "video": ("\u89c6\u9891",),
+}
+_TOPIC_STOPWORDS = frozenset({"the", "a", "an", "of", "for", "in", "on", "and", "to"})
+
+
+def _text_matches_topic(text: str, topic: str) -> bool:
+    haystack = text.casefold()
+    token_groups: list[tuple[str, ...]] = []
+    for token in re.split(r"[\s\-]+", topic.casefold()):
+        if not token or token in _TOPIC_STOPWORDS:
+            continue
+        aliases = _TOPIC_ALIASES.get(token) or _TOPIC_ALIASES.get(token.rstrip("s"))
+        token_groups.append(aliases or (token,))
+    if not token_groups:
+        return False
+    return all(any(alt.casefold() in haystack for alt in group) for group in token_groups)
+
+
+def _story_matches_topics(story, topics: list[str]) -> bool:
+    haystack = " ".join(
+        [
+            str(getattr(story, "title", "") or ""),
+            str(getattr(story, "summary", "") or ""),
+            str(getattr(story, "evidence_text", "") or ""),
+        ]
+    )
+    return any(_text_matches_topic(haystack, topic) for topic in topics if topic.strip())
 
 
 def _collect_story_items_from_parsed_issue(
@@ -367,12 +524,28 @@ def _collect_story_items_from_parsed_issue(
     raw_snippet_fallback: str,
     connector_name: str,
     story_cap: int | None,
+    topics: list[str] | None = None,
+    topics_are_filters: bool = False,
+    warn_on_empty: bool = True,
 ) -> tuple[list[NewsItem], list[ConnectorWarning]]:
     if parsed_issue is None or not parsed_issue.stories:
         return [], []
 
     warnings: list[ConnectorWarning] = []
     stories = list(parsed_issue.stories)
+    if topics_are_filters and topics:
+        stories = [story for story in stories if _story_matches_topics(story, topics)]
+        if not stories and warn_on_empty:
+            warnings.append(
+                ConnectorWarning(
+                    connector=connector_name,
+                    code="juya_no_topic_matches",
+                    message=(
+                        "No story in the selected Juya issue mentioned "
+                        + ", ".join(topics)
+                    ),
+                )
+            )
     if story_cap is not None:
         stories = stories[: max(0, story_cap)]
 

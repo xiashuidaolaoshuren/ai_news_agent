@@ -2,6 +2,7 @@ import type {
   DigestView,
   GitHubDigestEntryView,
   HuggingFaceDigestEntryView,
+  JuyaDigestEntryView,
   PublisherOwnerView,
 } from '@/api/generated/types.gen'
 import type { AvatarVm, EntryKind, EntryVm, HfVm } from '@/vm/types'
@@ -178,6 +179,27 @@ export function toVm(api: ApiDigestEntry): EntryVm {
   }
   if (kind === 'huggingface') {
     vm.hf = huggingFaceVm(api as HuggingFaceDigestEntryView)
+  }
+  return vm
+}
+
+/**
+ * Entry with any kind-specific presentation attached.
+ *
+ * `rank` stays the digest-wide `display_rank`: a Juya bulletin number is local
+ * to its issue and can skip (#1, #2, #4), so it is kept beside the rank.
+ */
+export function toEntryVm(api: ApiDigestEntry): EntryVm {
+  const vm = toVm(api)
+  if (vm.kind === 'juya') {
+    const juya = api as JuyaDigestEntryView
+    const storyNumber = juya.story?.number
+    vm.juya = {
+      topic: textOrNull(juya.story?.section ?? null),
+      originalUrl: safeHttpUrl(juya.story?.original_url),
+      storyNumber: typeof storyNumber === 'number' ? storyNumber : null,
+      background: textOrNull(juya.background_knowledge),
+    }
   }
   return vm
 }

@@ -256,4 +256,5 @@ def _build_chat_service(
         tool_agent_runner=tool_agent_runner,
         interface_router=interface_router,
         session_service=session_service,
+        conversation_model=None if fake else model,
     )

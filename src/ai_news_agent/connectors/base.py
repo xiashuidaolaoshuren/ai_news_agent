@@ -37,6 +37,10 @@ class ConnectorRequest:
     huggingface_pipeline_tag: str | None = None
     #: Juya collection mode: ``issue`` (default) or ``stories``.
     juya_item_mode: str | None = None
+    #: Browser focus request: connectors drop items unrelated to ``topics``.
+    topics_are_filters: bool = False
+    #: Browser dated request: items outside ``timeframe`` are ineligible.
+    strict_timeframe: bool = False
 
 
 @dataclass

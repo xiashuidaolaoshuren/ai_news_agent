@@ -275,3 +275,47 @@ describe('groupSessions', () => {
     expect(groupSessions([], NOW)).toEqual([])
   })
 })
+
+describe('resolved request chips', () => {
+  it('restores the sources and count a saved digest request actually used', () => {
+    const vm = toMessageVm(
+      message({
+        request: {
+          sources: ['github', 'juya'],
+          per_source: 5,
+          timeframe: 'this_week',
+          topics: ['agents'],
+          language: null,
+          audience: null,
+        },
+      }),
+    )
+
+    expect(vm.chips?.sources.map((s) => s.kind)).toEqual(['github', 'juya'])
+    expect(vm.chips?.perSource).toBe(5)
+  })
+
+  it('shows no count chip when the request had no per-source limit', () => {
+    const vm = toMessageVm(
+      message({
+        request: {
+          sources: ['juya'],
+          per_source: null,
+          timeframe: 'latest',
+          topics: [],
+          language: 'zh-CN',
+          audience: 'beginner',
+        },
+      }),
+    )
+
+    expect(vm.chips?.sources.map((s) => s.kind)).toEqual(['juya'])
+    expect(vm.chips?.perSource).toBeNull()
+  })
+
+  it('leaves a clarification or general answer without chips', () => {
+    const vm = toMessageVm(message({ request: null }))
+
+    expect(vm.chips).toBeUndefined()
+  })
+})

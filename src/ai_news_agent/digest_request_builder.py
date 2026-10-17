@@ -54,6 +54,7 @@ def _parsed_has_digest_fields(parsed: DigestRequest) -> bool:
     return (
         parsed.has_explicit_selectors()
         or parsed.timeframe is not None
+        or parsed.output_language is not None
         or parsed.huggingface_discovery_mode is not None
         or parsed.huggingface_search is not None
         or parsed.huggingface_pipeline_tag is not None

@@ -149,13 +149,113 @@ def _seed_v1_database(db_path: Path) -> int:
         con.close()
 
 
+def _seed_v2_database(db_path: Path) -> None:
+    con = sqlite3.connect(db_path)
+    try:
+        con.executescript(
+            """
+            CREATE TABLE schema_meta (
+              key TEXT PRIMARY KEY NOT NULL,
+              value TEXT NOT NULL
+            );
+            CREATE TABLE sessions (
+              id TEXT PRIMARY KEY NOT NULL,
+              title TEXT,
+              connector_names TEXT,
+              items_per_source INTEGER,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE TABLE runs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              requested_at TEXT NOT NULL,
+              timeframe TEXT,
+              request_topics_json TEXT NOT NULL,
+              connector_names_json TEXT NOT NULL,
+              session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL
+            );
+            CREATE TABLE session_messages (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+              sequence INTEGER NOT NULL,
+              role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+              content TEXT NOT NULL,
+              run_id INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+              created_at TEXT NOT NULL,
+              UNIQUE (session_id, sequence)
+            );
+            CREATE TABLE session_requests (
+              id TEXT NOT NULL,
+              session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+              status TEXT NOT NULL CHECK (
+                status IN ('active', 'succeeded', 'failed', 'cancelled', 'interrupted')
+              ),
+              user_message_id INTEGER NOT NULL REFERENCES session_messages(id) ON DELETE RESTRICT,
+              assistant_message_id INTEGER REFERENCES session_messages(id) ON DELETE RESTRICT,
+              run_id INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+              correlation_id TEXT NOT NULL,
+              error_code TEXT,
+              error_message TEXT,
+              started_at TEXT NOT NULL,
+              completed_at TEXT,
+              PRIMARY KEY (session_id, id)
+            );
+            INSERT INTO schema_meta (key, value) VALUES ('schema_version', '2');
+            INSERT INTO sessions (id, created_at, updated_at)
+              VALUES ('kept-session', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00');
+            INSERT INTO session_messages (session_id, sequence, role, content, created_at)
+              VALUES ('kept-session', 0, 'user', 'hello', '2026-01-01T00:00:00+00:00');
+            INSERT INTO session_requests (
+              id, session_id, status, user_message_id, correlation_id, started_at
+            ) VALUES ('kept-request', 'kept-session', 'active', 1, 'corr', '2026-01-01T00:00:00+00:00');
+            """
+        )
+    finally:
+        con.close()
+
+
+def test_fresh_init_schema_is_v3_with_request_interpretation(tmp_path: Path) -> None:
+    db_path = tmp_path / "fresh.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+
+    assert SCHEMA_VERSION == "3"
+    assert _stored_schema_version(db_path) == "3"
+    assert "interpretation_json" in _column_names(db_path, "session_requests")
+
+
+def test_v2_database_gains_interpretation_column_and_keeps_rows(tmp_path: Path) -> None:
+    db_path = tmp_path / "v2.db"
+    _seed_v2_database(db_path)
+
+    store = DigestStore(db_path)
+    store.init_schema()
+
+    assert _stored_schema_version(db_path) == "3"
+    assert "interpretation_json" in _column_names(db_path, "session_requests")
+
+    con = sqlite3.connect(db_path)
+    try:
+        row = con.execute(
+            "SELECT id, interpretation_json FROM session_requests"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "kept-request"
+        assert row[1] is None
+    finally:
+        con.close()
+
+    store.init_schema()
+    assert _stored_schema_version(db_path) == "3"
+
+
 def test_fresh_init_schema_is_v2_with_session_tables_and_no_backup(tmp_path: Path) -> None:
     db_path = tmp_path / "fresh.db"
     store = DigestStore(db_path)
     store.init_schema()
 
-    assert SCHEMA_VERSION == "2"
-    assert _stored_schema_version(db_path) == "2"
+    assert SCHEMA_VERSION == "3"
+    assert _stored_schema_version(db_path) == "3"
 
     names = _table_names(db_path)
     assert "sessions" in names
@@ -172,7 +272,7 @@ def test_v1_database_migrates_in_place_preserving_rows(tmp_path: Path) -> None:
     store = DigestStore(db_path)
     store.init_schema()
 
-    assert _stored_schema_version(db_path) == "2"
+    assert _stored_schema_version(db_path) == "3"
     names = _table_names(db_path)
     assert "sessions" in names
     assert "session_messages" in names
@@ -191,7 +291,7 @@ def test_v1_database_migrates_in_place_preserving_rows(tmp_path: Path) -> None:
         con.close()
 
     store.init_schema()
-    assert _stored_schema_version(db_path) == "2"
+    assert _stored_schema_version(db_path) == "3"
 
 
 def test_v1_upgrade_creates_sibling_backup_once(tmp_path: Path) -> None:
@@ -205,7 +305,7 @@ def test_v1_upgrade_creates_sibling_backup_once(tmp_path: Path) -> None:
     assert backup.exists()
     assert _stored_schema_version(backup) == "1"
     assert "sessions" not in _table_names(backup)
-    assert _stored_schema_version(db_path) == "2"
+    assert _stored_schema_version(db_path) == "3"
 
     store.init_schema()
     assert backup.exists()

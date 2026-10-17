@@ -20,6 +20,7 @@ from ai_news_agent.api.schemas.sessions import (
     MessageOut,
     PostMessageBody,
     RequestOut,
+    ResolvedRequestOut,
     SessionListPage,
     SessionOut,
     SessionPatch,
@@ -166,6 +167,10 @@ def _chat_event_payload(event: ChatEvent, digest_store: DigestStore) -> tuple[st
         return "started", StartedPayload(
             request_id=event.request_id,
             user_message_id=event.user_message_id,
+            request=(
+                ResolvedRequestOut(**event.request) if event.request else None
+            ),
+            intent=event.intent,
         ).model_dump(mode="json")
     if isinstance(event, ProgressEvent):
         parsed = parse_connector_progress(event.stage)
@@ -258,7 +263,11 @@ async def shielded_event_stream(
         await pump_task
 
 
-def _message_out(message: MessageRecord, digest_store: DigestStore) -> MessageOut:
+def _message_out(
+    message: MessageRecord,
+    digest_store: DigestStore,
+    request: dict[str, Any] | None = None,
+) -> MessageOut:
     digest = None
     digest_id = None
     warnings: list[ConnectorWarning] = []
@@ -282,6 +291,7 @@ def _message_out(message: MessageRecord, digest_store: DigestStore) -> MessageOu
         digest_id=digest_id,
         warnings=warnings,
         digest=digest,
+        request=ResolvedRequestOut(**request) if request else None,
     )
 
 
@@ -291,6 +301,7 @@ def _page_messages(
     limit: int,
     cursor: str | None,
     digest_store: DigestStore,
+    requests: dict[int, dict[str, Any]] | None = None,
 ) -> MessageListPage:
     ordered = sorted(messages, key=lambda message: message.sequence, reverse=True)
     if cursor is not None:
@@ -304,7 +315,14 @@ def _page_messages(
         else None
     )
     return MessageListPage(
-        messages=[_message_out(message, digest_store) for message in page],
+        messages=[
+            _message_out(
+                message,
+                digest_store,
+                (requests or {}).get(message.id),
+            )
+            for message in page
+        ],
         next_cursor=next_cursor,
     )
 
@@ -501,6 +519,7 @@ def list_messages(
         limit=limit,
         cursor=cursor,
         digest_store=application.digest_store,
+        requests=application.session_service.request_interpretations(session_id),
     )
 
 

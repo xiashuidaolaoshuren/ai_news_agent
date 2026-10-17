@@ -22,8 +22,9 @@ const SUGGESTIONS = [
     </div>
     <h2>Start a digest</h2>
     <p>
-      Choose sources below, then ask about a topic or simply what’s new. Juya is on by default; the
-      other sources are opt-in.
+      Ask in your own words. A question or a topic starts a digest and picks the sources for
+      it; the sources below are your defaults, and naming a platform or count in a message
+      applies to that run only.
     </p>
     <div class="suggest">
       <button

@@ -1139,3 +1139,64 @@ describe('thread store streamed digest reply', () => {
     expect(store.controller.visibleMessages.value).toEqual([])
   })
 })
+
+  it('shows the resolved sources the backend ran, not the composer guess', async () => {
+    const store = makeStore({
+      loadMessages: async () => [message({ id: 1, sequence: 1, content: 'Trending tooling' })],
+      post: async () =>
+        (async function* generate() {
+          yield {
+            event: 'started',
+            data: {
+              request_id: 'r1',
+              user_message_id: 1,
+              intent: 'digest',
+              request: {
+                sources: ['github'],
+                per_source: 5,
+                timeframe: null,
+                topics: ['agent tooling'],
+                language: null,
+                audience: null,
+              },
+            },
+          }
+          yield {
+            event: 'done',
+            data: { request_id: 'r1', message_id: 2, run_id: 9, path: 'digest' },
+          }
+        })(),
+    })
+    await store.controller.openSession(sessionOut())
+    store.controller.markUserSent('Trending tooling', { names: ['juya'], perSource: 10 })
+
+    await store.lifecycle.send('s1', { content: 'Trending tooling' })
+
+    const chips = store.controller.visibleMessages.value[0]?.chips
+    expect(chips?.sources.map((source) => source.kind)).toEqual(['github'])
+    expect(chips?.perSource).toBe(5)
+  })
+
+  it('drops the composer chips when the message did not start a digest', async () => {
+    const store = makeStore({
+      loadMessages: async () => [message({ id: 1, sequence: 1, content: 'Tell me about Qwen' })],
+      post: async () =>
+        (async function* generate() {
+          yield {
+            event: 'started',
+            data: { request_id: 'r1', user_message_id: 1, intent: 'clarify', request: null },
+          }
+          yield { event: 'delta', data: { text: 'Recent updates or an explanation?' } }
+          yield {
+            event: 'done',
+            data: { request_id: 'r1', message_id: 2, run_id: null, path: 'clarify' },
+          }
+        })(),
+    })
+    await store.controller.openSession(sessionOut())
+    store.controller.markUserSent('Tell me about Qwen', { names: ['juya'], perSource: 10 })
+
+    await store.lifecycle.send('s1', { content: 'Tell me about Qwen' })
+
+    expect(store.controller.visibleMessages.value[0]?.chips).toBeUndefined()
+  })

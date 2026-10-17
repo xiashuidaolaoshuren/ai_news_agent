@@ -337,6 +337,34 @@ describe('toOpenedVm', () => {
     expect(vm.markdown).toBe('# Moonshot ships Kimi K3\n\nA longer context window.')
   })
 
+  it('carries Juya story metadata and background when opened from history', () => {
+    const vm = toOpenedVm(
+      show({
+        entry: openedEntry({
+          source_kind: 'juya',
+          source_id: 'juya-story-1',
+          title: 'DeepSeek 新增搜索 API',
+          source_name: 'Juya',
+          source_url: 'https://daily.juya.uk/issues/2026-10-17/#story-1',
+          background_knowledge: '搜索按成功请求计费。',
+          item_type: 'story',
+          story: {
+            number: 4,
+            section: '要闻',
+            original_url: 'https://api-docs.deepseek.com/',
+          },
+        } as unknown as DigestEntryView),
+      }),
+    )
+
+    expect(vm.entry?.juya).toEqual({
+      topic: '要闻',
+      originalUrl: 'https://api-docs.deepseek.com/',
+      storyNumber: 4,
+      background: '搜索按成功请求计费。',
+    })
+  })
+
   it('falls back to the markdown when the entry is null', () => {
     const vm = toOpenedVm(show({ entry: null }))
 

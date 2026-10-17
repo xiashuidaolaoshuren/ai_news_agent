@@ -153,6 +153,38 @@ def test_juya_collect_stories_mode_emits_one_item_per_numbered_story() -> None:
     asyncio.run(main())
 
 
+def test_juya_collect_stories_mode_cleans_linked_headlines() -> None:
+    markdown = _load_fixture_markdown("juya_website_linked_headlines_sample.md")
+
+    async def main() -> None:
+        transport = _juya_website_transport(
+            _rss_fixture_text(),
+            markdown_by_path={"/markdown/2026-06-16.md": markdown},
+        )
+        async with httpx.AsyncClient(transport=transport) as client:
+            out = await JuyaConnector(client=client).collect(
+                ConnectorRequest(
+                    topics=["rag"],
+                    max_items=5,
+                    juya_item_mode="stories",
+                ),
+            )
+        assert len(out.items) == 2
+        assert out.items[0].title == "有关部门拟增列AI技术进入出口管制目录"
+        assert out.items[0].source_evidence["story_original_url"] == (
+            "https://aqygzj.mofcom.gov.cn/flzc/gzjgfxwj/art/2026/art_c99f95ca.html"
+        )
+        assert out.items[0].source_evidence["story_summary"].startswith(
+            "有关部门就修订出口技术目录"
+        )
+        assert out.items[1].title == "OpenAI 宣布优化 Codex 提升用户有效使用量"
+        assert out.items[1].source_evidence["story_original_url"] == (
+            "https://x.com/thsottiaux/status/2111244596131111253"
+        )
+
+    asyncio.run(main())
+
+
 def test_juya_collect_stories_mode_stops_after_story_cap_without_issue_rows() -> None:
     markdown = _load_fixture_markdown("juya_website_with_cover_sample.md")
     requested_paths: list[str] = []
@@ -227,5 +259,114 @@ def test_juya_collect_rss_failure_warns_without_github_fallback() -> None:
             w.code == "juya_rss_unavailable" and w.connector == "juya"
             for w in out.warnings
         )
+
+    asyncio.run(main())
+
+
+def _rss_with_dates(*entries: tuple[str, str]) -> str:
+    items = "".join(
+        f"<item><title>{title}</title><link>{link}</link>"
+        f"<pubDate>{pub}</pubDate></item>"
+        for title, link, pub in entries
+    )
+    return f"<?xml version='1.0'?><rss><channel>{items}</channel></rss>"
+
+
+def _dated_rss(*dates: str) -> str:
+    entries = tuple(
+        (date, f"https://daily.juya.uk/{date.replace('-', '/')}/", f"{date} 08:00:00 +0800")
+        for date in dates
+    )
+    return _rss_with_dates(*entries)
+
+
+def test_juya_latest_timeframe_uses_the_newest_dated_issue() -> None:
+    # Older issue listed first: "latest" must pick by date, not feed order.
+    rss = _dated_rss("2026-06-15", "2026-06-16")
+
+    async def main() -> None:
+        transport = _juya_website_transport(rss)
+        async with httpx.AsyncClient(transport=transport) as client:
+            out = await JuyaConnector(client=client).collect(
+                ConnectorRequest(topics=[], max_items=5, timeframe="latest"),
+            )
+        assert [item.title for item in out.items] == ["2026-06-16"]
+
+    asyncio.run(main())
+
+
+def test_juya_strict_timeframe_drops_issues_outside_the_window() -> None:
+    from datetime import date, timedelta
+
+    today = date.today()
+    recent = (today - timedelta(days=1)).isoformat()
+    stale = (today - timedelta(days=40)).isoformat()
+    rss = _dated_rss(stale, recent)
+
+    async def main() -> None:
+        transport = _juya_website_transport(rss)
+        async with httpx.AsyncClient(transport=transport) as client:
+            out = await JuyaConnector(client=client).collect(
+                ConnectorRequest(
+                    topics=[],
+                    max_items=5,
+                    timeframe="last_7_days",
+                    strict_timeframe=True,
+                ),
+            )
+        assert [item.title for item in out.items] == [recent]
+
+    asyncio.run(main())
+
+
+def test_juya_story_topics_are_filtered_before_the_story_cap() -> None:
+    markdown = _load_fixture_markdown("juya_website_with_cover_sample.md")
+    rss = _dated_rss("2026-06-19")
+
+    async def main() -> None:
+        transport = _juya_website_transport(
+            rss,
+            markdown_by_path={"/markdown/2026-06-19.md": markdown},
+        )
+        async with httpx.AsyncClient(transport=transport) as client:
+            out = await JuyaConnector(client=client).collect(
+                ConnectorRequest(
+                    topics=["Codex"],
+                    max_items=1,
+                    topics_are_filters=True,
+                    juya_item_mode="stories",
+                ),
+            )
+        assert len(out.items) == 1
+        assert "Codex" in out.items[0].title
+
+    asyncio.run(main())
+
+
+def test_juya_story_topic_filter_bridges_english_topics_to_chinese_stories() -> None:
+    markdown = (
+        '# AI \u65e9\u62a5 2026-06-19\n\n'
+        '## \u8981\u95fb\n'
+        '### [JetBrains \u5f00\u6e90 12B \u53c2\u6570\u6a21\u578b Mellum2.1](https://example.com/a) `#1`\n'
+        '> \u65b0\u7684\u5f00\u6e90\u6743\u91cd\u6a21\u578b\u53d1\u5e03\u3002\n'
+    )
+    rss = _dated_rss('2026-06-19')
+
+    async def main() -> None:
+        transport = _juya_website_transport(
+            rss,
+            markdown_by_path={'/markdown/2026-06-19.md': markdown},
+        )
+        async with httpx.AsyncClient(transport=transport) as client:
+            out = await JuyaConnector(client=client).collect(
+                ConnectorRequest(
+                    topics=['open-weight models'],
+                    max_items=1,
+                    topics_are_filters=True,
+                    juya_item_mode='stories',
+                ),
+            )
+        assert len(out.items) == 1
+        assert 'Mellum2.1' in out.items[0].title
 
     asyncio.run(main())

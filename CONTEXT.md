@@ -128,6 +128,28 @@ _Avoid_: Global latest across every interface, a Session's context, a browser-cr
 One durable user-initiated chat execution within a Session, from accepted user message to one terminal outcome: succeeded, failed, cancelled, or interrupted. It gives that message a stable lifecycle independently of transient response delivery.
 _Avoid_: The user message itself, a Digest run, a transient delivery channel, automatically retrying an interrupted request
 
+### Browser conversation
+
+**Digest request (conversation)**:
+A browser message asking for fresh signals, in English or Chinese, whether or not it uses the word “digest”. It carries its own topic, source, timeframe, count, language, and audience, and executes one Digest run.
+_Avoid_: Requiring a trigger phrase, treating a source name alone as a request for collection, silently reusing saved preferences over an explicit option
+
+**Digest follow-up**:
+A browser message about a digest already in the conversation — explanation, inspection, or a change to how it is described. It reads saved evidence and does not collect again unless freshness, source, or timeframe changes.
+_Avoid_: Fetching new signals for a rephrasing, answering from general knowledge when saved evidence exists
+
+**General explanation**:
+An answer from general knowledge to a standalone question, used when no digest evidence applies. It is labelled as general knowledge and makes no claim to current or collected evidence.
+_Avoid_: Presenting it as a digest result, implying freshness, running source collection to answer it
+
+**Unresolved clarification**:
+The single pending question asked when a browser request is genuinely ambiguous. A short reply completes the original request; a new complete request replaces it.
+_Avoid_: Stacking multiple pending questions, losing the original topic across a reload, treating the clarification reply as a new standalone request
+
+**Resolved request**:
+The options a browser Digest request actually ran with — sources, count, timeframe, language, audience, and topic — shown with the question and restored after reload.
+_Avoid_: Echoing the composer's unconfirmed selection, exposing interpreter reasoning or raw evidence, claiming a result that was never collected
+
 ### Shared
 
 **NewsItem**:

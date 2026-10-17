@@ -294,6 +294,23 @@ class SessionStore:
                 (run_id, session_id, request_id),
             )
 
+    def set_request_interpretation(
+        self,
+        session_id: str,
+        request_id: str,
+        interpretation: dict[str, object] | None,
+    ) -> None:
+        payload = json.dumps(interpretation) if interpretation is not None else None
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE session_requests
+                SET interpretation_json = ?
+                WHERE session_id = ? AND id = ?
+                """,
+                (payload, session_id, request_id),
+            )
+
     def link_active_request_run(self, session_id: str, run_id: int) -> None:
         """Associate a persisted run with the session's active request."""
         with self._conn() as conn:

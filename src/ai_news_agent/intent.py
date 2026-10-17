@@ -47,6 +47,12 @@ _TIMEFRAME_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 _TOPICS_PREFIX = re.compile(r"\btopics?\s*:\s*(.+)$", re.I | re.MULTILINE)
 
 _HF_CUE = re.compile(r"\b(?:hugging\s*face|huggingface)\b", re.IGNORECASE)
+_LANGUAGE_WORD = re.compile(r"\b(?:in|into)\s+(chinese|english)\b", re.IGNORECASE)
+_LANGUAGE_ALIASES = {"chinese": "zh-CN", "english": "en"}
+_LANGUAGE_CJK = (
+    (re.compile(r"用中文|中文(?:摘要|总结|输出|回复)"), "zh-CN"),
+    (re.compile(r"用英文|英文(?:摘要|总结|输出|回复)"), "en"),
+)
 _HF_TOPIC_FILTER = re.compile(
     r"\btrending\s+(\w+)\s+models?\s+on\s+hugging\s*face\b",
     re.IGNORECASE,
@@ -77,6 +83,17 @@ _ZHIHU_TOPIC_FILTER = re.compile(
     r"\s+on\s+(.+?)(?:\s+on\s+zhihu\b|$)",
     re.IGNORECASE,
 )
+
+
+def _output_language_from_message(text: str) -> str | None:
+    """Return the requested output language, only from a narrow instruction."""
+    match = _LANGUAGE_WORD.search(text)
+    if match is not None:
+        return _LANGUAGE_ALIASES[match.group(1).lower()]
+    for pattern, tag in _LANGUAGE_CJK:
+        if pattern.search(text):
+            return tag
+    return None
 
 
 def _zhihu_topic_from_message(text: str) -> str | None:
@@ -277,8 +294,15 @@ def parse_digest_intent(message: str) -> DigestRequest:
             break
 
     hf_fields = _huggingface_fields_from_message(text, topics)
+    output_language = _output_language_from_message(text)
 
-    if not explicit and topics is None and timeframe is None and not hf_fields:
+    if (
+        not explicit
+        and topics is None
+        and timeframe is None
+        and not hf_fields
+        and output_language is None
+    ):
         return DigestRequest()
 
     return DigestRequest(
@@ -289,6 +313,7 @@ def parse_digest_intent(message: str) -> DigestRequest:
         bilibili_manual_urls=bilibili_urls,
         bilibili_target_channels=bilibili_channels,
         juya_manual_urls=juya_urls,
+        output_language=output_language,
         **hf_fields,
     )
 

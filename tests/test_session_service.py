@@ -850,3 +850,90 @@ def test_complete_request_persists_assistant_message_with_run_link(
     assert assistant.content == "Digest complete."
     assert assistant.run_id == run_id
     assert assistant.id == message_id
+
+def test_request_interpretation_round_trips_and_derives_conversation_context(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "interpretation.db"
+    _init_db(db_path)
+    store = DigestStore(db_path)
+    service = SessionService(SessionStore(db_path))
+    session = service.create_session()
+
+    first = service.begin_request(session.id, content="Tell me about Qwen")
+    service.set_request_interpretation(
+        session.id,
+        first.id,
+        {
+            "intent": "clarify",
+            "pending": {"message": "Tell me about Qwen", "topic": "Qwen"},
+        },
+    )
+    service.complete_request(session.id, first.id, status="succeeded", content="Recent or general?")
+
+    assert service.pending_clarification(session.id) == {
+        "message": "Tell me about Qwen",
+        "topic": "Qwen",
+    }
+
+    second = service.begin_request(session.id, content="Recent updates")
+    run_id = store.save_run(
+        requested_at=datetime(2026, 10, 17, tzinfo=UTC),
+        timeframe="latest",
+        topics=["Qwen"],
+        connector_names=["juya"],
+        session_id=session.id,
+    )
+    service.set_request_interpretation(
+        session.id,
+        second.id,
+        {
+            "intent": "digest",
+            "request": {"topics": ["Qwen"], "connector_names": ["juya"]},
+            "public": {"sources": ["juya"], "per_source": None, "topics": ["Qwen"]},
+        },
+    )
+    service.complete_request(
+        session.id,
+        second.id,
+        status="succeeded",
+        content="digest",
+        run_id=run_id,
+    )
+
+    assert service.pending_clarification(session.id) is None
+    assert service.last_digest_request(session.id) == {
+        "topics": ["Qwen"],
+        "connector_names": ["juya"],
+    }
+    assert service.request_interpretations(session.id) == {
+        second.user_message_id: {
+            "sources": ["juya"],
+            "per_source": None,
+            "topics": ["Qwen"],
+        },
+    }
+
+
+def test_failed_request_does_not_clear_a_pending_clarification(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "failed-pending.db"
+    _init_db(db_path)
+    service = SessionService(SessionStore(db_path))
+    session = service.create_session()
+
+    first = service.begin_request(session.id, content="Tell me about Qwen")
+    service.set_request_interpretation(
+        session.id,
+        first.id,
+        {"intent": "clarify", "pending": {"message": "Tell me about Qwen", "topic": "Qwen"}},
+    )
+    service.complete_request(session.id, first.id, status="succeeded", content="Recent or general?")
+
+    second = service.begin_request(session.id, content="Recent updates")
+    service.complete_request(session.id, second.id, status="failed", content="Request failed.")
+
+    assert service.pending_clarification(session.id) is not None

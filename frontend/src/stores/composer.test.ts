@@ -38,6 +38,8 @@ function idleSnapshot(): RequestSnapshot {
     requestId: null,
     sessionId: null,
     userMessageId: null,
+    intent: null,
+    request: null,
     text: '',
     progress: [],
     digest: null,

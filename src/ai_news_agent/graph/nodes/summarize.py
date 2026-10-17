@@ -32,6 +32,7 @@ def make_summarize_items_node(model: Any):
                 model=model,
                 output_style=req.output_style,
                 output_language=req.output_language,
+                audience=req.audience,
             )
         except Exception as exc:
             return {

@@ -39,6 +39,19 @@ class SessionPatch(BaseModel):
     items_per_source: int | None = None
 
 
+class ResolvedRequestOut(BaseModel):
+    """Public, user-relevant options of one resolved digest request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sources: list[str] = Field(default_factory=list)
+    per_source: int | None = None
+    timeframe: str | None = None
+    topics: list[str] = Field(default_factory=list)
+    language: str | None = None
+    audience: str | None = None
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -52,6 +65,8 @@ class MessageOut(BaseModel):
     digest_id: int | None = None
     warnings: list[ConnectorWarning] = Field(default_factory=list)
     digest: DigestView | None = None
+    #: What a user message's digest run actually used, when it started one.
+    request: ResolvedRequestOut | None = None
 
 
 class MessageListPage(BaseModel):
