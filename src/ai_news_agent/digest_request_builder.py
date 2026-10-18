@@ -11,6 +11,33 @@ from ai_news_agent.topics import DEFAULT_TOPICS
 
 _BILIBILI_CHANNEL_DEFAULT_TIMEFRAME = "last_7_days"
 
+_OUTPUT_STYLE_ALIASES: dict[str, str] = {
+    "newsletter": "editorial",
+    "bulletin": "bulletin",
+}
+
+_OUTPUT_LANGUAGE_ALIASES: dict[str, str] = {
+    "chinese": "zh-CN",
+    "zh": "zh-CN",
+    "zh-cn": "zh-CN",
+}
+
+
+def normalize_output_style_hint(hint: str | None) -> str | None:
+    """Normalize output style hints; ``None`` preserves the default bulletin renderer."""
+    if hint is None or hint.strip() == "":
+        return None
+    key = hint.strip().lower()
+    return _OUTPUT_STYLE_ALIASES.get(key, key)
+
+
+def normalize_output_language_hint(hint: str | None) -> str | None:
+    """Normalize BCP-47 language hints such as ``zh-CN``."""
+    if hint is None or hint.strip() == "":
+        return None
+    key = hint.strip().lower()
+    return _OUTPUT_LANGUAGE_ALIASES.get(key, hint.strip())
+
 
 def _apply_bilibili_channel_timeframe_default(req: DigestRequest) -> DigestRequest:
     if req.timeframe is not None:
@@ -105,4 +132,8 @@ def resolve_digest_request(
     return replace(base, connector_names=connector_names, primary_source=primary_source)
 
 
-__all__ = ["resolve_digest_request"]
+__all__ = [
+    "normalize_output_language_hint",
+    "normalize_output_style_hint",
+    "resolve_digest_request",
+]

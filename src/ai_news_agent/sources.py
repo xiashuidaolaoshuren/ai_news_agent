@@ -1,4 +1,4 @@
-"""Canonical source registry and connector factory for CLI, Gradio, and future adapters."""
+"""Canonical source registry and connector factory for CLI and API entrypoints."""
 
 from __future__ import annotations
 

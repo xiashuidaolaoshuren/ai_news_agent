@@ -89,7 +89,7 @@ def _append_snippet_lines(lines: list[str], raw_snippet: str) -> None:
 
 
 def _display_snippet(raw: str) -> str:
-    """Return snippet text safe for Gradio markdown (strip YAML frontmatter)."""
+    """Return snippet text safe for chat markdown (strip YAML frontmatter)."""
     stripped = _strip_yaml_frontmatter(raw.strip())
     return stripped if stripped else raw.strip()
 

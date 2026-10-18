@@ -26,12 +26,6 @@ NO_SAVED_DIGEST = (
     '(for example: "Give me today\'s AI digest").'
 )
 
-OPENCLAW_GUIDANCE_FALLBACK = (
-    "That follow-up is not supported in OpenClaw structured mode. "
-    "Try: show sources, item 1 / #2 / the second one / the first news, which item should I study first, "
-    "or show caveats. For open-ended Q&A, use the Gradio UI."
-)
-
 _ORDINAL_WORDS: dict[str, int] = {
     "first": 1,
     "1st": 1,
@@ -183,35 +177,6 @@ def is_structured_followup(message: str) -> bool:
     return False
 
 
-def handle_openclaw_structured_followup(
-    *,
-    message: str,
-    store: DigestStore,
-) -> dict[str, object]:
-    """Resolve an OpenClaw follow-up message against the latest digest context."""
-    ctx = store.get_latest_followup_context()
-    if ctx.run_id is None and ctx.digest is None:
-        return {
-            "text": NO_SAVED_DIGEST,
-            "run_id": None,
-            "path": "no_digest",
-        }
-
-    structured = answer_structured_followup(message, ctx)
-    if structured is not None:
-        return {
-            "text": structured,
-            "run_id": ctx.run_id,
-            "path": "structured",
-        }
-
-    return {
-        "text": OPENCLAW_GUIDANCE_FALLBACK,
-        "run_id": ctx.run_id,
-        "path": "guidance",
-    }
-
-
 def _mentions_sources(low: str) -> bool:
     keys = ("show sources", "list sources", "original links", "source links", "urls")
     return any(k in low for k in keys)
@@ -315,14 +280,12 @@ def format_caveats(ctx: FollowupContext) -> str:
 
 __all__ = [
     "NO_SAVED_DIGEST",
-    "OPENCLAW_GUIDANCE_FALLBACK",
     "answer_structured_followup",
     "answer_structured_followup_live",
     "format_caveats",
     "format_rank_item",
     "format_ranking_pick",
     "format_sources",
-    "handle_openclaw_structured_followup",
     "is_structured_followup",
     "parse_rank_from_message",
 ]

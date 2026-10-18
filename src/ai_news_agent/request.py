@@ -24,7 +24,7 @@ class DigestRequest:
     max_items_per_source: int = 20
     top_n: int = 5
     language_hint: str | None = None
-    #: When set, ranking selects up to this many items per source kind (Gradio).
+    #: When set, ranking selects up to this many items per source kind.
     items_per_source: int | None = None
     #: Legacy Bilibili selectors (prefer bilibili_* fields).
     target_channels: list[str] = field(default_factory=_empty_str_list)

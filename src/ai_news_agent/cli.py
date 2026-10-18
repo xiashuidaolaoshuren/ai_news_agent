@@ -1,6 +1,6 @@
 """CLI smoke entry point for digest generation (Task T12).
 
-OpenClaw-friendly shape::
+Friendly shape::
 
     python -m ai_news_agent.cli digest --timeframe today --sources github,bilibili
 
@@ -17,7 +17,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
-from ai_news_agent.adapters.openclaw import (
+from ai_news_agent.digest_request_builder import (
     normalize_output_language_hint,
     normalize_output_style_hint,
 )
@@ -38,7 +38,7 @@ from ai_news_agent.sources import (
 )
 from ai_news_agent.storage import DigestStore
 
-# Backward-compatible aliases for tests and Gradio imports.
+# Backward-compatible aliases for tests.
 from ai_news_agent.sources import (
     FakeBilibiliConnector as _FakeBilibiliConnector,
     FakeDigestModel as _FakeDigestModel,
@@ -284,7 +284,7 @@ def _add_service_parser(sub: Any) -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "service",
-        help="Run the persistent local digest HTTP service (OpenClaw warm path)",
+        help="Run the persistent local digest HTTP service",
     )
     p.add_argument("--host", default="127.0.0.1", help="Bind host")
     p.add_argument("--port", type=int, default=8765, help="Bind port")
@@ -303,64 +303,6 @@ def _add_service_parser(sub: Any) -> argparse.ArgumentParser:
     return p
 
 
-def _add_openclaw_digest_parser(sub: Any) -> argparse.ArgumentParser:
-    from ai_news_agent.adapters.openclaw_client import main as openclaw_main
-
-    p = sub.add_parser(
-        "openclaw-digest",
-        help="Request digest from local warm service (OpenClaw client)",
-    )
-    p.add_argument("--message", default=None, help="Natural-language digest request")
-    p.add_argument("--timeframe", default=None, help="Timeframe hint")
-    p.add_argument(
-        "--sources",
-        default=None,
-        help="Comma-separated connector names (juya, huggingface, github, zhihu, bilibili). Default: juya",
-    )
-    p.add_argument("--topics", default=None, help="Comma-separated topics")
-    p.add_argument(
-        "--output-style",
-        default=None,
-        help="Digest output style (editorial/newsletter or default bulletin)",
-    )
-    p.add_argument(
-        "--output-language",
-        default=None,
-        help="BCP-47 output language hint (e.g. zh-CN)",
-    )
-    p.add_argument("--fake", action="store_true", help="Offline fake digest")
-    p.add_argument(
-        "--service-url",
-        default=None,
-        help="Service base URL (or AI_NEWS_AGENT_SERVICE_URL)",
-    )
-    p.add_argument("--correlation-id", default=None, help="Latency correlation id")
-    p.set_defaults(_handler=openclaw_main)
-    return p
-
-
-def _add_openclaw_followup_parser(sub: Any) -> argparse.ArgumentParser:
-    from ai_news_agent.adapters.openclaw_client import followup_main
-
-    p = sub.add_parser(
-        "openclaw-followup",
-        help="Request structured follow-up from local warm service (OpenClaw client)",
-    )
-    p.add_argument(
-        "--message",
-        required=True,
-        help="Structured follow-up phrase (show sources, study first, show caveats)",
-    )
-    p.add_argument(
-        "--service-url",
-        default=None,
-        help="Service base URL (or AI_NEWS_AGENT_SERVICE_URL)",
-    )
-    p.add_argument("--correlation-id", default=None, help="Latency correlation id")
-    p.set_defaults(_handler=followup_main)
-    return p
-
-
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ai-news-agent")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -369,8 +311,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     _add_history_show_parser(sub)
     _add_demo_db_parser(sub)
     _add_service_parser(sub)
-    _add_openclaw_digest_parser(sub)
-    _add_openclaw_followup_parser(sub)
     return parser
 
 
@@ -493,12 +433,6 @@ def _namespace_to_argv(ns: argparse.Namespace) -> list[str]:
     return argv
 
 
-def _subcommand_argv(args: list[str], command: str) -> list[str]:
-    if args and args[0] == command:
-        return args[1:]
-    return args
-
-
 def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
     """CLI entry. Returns process exit code."""
     load_local_env()
@@ -530,17 +464,8 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
         print(f"Unsupported command: {ns.command}", file=sys.stderr)
         return 2
 
-    if ns.command == "service":
-        service_argv = _namespace_to_argv(ns)
-        return int(handler(service_argv))
-
-    if ns.command == "openclaw-digest":
-        return int(handler(_subcommand_argv(args, "openclaw-digest"), stdout=out))
-
-    if ns.command == "openclaw-followup":
-        return int(handler(_subcommand_argv(args, "openclaw-followup"), stdout=out))
-
-    return int(handler(_subcommand_argv(args, ns.command), stdout=out))
+    service_argv = _namespace_to_argv(ns)
+    return int(handler(service_argv))
 
 
 if __name__ == "__main__":

@@ -9,11 +9,9 @@ from typing import Any
 
 from ai_news_agent.connectors.base import SourceConnector
 from ai_news_agent.env import configure_bilibili_network_from_env, load_local_env
-from ai_news_agent.app.digest_service import DigestServiceRuntime, digest_request_from_json
 from ai_news_agent.graph.state import DigestResult
 from ai_news_agent.graph.workflow import (
     run_digest,
-    run_digest_instrumented,
     run_digest_streaming,
 )
 from ai_news_agent.llm import build_chat_model, build_tool_chat_model
@@ -63,14 +61,13 @@ async def _aclose_connectors(connectors: Sequence[SourceConnector]) -> None:
 
 @dataclass(frozen=True)
 class Application:
-    """Composition root for Gradio, CLI service, and FastAPI."""
+    """Composition root for the CLI service and FastAPI."""
 
     fake: bool
     db_path: Path
     session_service: SessionService
     chat_service: ChatService
     digest_store: DigestStore
-    openclaw_runtime: DigestServiceRuntime
 
 
 def build_application(*, fake: bool, db_path: Path) -> Application:
@@ -89,73 +86,6 @@ def build_application(*, fake: bool, db_path: Path) -> Application:
         session_service=session_service,
         chat_service=chat_service,
         digest_store=store,
-        openclaw_runtime=_build_openclaw_runtime(
-            fake=fake,
-            db_path=db_path,
-            store=store,
-        ),
-    )
-
-
-def _build_openclaw_runtime(
-    *,
-    fake: bool,
-    db_path: Path,
-    store: DigestStore,
-) -> DigestServiceRuntime:
-    if fake:
-        return DigestServiceRuntime(
-            fake=True,
-            db_path=db_path,
-            store=store,
-        )
-
-    model = build_chat_model()
-    tool_model = build_tool_chat_model()
-
-    def build_connectors_fn(req: DigestRequest) -> Sequence[SourceConnector]:
-        return build_connectors(fake=False, names=_names_from(req))
-
-    async def openclaw_workflow_runner(
-        req: DigestRequest,
-        on_stage: Callable[[str], None] | None = None,
-    ) -> DigestResult:
-        load_local_env(force_reload=True)
-        configure_bilibili_network_from_env(logger)
-        connectors = build_connectors(fake=False, names=_names_from(req))
-        try:
-            return await run_digest_instrumented(
-                req,
-                connectors=list(connectors),
-                model=model,
-                store=store,
-                on_stage=on_stage,
-            )
-        finally:
-            await _aclose_connectors(connectors)
-
-    interface_router = build_interface_tool_router(
-        store=store,
-        workflow_runner=openclaw_workflow_runner,
-        streaming_workflow_runner=None,
-        tool_model=tool_model,
-        digest_model=model,
-        github_factory=build_connector_factory(fake=False, name="github"),
-        bilibili_factory=build_connector_factory(fake=False, name="bilibili"),
-        juya_factory=build_connector_factory(fake=False, name="juya"),
-        huggingface_factory=build_connector_factory(fake=False, name="huggingface"),
-        zhihu_factory=build_connector_factory(fake=False, name="zhihu"),
-        build_connectors_fn=build_connectors_fn,
-        interface_name="openclaw",
-    )
-
-    return DigestServiceRuntime(
-        fake=False,
-        db_path=db_path,
-        store=store,
-        model=model,
-        workflow_runner=openclaw_workflow_runner,
-        interface_router=interface_router,
     )
 
 
@@ -233,18 +163,12 @@ def _build_chat_service(
     if not fake:
         interface_router = build_interface_tool_router(
             store=store,
-            workflow_runner=workflow_runner,
-            streaming_workflow_runner=streaming_workflow_runner,
             tool_model=tool_model,
-            digest_model=model,
             github_factory=build_connector_factory(fake=fake, name="github"),
             bilibili_factory=build_connector_factory(fake=fake, name="bilibili"),
             juya_factory=build_connector_factory(fake=fake, name="juya"),
             huggingface_factory=build_connector_factory(fake=fake, name="huggingface"),
             zhihu_factory=build_connector_factory(fake=fake, name="zhihu"),
-            build_connectors_fn=lambda req: build_connectors(
-                fake=fake, names=_names_from(req)
-            ),
             interface_name="api",
         )
 

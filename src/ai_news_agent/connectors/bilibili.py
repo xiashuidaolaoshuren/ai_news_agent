@@ -167,7 +167,7 @@ def _proxy_connection_warning(
             f"Bilibili {operation} could not connect via the HTTP proxy. "
             f"{proxy_hint}"
             "Start your proxy (e.g. Clash/V2Ray on that host:port) or remove "
-            "BILIBILI_PROXY_URL from .env and restart Gradio."
+            "BILIBILI_PROXY_URL from .env and restart the service."
         ),
         detail=detail,
     )

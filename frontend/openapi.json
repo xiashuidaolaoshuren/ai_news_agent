@@ -1936,67 +1936,6 @@
           }
         }
       }
-    },
-    "/health": {
-      "get": {
-        "tags": [
-          "openclaw"
-        ],
-        "summary": "Health",
-        "operationId": "health_health_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Health Health Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/digest": {
-      "post": {
-        "tags": [
-          "openclaw"
-        ],
-        "summary": "Digest",
-        "operationId": "digest_digest_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/followup": {
-      "post": {
-        "tags": [
-          "openclaw"
-        ],
-        "summary": "Followup",
-        "operationId": "followup_followup_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
