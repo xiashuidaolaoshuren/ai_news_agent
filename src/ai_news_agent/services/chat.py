@@ -231,6 +231,14 @@ class ChatService:
                 return
 
             decision = await self._resolve_conversation_decision(session_id, message)
+            request = decision.request
+            if decision.intent == "digest" and request is not None:
+                request = _apply_session_defaults(
+                    request,
+                    session=self._session_service.get_session(session_id),
+                    juya_item_mode=juya_item_mode,
+                )
+                decision = replace(decision, request=request)
             interpretation = _interpretation_payload(decision)
             self._session_service.set_request_interpretation(
                 session_id,
@@ -244,12 +252,7 @@ class ChatService:
                 intent=decision.intent,
             )
 
-            if decision.intent == "digest" and decision.request is not None:
-                request = _apply_session_defaults(
-                    decision.request,
-                    session=self._session_service.get_session(session_id),
-                    juya_item_mode=juya_item_mode,
-                )
+            if decision.intent == "digest" and request is not None:
                 async for event in self._stream_session_digest_events(
                     session_id=session_id,
                     record=record,

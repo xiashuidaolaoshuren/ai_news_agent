@@ -730,6 +730,75 @@ describe('thread store sent sources', () => {
     expect(store.controller.visibleMessages.value[0]?.chips?.perSource).toBe(5)
   })
 
+  it('shows the resolved sources on the pending question while the run is live', async () => {
+    const gate = deferred()
+    const store = makeStore({
+      loadMessages: async () => [],
+      post: async () =>
+        (async function* generate() {
+          yield {
+            event: 'started',
+            data: {
+              request_id: 'r1',
+              user_message_id: 1,
+              intent: 'digest',
+              request: {
+                sources: ['github'],
+                per_source: 5,
+                timeframe: null,
+                topics: ['agent tooling'],
+                language: null,
+                audience: null,
+              },
+            },
+          }
+          await gate.promise
+        })(),
+    })
+    await store.controller.openSession(sessionOut())
+    store.controller.markUserSent('Trending tooling', { names: ['juya'], perSource: 10 })
+
+    const sending = store.lifecycle.send('s1', { content: 'Trending tooling' })
+    await waitFor(() => store.controller.snapshot.value.requestId === 'r1')
+
+    const pending = store.controller.visibleMessages.value.find(
+      (item) => item.id === PENDING_MESSAGE_ID,
+    )
+    expect(pending?.chips?.sources.map((source) => source.kind)).toEqual(['github'])
+    expect(pending?.chips?.perSource).toBe(5)
+
+    gate.resolve()
+    await sending
+  })
+
+  it('drops the composer chips from the pending question when the run is not a digest', async () => {
+    const gate = deferred()
+    const store = makeStore({
+      loadMessages: async () => [],
+      post: async () =>
+        (async function* generate() {
+          yield {
+            event: 'started',
+            data: { request_id: 'r1', user_message_id: 1, intent: 'clarify', request: null },
+          }
+          await gate.promise
+        })(),
+    })
+    await store.controller.openSession(sessionOut())
+    store.controller.markUserSent('Tell me about Qwen', { names: ['juya'], perSource: 10 })
+
+    const sending = store.lifecycle.send('s1', { content: 'Tell me about Qwen' })
+    await waitFor(() => store.controller.snapshot.value.requestId === 'r1')
+
+    const pending = store.controller.visibleMessages.value.find(
+      (item) => item.id === PENDING_MESSAGE_ID,
+    )
+    expect(pending?.chips).toBeUndefined()
+
+    gate.resolve()
+    await sending
+  })
+
   it('leaves a question that was already in the transcript plain', async () => {
     const store = makeStore({
       loadMessages: async () => [

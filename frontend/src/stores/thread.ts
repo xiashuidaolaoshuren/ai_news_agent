@@ -101,7 +101,7 @@ export function createThreadController(deps: ThreadDeps) {
   const loadError = ref<string | null>(null)
   const session = shallowRef<SessionOut | null>(null)
   const draft = ref('')
-  const pendingUser = ref<{ text: string; chips: SentSourcesVm } | null>(null)
+  const pendingUser = ref<{ text: string; chips: SentSourcesVm | null } | null>(null)
   const freshIds = ref<number[]>([])
   const rawSnapshot = shallowRef<RequestSnapshot>(deps.lifecycle.state)
   const progressTimes = ref<string[]>([])
@@ -199,14 +199,23 @@ export function createThreadController(deps: ThreadDeps) {
         // The row the backend persisted for the question keeps the chips of what the
         // run actually resolved to, which can differ from the composer's selection.
         const nextSources = new Map(sentSources.value)
+        let chips: SentSourcesVm | null
         if (next.intent !== null && next.intent !== 'digest') {
           nextSources.delete(next.userMessageId)
+          chips = null
         } else if (next.request !== null) {
-          nextSources.set(next.userMessageId, toResolvedSourcesVm(next.request))
+          chips = toResolvedSourcesVm(next.request)
+          nextSources.set(next.userMessageId, chips)
         } else {
-          nextSources.set(next.userMessageId, pendingUser.value.chips)
+          chips = pendingUser.value.chips
+          if (chips === null) {
+            nextSources.delete(next.userMessageId)
+          } else {
+            nextSources.set(next.userMessageId, chips)
+          }
         }
         sentSources.value = nextSources
+        pendingUser.value = { ...pendingUser.value, chips }
       }
       if (next.digest !== null) {
         // The `digest` event is the reply: show it now rather than waiting for `done`
@@ -343,7 +352,9 @@ export function createThreadController(deps: ThreadDeps) {
               kind: 'user' as const,
               text: pendingUser.value.text,
               createdAt: '',
-              chips: pendingUser.value.chips,
+              ...(pendingUser.value.chips === null
+                ? {}
+                : { chips: pendingUser.value.chips }),
               warnings: [],
             },
           ]
