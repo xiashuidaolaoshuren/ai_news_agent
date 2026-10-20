@@ -72,6 +72,41 @@ class SessionService:
     ) -> SessionRequestRecord | None:
         return self._store.get_request(session_id, request_id)
 
+    def set_request_interpretation(
+        self,
+        session_id: str,
+        request_id: str,
+        interpretation: dict[str, object] | None,
+    ) -> None:
+        self._store.set_request_interpretation(session_id, request_id, interpretation)
+
+    def pending_clarification(self, session_id: str) -> dict[str, object] | None:
+        """The newest succeeded request's pending question, if it has one."""
+        for request in self._store.list_requests(session_id):
+            if request.status != "succeeded":
+                continue
+            pending = (request.interpretation or {}).get("pending")
+            return pending if isinstance(pending, dict) and pending else None
+        return None
+
+    def last_digest_request(self, session_id: str) -> dict[str, object] | None:
+        """The stored request of the latest succeeded digest in this session."""
+        for request in self._store.list_requests(session_id):
+            if request.status != "succeeded" or request.run_id is None:
+                continue
+            stored = (request.interpretation or {}).get("request")
+            return stored if isinstance(stored, dict) else None
+        return None
+
+    def request_interpretations(self, session_id: str) -> dict[int, dict[str, object]]:
+        """Public resolved-request metadata keyed by the user message it answers."""
+        out: dict[int, dict[str, object]] = {}
+        for request in reversed(self._store.list_requests(session_id)):
+            public = (request.interpretation or {}).get("public")
+            if isinstance(public, dict) and public:
+                out[request.user_message_id] = public
+        return out
+
     def rename_session(self, session_id: str, title: str) -> None:
         self._store.rename_session(session_id, title)
 

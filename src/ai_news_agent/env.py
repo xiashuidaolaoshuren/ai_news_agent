@@ -1,4 +1,4 @@
-"""Load local ``.env`` for CLI and Gradio entrypoints."""
+"""Load local ``.env`` for CLI and service entrypoints."""
 
 from __future__ import annotations
 

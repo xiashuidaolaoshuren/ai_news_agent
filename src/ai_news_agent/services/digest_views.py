@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
+from ai_news_agent.digest_content import extract_digest_fields
+from ai_news_agent.juya_content import clean_lead_title, is_image_url, split_linked_title
 from ai_news_agent.models import Digest, DigestEntry, NewsItem, SourceKind
+
+_RECOVERY_CAVEAT = "原摘要无法恢复，仅显示标题。"
+_STRUCTURED_SUMMARY_RE = re.compile(r'"summary"\s*:', re.IGNORECASE)
 
 
 def build_digest_view_payload(
@@ -50,8 +56,57 @@ def _build_entry_payload(
         payload.update(extract_huggingface_evidence(evidence))
         payload.update(extract_owner_evidence(evidence))
     elif entry.source_kind is SourceKind.JUYA:
-        payload.update(extract_juya_evidence(evidence))
+        text_fields, title_url = _juya_text_fields(entry)
+        payload.update(text_fields)
+        payload.update(extract_juya_evidence(evidence, title_url=title_url))
     return payload
+
+
+def _juya_text_fields(
+    entry: DigestEntry,
+) -> tuple[dict[str, Any], str | None]:
+    """Plain Juya text and any article URL carried by a linked headline."""
+    title, title_url = split_linked_title(entry.title)
+    summary = entry.summary or ""
+    why_it_matters = entry.why_it_matters or ""
+    background = entry.background_knowledge or ""
+    caveat = entry.confidence_caveat
+
+    if _looks_like_model_json(summary):
+        fields = extract_digest_fields(summary)
+        if fields["summary"]:
+            summary = fields["summary"]
+            why_it_matters = fields["why_it_matters"] or why_it_matters
+            background = fields["background_knowledge"] or background
+        else:
+            # The headline already carries the title, so only the caveat remains.
+            summary = ""
+            caveat = _append_caveat(caveat, _RECOVERY_CAVEAT)
+
+    return (
+        {
+            "title": title,
+            "summary": summary,
+            "why_it_matters": why_it_matters,
+            "background_knowledge": background,
+            "confidence_caveat": caveat,
+        },
+        title_url,
+    )
+
+
+def _looks_like_model_json(text: str) -> bool:
+    stripped = text.lstrip()
+    return (
+        _STRUCTURED_SUMMARY_RE.search(text) is not None
+        or stripped.startswith(("{", "```"))
+    )
+
+
+def _append_caveat(existing: str | None, phrase: str) -> str:
+    if existing:
+        return f"{existing} {phrase}"
+    return phrase
 
 
 def _entry_common_fields(entry: DigestEntry, *, display_rank: int) -> dict[str, Any]:
@@ -102,7 +157,11 @@ def extract_github_evidence(
     return payload
 
 
-def extract_juya_evidence(source_evidence: dict[str, Any]) -> dict[str, Any]:
+def extract_juya_evidence(
+    source_evidence: dict[str, Any],
+    *,
+    title_url: str | None = None,
+) -> dict[str, Any]:
     item_type = source_evidence.get("juya_item_type")
     normalized_type = item_type if item_type in ("issue", "story") else None
     issue_block = {
@@ -110,13 +169,15 @@ def extract_juya_evidence(source_evidence: dict[str, Any]) -> dict[str, Any]:
         "date": _optional_str(source_evidence.get("issue_date")),
         "url": _safe_http_url(source_evidence.get("issue_url")),
         "cover_url": _safe_http_url(source_evidence.get("issue_cover_url")),
-        "lead_title": _optional_str(source_evidence.get("issue_lead_title")),
+        "lead_title": clean_lead_title(source_evidence.get("issue_lead_title")),
     }
     has_issue = any(value is not None for value in issue_block.values())
     story_block = {
         "number": _optional_int(source_evidence.get("story_number")),
         "section": _optional_str(source_evidence.get("story_section")),
-        "original_url": _safe_http_url(source_evidence.get("story_original_url")),
+        "original_url": _article_url(
+            title_url or source_evidence.get("story_original_url")
+        ),
     }
     has_story = any(value is not None for value in story_block.values())
     return {
@@ -124,6 +185,14 @@ def extract_juya_evidence(source_evidence: dict[str, Any]) -> dict[str, Any]:
         "issue": issue_block if has_issue else None,
         "story": story_block if has_story and normalized_type == "story" else None,
     }
+
+
+def _article_url(value: Any) -> str | None:
+    """A valid http(s) article URL; image assets are rejected."""
+    url = _safe_http_url(value)
+    if url is None or is_image_url(url):
+        return None
+    return url
 
 
 def extract_huggingface_evidence(source_evidence: dict[str, Any]) -> dict[str, Any]:

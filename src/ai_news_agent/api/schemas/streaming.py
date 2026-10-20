@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from ai_news_agent.api.schemas.digests import DigestView
 from ai_news_agent.models import ConnectorWarning
+from ai_news_agent.api.schemas.sessions import ResolvedRequestOut
 
 
 class StartedPayload(BaseModel):
@@ -15,6 +16,8 @@ class StartedPayload(BaseModel):
 
     request_id: str
     user_message_id: int
+    request: ResolvedRequestOut | None = None
+    intent: str | None = None
 
 
 class ProgressPayload(BaseModel):

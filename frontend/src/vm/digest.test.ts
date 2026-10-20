@@ -143,11 +143,13 @@ describe('Juya issue grouping', () => {
       topic: 'Headlines',
       originalUrl: 'https://example.com/1',
       storyNumber: 1,
+      background: 'b',
     })
     expect(group?.stories[1]?.juya).toEqual({
       topic: 'Model releases',
       originalUrl: 'https://example.com/4',
       storyNumber: 4,
+      background: 'b',
     })
     expect(group?.stories.map((story) => story.rank)).toEqual([1, 2])
     expect(group?.stories.map((story) => story.juya?.storyNumber)).toEqual([1, 4])
@@ -171,6 +173,12 @@ describe('Juya issue grouping', () => {
 
     expect(sections[0]?.entries[0]?.rank).toBe(1)
     expect(sections[0]?.entries[0]?.juya?.storyNumber).toBeNull()
+  })
+
+  it('turns a blank Juya background into null', () => {
+    const sections = toSectionsVm([juyaEntry('A', 1, { background_knowledge: '   ' })])
+
+    expect(sections[0]?.entries[0]?.juya?.background).toBeNull()
   })
 
   it('builds the eyebrow from the issue date with no issue number', () => {

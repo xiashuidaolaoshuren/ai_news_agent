@@ -287,6 +287,87 @@ def test_summarize_juya_entry_uses_juya_source_display_name() -> None:
     assert digest.entries[0].source_name == "Juya"
 
 
+def test_summarize_juya_story_defaults_to_concise_chinese_context() -> None:
+    from ai_news_agent.summarizer import summarize_ranked_items
+
+    ni = NewsItem(
+        source=SourceKind.JUYA,
+        source_id="juya-story-1",
+        url="https://daily.juya.uk/issues/2026-10-17/#story-1",
+        title="有关部门拟增列AI技术进入出口管制目录",
+        collected_at=_fixed_now(),
+        author="jujuyaya",
+        raw_snippet="有关部门发布公告，就修订目录公开征求意见。",
+        content_confidence=ConfidenceLevel.HIGH,
+        source_evidence={
+            "juya_item_type": "story",
+            "story_number": 1,
+            "story_summary": "拟增列 23 项人工智能技术。",
+        },
+    )
+    fake = FakeChatModel()
+    summarize_ranked_items(
+        [RankedItem(item=ni, score_total=1.0, selected=True)],
+        generated_at=_fixed_now(),
+        topics=["AI"],
+        model=fake,
+    )
+
+    call = fake.calls[0]
+    assert call["output_language"] == "zh-CN"
+    assert call["juya_story"] is True
+    assert call["story_summary"] == "拟增列 23 项人工智能技术。"
+
+
+def test_summarize_juya_story_honors_explicit_language() -> None:
+    from ai_news_agent.summarizer import summarize_ranked_items
+
+    ni = NewsItem(
+        source=SourceKind.JUYA,
+        source_id="juya-story-2",
+        url="https://daily.juya.uk/issues/2026-10-17/#story-2",
+        title="OpenAI 宣布优化 Codex 提升用户有效使用量",
+        collected_at=_fixed_now(),
+        raw_snippet="Codex and Work improved effective usage.",
+        content_confidence=ConfidenceLevel.HIGH,
+        source_evidence={"juya_item_type": "story", "story_number": 2},
+    )
+    fake = FakeChatModel()
+    summarize_ranked_items(
+        [RankedItem(item=ni, score_total=1.0, selected=True)],
+        generated_at=_fixed_now(),
+        topics=["AI"],
+        model=fake,
+        output_language="en",
+    )
+
+    assert fake.calls[0]["output_language"] == "en"
+
+
+def test_summarize_non_juya_keeps_default_language() -> None:
+    from ai_news_agent.summarizer import summarize_ranked_items
+
+    ni = NewsItem(
+        source=SourceKind.GITHUB,
+        source_id="gh-1",
+        url="https://github.com/o/one",
+        title="one",
+        collected_at=_fixed_now(),
+        raw_snippet="a",
+        content_confidence=ConfidenceLevel.HIGH,
+    )
+    fake = FakeChatModel()
+    summarize_ranked_items(
+        [RankedItem(item=ni, score_total=1.0, selected=True)],
+        generated_at=_fixed_now(),
+        topics=["AI"],
+        model=fake,
+    )
+
+    assert fake.calls[0]["output_language"] == ""
+    assert fake.calls[0]["juya_story"] is False
+
+
 def test_summarize_huggingface_skips_generate_entry_fields_but_persists_stub_entry() -> None:
     from ai_news_agent.summarizer import summarize_ranked_items
 
@@ -718,3 +799,58 @@ def test_build_tool_chat_model_satisfies_tool_call_model_protocol() -> None:
 
     result = build_tool_chat_model(api_key="fake-key-for-protocol-check")
     assert isinstance(result, ToolCallModel)
+
+
+def test_beginner_audience_reaches_the_summarization_context() -> None:
+    from ai_news_agent.summarizer import summarize_ranked_items
+
+    item = NewsItem(
+        source=SourceKind.GITHUB,
+        source_id="s1",
+        url="https://github.com/org/repo",
+        title="org/repo",
+        collected_at=_fixed_now(),
+        raw_snippet="description",
+        content_confidence=ConfidenceLevel.MEDIUM,
+    )
+    ranked = [RankedItem(item=item, score_total=2.0, selected=True)]
+    model = FakeChatModel()
+
+    summarize_ranked_items(
+        ranked,
+        generated_at=_fixed_now(),
+        topics=["AI"],
+        model=model,
+        audience="beginner",
+    )
+
+    assert model.calls[0]["audience"] == "beginner"
+
+
+def test_explicit_language_survives_a_beginner_juya_story() -> None:
+    from ai_news_agent.summarizer import summarize_ranked_items
+
+    item = NewsItem(
+        source=SourceKind.JUYA,
+        source_id="story-1",
+        url="https://daily.juya.uk/x#story-1",
+        title="Story",
+        collected_at=_fixed_now(),
+        raw_snippet="evidence",
+        source_evidence={"story_number": 1, "story_summary": "summary"},
+        content_confidence=ConfidenceLevel.HIGH,
+    )
+    ranked = [RankedItem(item=item, score_total=2.0, selected=True)]
+    model = FakeChatModel()
+
+    summarize_ranked_items(
+        ranked,
+        generated_at=_fixed_now(),
+        topics=["AI"],
+        model=model,
+        audience="beginner",
+        output_language="en",
+    )
+
+    assert model.calls[0]["output_language"] == "en"
+    assert model.calls[0]["juya_story"] is True

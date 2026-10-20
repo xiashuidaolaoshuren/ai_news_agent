@@ -67,7 +67,7 @@ export function juyaEntry(over: Partial<EntryVm> = {}): EntryVm {
     followUp: 'read',
     avatar: { type: 'none' },
     previewUrl: null,
-    juya: { topic: 'Headlines', originalUrl: null, storyNumber: 1 },
+    juya: { topic: 'Headlines', originalUrl: null, storyNumber: 1, background: null },
     ...over,
   }
 }

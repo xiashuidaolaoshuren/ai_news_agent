@@ -1,4 +1,4 @@
-"""Tests for local .env loading (CLI / Gradio startup)."""
+"""Tests for local .env loading (CLI / service startup)."""
 
 from __future__ import annotations
 
@@ -191,17 +191,17 @@ def test_cli_live_uses_dotenv_before_build_chat_model(
     assert "OPENAI_API_KEY" not in capsys.readouterr().err
 
 
-def test_gradio_build_service_live_with_dotenv(tmp_path, monkeypatch) -> None:
+def test_build_application_live_with_dotenv(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    (tmp_path / ".env").write_text("OPENAI_API_KEY=sk-gradio-dotenv\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("OPENAI_API_KEY=sk-dotenv\n", encoding="utf-8")
 
     load_local_env()
 
-    from ai_news_agent.app.gradio_app import _build_service
+    from ai_news_agent.services.composition import build_application
 
-    service = _build_service(fake=False, db_path=tmp_path / "gradio.db")
-    assert service is not None
+    application = build_application(fake=False, db_path=tmp_path / "live.db")
+    assert application.chat_service is not None
 
 
 class _FakeDigestRunResult:

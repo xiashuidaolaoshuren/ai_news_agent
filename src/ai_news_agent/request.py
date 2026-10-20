@@ -24,7 +24,7 @@ class DigestRequest:
     max_items_per_source: int = 20
     top_n: int = 5
     language_hint: str | None = None
-    #: When set, ranking selects up to this many items per source kind (Gradio).
+    #: When set, ranking selects up to this many items per source kind.
     items_per_source: int | None = None
     #: Legacy Bilibili selectors (prefer bilibili_* fields).
     target_channels: list[str] = field(default_factory=_empty_str_list)
@@ -48,6 +48,12 @@ class DigestRequest:
     huggingface_pipeline_tag: str | None = None
     #: Web-only Juya collection mode: ``issue`` (default) or ``stories``.
     juya_item_mode: str | None = None
+    #: Browser focus request: connectors drop items unrelated to ``topics``.
+    topics_are_filters: bool = False
+    #: Browser dated request: items outside ``timeframe`` are ineligible, not just lower-ranked.
+    strict_timeframe: bool = False
+    #: Explanation audience (``beginner``) applied when summarizing entries.
+    audience: str | None = None
 
     def __post_init__(self) -> None:
         if self.max_items_per_source < 1:

@@ -23,25 +23,24 @@ The AI News Research Agent is a local-first, on-demand chatbot designed to be a 
 
 ## 4. High-Level Architecture
 The system follows a modular architecture to ensure flexibility and maintainability:
-- **Chat Interface**: A Gradio-based local UI for user interaction.
+- **Chat Interface**: A local browser UI over the project's HTTP API.
 - **Agent Orchestrator**: Powered by **LangGraph** to manage stateful, multi-step workflows.
 - **Source Connectors**: Dedicated modules for Juya, Hugging Face, GitHub, Zhihu, and Bilibili, each with a distinct product job.
 - **Ranking & Summarization Layers**: Logic for filtering and generating content using LLMs.
 - **Storage Layer**: SQLite for local persistence of digests and metadata.
-- **Interface Adapters**: Designed to support future integrations like **OpenClaw**.
 
 ## 5. Tech Stack
 - **Language**: Python
 - **Orchestration**: LangGraph
 - **LLM Framework**: LangChain (for abstractions)
-- **UI**: Gradio
+- **UI**: Vue 3 + Vite (in `frontend/`)
 - **Database**: SQLite
 - **Model Access**: OpenAI-compatible API
 
 ## 6. Project Milestones
-- **Milestone 1: Local Digest MVP**: Core agent workflow with GitHub and Bilibili support, Gradio UI, and local storage.
+- **Milestone 1: Local Digest MVP**: Core agent workflow with GitHub and Bilibili support, chat interface, and local storage.
 - **Milestone 2: LLM Tool Usage Layer**: Structured tool registry and bounded LangGraph tool-calling loop for follow-up chat and source exploration.
-- **Milestone 3: OpenClaw Adapter**: Exposing the agent as a tool within the OpenClaw assistant gateway.
+- **Milestone 3: OpenClaw Adapter** _(removed)_: The OpenClaw gateway integration and the Gradio UI were retired in October 2026; see ADR-0011.
 - **Milestone 4: Pydantic Schema + LangChain `@tool` Registry Migration**: Migrate domain models and tool schemas to Pydantic v2 and the tool registry to LangChain's `@tool` workflow.
 - **Milestone 5: Source Role Split**: First-class Juya connector, GitHub trending-repo re-purpose, Juya-only default, kind-aware segmented ranking (see `docs/adr/0001-source-role-split.md`).
 - **Milestone 6: AI Ecosystem & Practitioner Signals**: Add Hugging Face model-momentum and Zhihu practitioner-insight connectors, with source-native ranking and full interface parity; defer arXiv and generic RSS (see `docs/adr/0002-milestone-6-ecosystem-and-practitioner-signals.md`).

@@ -37,6 +37,55 @@ def _parse_sse_events(body: str) -> list[tuple[str, dict]]:
     return events
 
 
+def test_post_message_natural_starter_prompts_start_a_digest(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "natural-starters.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    expected_topics = ["open-weight models", "agent tooling", "AI"]
+    for index, content in enumerate(
+        (
+            "What shipped in open-weight models this week?",
+            "Trending agent tooling on GitHub, 5 per source",
+            "Summarize the latest Juya AI 早报 for a beginner",
+        )
+    ):
+        with client.stream(
+            "POST",
+            f"/api/v1/sessions/{session_id}/messages",
+            json={"content": content, "client_request_id": f"natural-{index}"},
+        ) as response:
+            assert response.status_code == 200
+            body = response.read().decode()
+
+        events = _parse_sse_events(body)
+        started = next(payload for name, payload in events if name == "started")
+        assert started["intent"] == "digest", content
+        assert started["request"]["topics"] == [expected_topics[index]], content
+        assert any(name == "digest" for name, _ in events), content
+
+
+def test_weekly_starter_discloses_when_nothing_matches_its_window(
+    tmp_path: Path,
+) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "weekly-empty.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "What shipped in open-weight models this week?"},
+    ) as response:
+        body = response.read().decode()
+
+    events = _parse_sse_events(body)
+    digest_payload = next(payload for name, payload in events if name == "digest")
+    assert digest_payload["digest"]["entries"] == []
+    assert any(
+        warning["code"] == "timeframe_excluded_items"
+        for warning in digest_payload["warnings"]
+    )
+
+
 def test_post_message_rejects_invalid_juya_item_mode(tmp_path: Path) -> None:
     client = _build_test_client(fake=True, db_path=tmp_path / "juya-mode-invalid.db")
     session_id = client.post("/api/v1/sessions").json()["id"]
@@ -1286,3 +1335,120 @@ def test_build_application_live_uses_model_factory(
     assert "build_chat_model" in calls
     assert "build_tool_chat_model" in calls
     assert application.chat_service is not None
+
+
+def test_natural_digest_report_exposes_its_resolved_request(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "resolved-request.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "Trending agent tooling on GitHub, 5 per source"},
+    ) as response:
+        assert response.status_code == 200
+        body = response.read().decode()
+
+    events = _parse_sse_events(body)
+    started = next(payload for name, payload in events if name == "started")
+    assert started["intent"] == "digest"
+    assert started["request"]["sources"] == ["github"]
+    assert started["request"]["per_source"] == 5
+
+    transcript = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    user = next(m for m in transcript["messages"] if m["role"] == "user")
+    assert user["request"]["sources"] == ["github"]
+    assert user["request"]["per_source"] == 5
+
+
+def test_session_default_per_source_resolves_into_the_reported_request(
+    tmp_path: Path,
+) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "session-default-count.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+    patched = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={"items_per_source": 5},
+    )
+    assert patched.status_code == 200
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "Trending agent tooling on GitHub"},
+    ) as response:
+        assert response.status_code == 200
+        body = response.read().decode()
+
+    events = _parse_sse_events(body)
+    started = next(payload for name, payload in events if name == "started")
+    assert started["intent"] == "digest"
+    assert started["request"]["per_source"] == 5
+
+    transcript = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    user = next(m for m in transcript["messages"] if m["role"] == "user")
+    assert user["request"]["per_source"] == 5
+
+
+def test_clarification_report_carries_no_source_chips(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "clarify-chips.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "Tell me about Qwen"},
+    ) as response:
+        body = response.read().decode()
+
+    started = next(
+        payload for name, payload in _parse_sse_events(body) if name == "started"
+    )
+    assert started["intent"] == "clarify"
+    assert started["request"] is None
+
+    transcript = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    user = next(m for m in transcript["messages"] if m["role"] == "user")
+    assert user["request"] is None
+
+
+def test_clarification_reply_after_reload_completes_the_original_request(
+    tmp_path: Path,
+) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "clarify-resume.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+    patched = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={"connector_names": ["github"]},
+    )
+    assert patched.status_code == 200
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "Tell me about agents"},
+    ) as response:
+        first_body = response.read().decode()
+    assert any(name == "delta" for name, _ in _parse_sse_events(first_body))
+    assert "agents" in first_body
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "Recent updates"},
+    ) as response:
+        second_body = response.read().decode()
+
+    started = next(
+        payload
+        for name, payload in _parse_sse_events(second_body)
+        if name == "started"
+    )
+    assert started["intent"] == "digest"
+    assert started["request"]["sources"] == ["github"]
+    assert started["request"]["topics"] == ["agents"]
+
+    transcript = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    user_messages = [m for m in transcript["messages"] if m["role"] == "user"]
+    assert user_messages[0]["request"] is None
+    assert user_messages[1]["request"]["topics"] == ["agents"]

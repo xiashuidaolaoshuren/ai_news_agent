@@ -1,4 +1,4 @@
-"""UI package for AI News Agent (Gradio chat UI)."""
+"""Service package for AI News Agent."""
 
 from __future__ import annotations
 

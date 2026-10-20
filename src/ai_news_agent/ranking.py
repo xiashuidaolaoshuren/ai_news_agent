@@ -35,16 +35,27 @@ def rank_items(
     now: datetime | None = None,
     timeframe: str | None = None,
     items_per_source: int | None = None,
+    strict_timeframe: bool = False,
 ) -> list[RankedItem]:
     """Score, deduplicate, and mark top-N candidates.
 
     When ``items_per_source`` is set, select up to that many items per
     :class:`~ai_news_agent.models.SourceKind` instead of one overall ``top_n`` cap.
 
+    ``strict_timeframe`` drops items that cannot prove they fall inside
+    ``timeframe`` before scoring; without it, dates remain only a scoring hint.
+
     ``now`` is injected for deterministic tests; defaults to :func:`utcnow`.
     """
     reference = now if now is not None else utcnow()
     reference = _ensure_aware(reference)
+
+    if strict_timeframe and timeframe:
+        items = [
+            item
+            for item in items
+            if _item_published_within_timeframe(item, timeframe, reference)
+        ]
 
     if not items:
         return []
@@ -371,7 +382,14 @@ def _timeframe_bounds_at(
     if key in ("today",):
         start = datetime.combine(today, datetime.min.time(), tzinfo=UTC)
         return start, start + timedelta(days=1)
-    if key in ("this week", "week", "last_7_days"):
+    if key in ("this_week", "this week", "week"):
+        start_date = today - timedelta(days=today.weekday())
+        start = datetime.combine(start_date, datetime.min.time(), tzinfo=UTC)
+        end_exclusive = datetime.combine(
+            today + timedelta(days=1), datetime.min.time(), tzinfo=UTC
+        )
+        return start, end_exclusive
+    if key in ("last_7_days",):
         start_date = today - timedelta(days=7)
         start = datetime.combine(start_date, datetime.min.time(), tzinfo=UTC)
         end_exclusive = datetime.combine(
@@ -400,6 +418,11 @@ def _item_published_within_timeframe(
         return False
     published = _ensure_aware(item.published_at)
     return start <= published < end_exclusive
+
+
+def within_timeframe(item: NewsItem, timeframe: str | None, now: datetime) -> bool:
+    """True when the item proves it belongs to the timeframe window."""
+    return _item_published_within_timeframe(item, timeframe, _ensure_aware(now))
 
 
 def _ensure_aware(dt: datetime) -> datetime:

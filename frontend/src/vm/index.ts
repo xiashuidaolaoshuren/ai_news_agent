@@ -73,6 +73,7 @@ export {
   metricText,
   resolveDemoAsset,
   safeHttpUrl,
+  toEntryVm,
   toVm,
   textOrNull,
 } from '@/vm/entries'

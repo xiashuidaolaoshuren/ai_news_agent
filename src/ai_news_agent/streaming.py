@@ -1,4 +1,4 @@
-"""Streaming helpers for Gradio and chat UI."""
+"""Streaming helpers for the chat UI."""
 
 from __future__ import annotations
 

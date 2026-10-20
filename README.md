@@ -1,16 +1,16 @@
 # AI News Research Agent
 
-Local-first Python agent that generates **on-demand AI news digests** from **Juya** (default daily bulletin), optional **Hugging Face** trending models, optional **GitHub** trending-repo signals, optional **Zhihu** practitioner insights, and conservative **Bilibili**-oriented sources. It ranks candidates, summarizes them with an LLM (or offline fakes), persists runs to SQLite, and exposes a **CLI** plus optional **Gradio** chat UI.
+Local-first Python agent that generates **on-demand AI news digests** from **Juya** (default daily bulletin), optional **Hugging Face** trending models, optional **GitHub** trending-repo signals, optional **Zhihu** practitioner insights, and conservative **Bilibili**-oriented sources. It ranks candidates, summarizes them with an LLM (or offline fakes), persists runs to SQLite, and exposes a **CLI**, a local **HTTP API**, and a **browser UI**.
 
 Design details: [AI News Research Agent design](docs/superpowers/specs/2026-05-02-ai-news-research-agent-design.md).
 
-**Milestone 1 (Local Digest MVP)** is complete: LangGraph workflow, storage, connectors, ranking, summarization, chat follow-ups, CLI smoke mode, Gradio UI, and tests.
+**Milestone 1 (Local Digest MVP)** is complete: LangGraph workflow, storage, connectors, ranking, summarization, chat follow-ups, CLI smoke mode, and tests.
 
-**Milestone 2 (LLM tool usage layer)** is complete: bounded tool-calling for follow-up inspection and connector search; Gradio wires a tool agent in live and fake modes. Plan: [Milestone 2 implementation plan](docs/superpowers/plans/2026-05-21-llm-tool-usage-layer-plan.md).
+**Milestone 2 (LLM tool usage layer)** is complete: bounded tool-calling for follow-up inspection and connector search; live browser sessions use a tool agent for open-ended follow-ups. Plan: [Milestone 2 implementation plan](docs/superpowers/plans/2026-05-21-llm-tool-usage-layer-plan.md).
 
-**Milestone 3 (OpenClaw integration)** is complete: a local OpenClaw skill delegates digest requests to the existing `ai-news-agent` CLI via a thin adapter boundary. Plan: [Milestone 3 OpenClaw integration plan](docs/superpowers/plans/2026-06-08-openclaw-integration-plan.md).
+**Milestone 3 (OpenClaw integration)** was removed in October 2026 together with the Gradio chat UI; the browser UI and CLI are the supported surfaces. See [ADR-0011](docs/adr/0011-remove-gradio-ui-and-openclaw-integration.md). The historical design remains at [OpenClaw integration design](docs/superpowers/specs/2026-06-08-openclaw-integration-design.md).
 
-**Milestone 6 (AI ecosystem and practitioner signals)** is complete: opt-in Hugging Face trending-model and Zhihu practitioner-insight connectors, kind-aware ranking, Gradio/CLI/OpenClaw source names, and dedicated search tools. Bare digests stay Juya-only. Design: [Milestone 6 design](docs/superpowers/specs/2026-08-16-ai-ecosystem-and-practitioner-signals-design.md). ADR: [ADR-0002](docs/adr/0002-milestone-6-ecosystem-and-practitioner-signals.md).
+**Milestone 6 (AI ecosystem and practitioner signals)** is complete: opt-in Hugging Face trending-model and Zhihu practitioner-insight connectors, kind-aware ranking, CLI/API source names, and dedicated search tools. Bare digests stay Juya-only. Design: [Milestone 6 design](docs/superpowers/specs/2026-08-16-ai-ecosystem-and-practitioner-signals-design.md). ADR: [ADR-0002](docs/adr/0002-milestone-6-ecosystem-and-practitioner-signals.md).
 
 ## Prerequisites
 
@@ -38,11 +38,11 @@ If `import ai_news_agent` fails outside an editable install, use `PYTHONPATH=src
 
 Copy [`.env.example`](.env.example) to `.env` and fill values as needed (never commit secrets).
 
-**Local entrypoints auto-load `.env`** when you run `ai-news-agent` or `python -m ai_news_agent.app.gradio_app`. Lookup order: `./.env` in the current working directory, then the first `.env` found in parent directories. Variables already exported in your shell are **not** overwritten.
+**Local entrypoints auto-load `.env`** when you run `ai-news-agent`. Lookup order: `./.env` in the current working directory, then the first `.env` found in parent directories. Variables already exported in your shell are **not** overwritten.
 
 | Variable | When needed | Purpose |
 |----------|-------------|---------|
-| `OPENAI_API_KEY` | Live digest + live Gradio tool follow-ups | Digest summarization (`build_chat_model`) and tool-calling follow-ups (`build_tool_chat_model`) via [`llm.py`](src/ai_news_agent/llm.py) |
+| `OPENAI_API_KEY` | Live digest + live browser tool follow-ups | Digest summarization (`build_chat_model`) and tool-calling follow-ups (`build_tool_chat_model`) via [`llm.py`](src/ai_news_agent/llm.py) |
 | `OPENAI_BASE_URL` | Optional | Custom gateway / compatible endpoint (applies to both summarization and tool agent) |
 | `OPENAI_MODEL` | Optional | Model name (default `gpt-4o-mini`) |
 | `GITHUB_TOKEN` | Optional | Higher GitHub API rate limits ([`connectors/github.py`](src/ai_news_agent/connectors/github.py)) |
@@ -75,13 +75,13 @@ uv run ai-news-agent digest --fake --sources zhihu
 uv run ai-news-agent digest --fake --sources huggingface,zhihu,github
 ```
 
-Gradio chat UI in offline mode:
+Start the local service in offline (fake) mode, then use the web UI (see [Web frontend](#web-frontend-milestone-8b)):
 
 ```bash
-uv run python -m ai_news_agent.app.gradio_app --fake
+uv run ai-news-agent service --fake
 ```
 
-Open the printed URL (default port **7860**). Try **“Give me today's AI digest”**, then **“show sources”** (structured follow-up). Try an open-ended question such as **“Why does the top item matter?”** to see fake tool-agent behavior (fixed offline reply, not live search).
+Try **“Give me today's AI digest”**, then **“show sources”** (structured follow-up). Try an open-ended question such as **“Why does the top item matter?”** to see fake tool-agent behavior (fixed offline reply, not live search).
 
 ## Live digest (network + LLM)
 
@@ -137,37 +137,25 @@ uv run ai-news-agent history-show d12:r3 --db-path ./digest.sqlite
 
 `history-show` prints one saved item by `d<digest_id>:r<rank>` token. Exit **0** when found; **2** when not found or token invalid.
 
-OpenClaw has **no** history subcommands — use CLI or Gradio chat for historical search.
+The web chat supports the same history prompts (`search history …`, `open history dN:rN`).
 
 Console entrypoint: [`ai-news-agent`](pyproject.toml) → [`cli.main`](src/ai_news_agent/cli.py).
 
-## Gradio chatbot
+## Chat behaviour
 
-Launch:
-
-```bash
-uv run python -m ai_news_agent.app.gradio_app
-```
-
-Offline:
-
-```bash
-uv run python -m ai_news_agent.app.gradio_app --fake --port 7860 --db-path ./digest.sqlite
-```
-
-The UI delegates to [`ChatService`](src/ai_news_agent/chat.py):
+The browser UI and the HTTP API delegate to [`ChatService`](src/ai_news_agent/services/chat.py):
 
 - **Historical digest search** (`search history …`, `open history dN:rN`) — SQLite-only lookup; intercepts **before** the digest workflow and **before** latest-digest follow-up routing. Works in **`--fake`** mode (offline, no tool agent). Opening a hit is **persist-only** and does **not** change latest-digest follow-up context (structured prompts still refer to the most recent digest run).
 - **Digest requests** (phrases like “digest”, URLs, source toggles) run the **deterministic LangGraph workflow** — collect, rank, summarize, persist — with streaming progress, then stream the final digest text.
 - **Follow-ups** use the latest saved digest from SQLite. Routing order:
   1. **Structured** prompts → instant answers from persisted traces (no LLM tools): sources, ranking / study-first, caveats.
-  2. **Open-ended** or source-exploration questions → **bounded tool agent** when configured (Gradio live and fake modes inject `tool_agent_runner` in [`gradio_app.py`](src/ai_news_agent/app/gradio_app.py)).
-  3. **Legacy fallback** → `chat_model.generate_followup_reply` only if no tool agent is configured (not used by default live Gradio).
+  2. **Open-ended** or source-exploration questions → **bounded tool agent** when configured (live browser sessions call `run_session_followup` in [`interface_router.py`](src/ai_news_agent/tools/interface_router.py)).
+  3. **Legacy fallback** → `chat_model.generate_followup_reply` only if no tool agent is configured (not used by default live mode).
   4. **Guidance** message if neither tool agent nor chat model is available.
 
-Example prompts live in a collapsible **Example prompts** panel below the chat. Clicking an example sets **Sources** to match that prompt (Items per source is unchanged); history prompts still only set Sources — the history intercept ignores those toggles. Digest responses show live workflow progress (collecting, ranking, summarizing, etc.), then stream the final digest text incrementally in the chat bubble.
+Digest responses show live workflow progress (collecting, ranking, summarizing, etc.), then stream the final digest text incrementally in the chat bubble.
 
-### Milestone 2 — Follow-up tools (Gradio / ChatService)
+### Milestone 2 — Follow-up tools
 
 **Deterministic digest** (unchanged): LangGraph path for digest keywords, targeted URLs/channels, and session source toggles.
 
@@ -182,13 +170,13 @@ Example prompts live in a collapsible **Example prompts** panel below the chat. 
 
 Registry tools (live mode): `load_latest_digest`, `get_digest_item`, `get_source_trace`, `get_ranking_explanation`, `search_juya_ai_news`, `search_github_ai_news`, `search_bilibili_ai_news`, `search_huggingface_trending_models`, `search_zhihu_practitioner_insights` (see [`tools/registry.py`](src/ai_news_agent/tools/registry.py)).
 
-**Fake mode (`--fake`):**
+**Fake mode (`service --fake`):**
 
 - Digest: `FakeDigestModel` + fake Juya/Hugging Face/GitHub/Zhihu/Bilibili connectors (no API keys).
 - Structured follow-ups: work as in live mode (deterministic from stored traces).
 - Open-ended follow-ups: return a **fixed offline message** from the fake tool agent (no real tool-calling model, no connector search). Use structured prompts for reliable offline demos.
 
-**Live Gradio:** requires `OPENAI_API_KEY` for both digest summarization and tool-calling follow-ups (`build_chat_model` + `build_tool_chat_model`).
+**Live mode:** requires `OPENAI_API_KEY` for both digest summarization and tool-calling follow-ups (`build_chat_model` + `build_tool_chat_model`).
 
 ### Example prompts (after a digest)
 
@@ -205,7 +193,7 @@ In **fake mode**, open-ended and source-exploration prompts return the offline t
 
 ### Source toggles and selection
 
-Gradio shows **session-sticky** checkboxes for `juya`, `huggingface`, `github`, `zhihu`, and `bilibili` (**Juya selected by default**). Each digest run uses the current checkbox selection via `DigestRequest.connector_names`. Use **Items per source** (default 5, range 1–20) to cap how many ranked items appear from each enabled source in mixed digests.
+The web composer shows **session-sticky** checkboxes for `juya`, `huggingface`, `github`, `zhihu`, and `bilibili` (**Juya selected by default**). Each digest run uses the current checkbox selection via `DigestRequest.connector_names`. Use **Items per source** (default 5, range 1–20) to cap how many ranked items appear from each enabled source in mixed digests.
 
 Bare digest requests (no source toggles or explicit `--sources`) resolve to **Juya-only** via [`DEFAULT_SOURCE_NAMES`](src/ai_news_agent/sources.py). Select multiple checkboxes or pass a comma-separated `--sources` list for a **mixed digest**; section order is primary intent first, otherwise Juya → Hugging Face → GitHub → Zhihu → Bilibili (empty sections omitted).
 
@@ -219,7 +207,7 @@ You can override the toggles for a single request with natural-language phrases:
 - `bilibili only digest today`
 - `use juya and huggingface for today's digest`
 
-CLI, Gradio, and OpenClaw share the canonical source registry in [`sources.py`](src/ai_news_agent/sources.py). The OpenClaw adapter maps hints to the same `DigestRequest.connector_names` field via CLI flags.
+CLI and the web API share the canonical source registry in [`sources.py`](src/ai_news_agent/sources.py).
 
 ### Targeted digests (URLs and channels)
 
@@ -250,7 +238,7 @@ If Bilibili requests fail with HTTP 412:
 
 ### Logging
 
-Gradio and CLI share structured logging to **terminal** and a rotating file (default: `logs/ai-news-agent.log`).
+The service and CLI share structured logging to **terminal** and a rotating file (default: `logs/ai-news-agent.log`).
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
@@ -259,13 +247,13 @@ Gradio and CLI share structured logging to **terminal** and a rotating file (def
 | `AI_NEWS_AGENT_LOG_MAX_BYTES` | `2000000` | Rotate when file exceeds this size |
 | `AI_NEWS_AGENT_LOG_BACKUP_COUNT` | `3` | Number of rotated backups kept |
 
-On failures, the Gradio UI shows a short user-friendly message; full stack traces are written to the terminal and log file.
+On failures, the web UI shows a short user-friendly message; full stack traces are written to the terminal and log file.
 
 ## Local web API (Milestone 8A.1)
 
 **8A.1 is local-only.** There is no authentication, visitor isolation, quota, or public deployment. Browser CORS allows only `http://127.0.0.1:5173` and `http://localhost:5173`. Do not expose this process beyond loopback.
 
-`ai-news-agent service` starts one FastAPI app. It serves the unversioned OpenClaw routes (`/health`, `/digest`, `/followup`) and the browser API under `/api/v1`. Gradio is unchanged and still launches separately (`python -m ai_news_agent.app.gradio_app`). OpenClaw client commands (`openclaw-digest`, `openclaw-followup`) are unchanged.
+`ai-news-agent service` starts one FastAPI app. It serves the browser API under `/api/v1` on loopback.
 
 Offline (no network, no API key):
 
@@ -273,7 +261,7 @@ Offline (no network, no API key):
 uv run ai-news-agent service --fake --host 127.0.0.1 --port 8765 --db-path ./digest.sqlite
 ```
 
-Live (requires `OPENAI_API_KEY`, same as CLI and Gradio):
+Live (requires `OPENAI_API_KEY`, same as the CLI):
 
 ```bash
 uv run ai-news-agent service --port 8765 --db-path ./digest.sqlite
@@ -320,7 +308,7 @@ Browser routes:
 | `source`, `status`, `count` | SSE `progress` event (`ProgressPayload`) | All three are `null` for non-connector lines. `status` is `running`, `done`, or `failed` when set. `count` is an integer on `done`. `stage` is always sent. |
 | `topics` | `HistorySearchMatchOut` | Always a list, in saved digest order. `[]` when the digest has no topics. |
 
-**Juya story mode (web only):** `POST .../messages` accepts optional `"juya_item_mode": "stories"` (default `"issue"`). This applies to that message only; CLI, Gradio, and OpenClaw stay issue mode. Replaying a finished `client_request_id` returns the saved digest regardless of new options.
+**Juya story mode (web only):** `POST .../messages` accepts optional `"juya_item_mode": "stories"` (default `"issue"`). This applies to that message only; the CLI stays issue mode. Replaying a finished `client_request_id` returns the saved digest regardless of new options.
 
 Chat SSE (`POST /api/v1/sessions/{id}/messages`) uses `fetch` and a `ReadableStream`, not `EventSource`. Frames are `event: <name>` plus one JSON `data:` line. Event names, in order: `started`, `progress`, `delta`, `digest` (digest results only), then terminal `done` or `error`. A dropped client does not stop persistence: the assistant message is still saved. Reconnect by polling request status and reloading the transcript; the server does not resume a partial byte stream. Reusing a finished `client_request_id` replays the stored outcome and does not start a new run.
 
@@ -359,136 +347,6 @@ npm --prefix frontend run gen:api
 
 Scripts: `dev`, `build`, `typecheck`, `test`, `gen:api`, `gen:api:spec`. The client is generated with `@hey-api/openapi-ts` into `frontend/src/api/generated/`.
 
-## OpenClaw integration (Milestone 3)
-
-Use [OpenClaw](https://docs.openclaw.ai/) as an outer gateway to trigger digest generation through natural-language prompts. OpenClaw handles channels and sessions; this project still runs retrieval, ranking, summarization, and persistence through the existing CLI workflow.
-
-Design: [OpenClaw integration design](docs/superpowers/specs/2026-06-08-openclaw-integration-design.md).
-
-### Prerequisites
-
-- **OpenClaw Gateway** installed and running locally (loopback / trusted workspace).
-- **uv** on PATH (required by the skill metadata).
-- This repository installed (`uv sync --group dev` from repo root).
-- **Live digests:** `OPENAI_API_KEY` in `.env` or your shell (same as CLI/Gradio live mode).
-- Optional: `GITHUB_TOKEN`, `HUGGINGFACE_TOKEN`, `ZHIHU_ACCESS_SECRET`, Bilibili cookie vars (see [Environment variables](#environment-variables)).
-
-### Skill setup
-
-The skill definitions live in this repo at [`openclaw/skills/ai-news-digest/SKILL.md`](openclaw/skills/ai-news-digest/SKILL.md) and [`openclaw/skills/ai-news-followup/SKILL.md`](openclaw/skills/ai-news-followup/SKILL.md).
-
-**Start the warm digest service** (once per session; same process as the local `/api/v1` API):
-
-```bash
-uv run ai-news-agent service --port 8765
-```
-
-Optional: set `AI_NEWS_AGENT_SERVICE_URL` if not using the default `http://127.0.0.1:8765`.
-
-Make the skill visible to your OpenClaw workspace (adjust paths for your OS):
-
-```bash
-# Example: symlink repo skills into OpenClaw workspace skills directory
-ln -s "$(pwd)/openclaw/skills/ai-news-digest" ~/.openclaw/workspace/skills/ai-news-digest
-ln -s "$(pwd)/openclaw/skills/ai-news-followup" ~/.openclaw/workspace/skills/ai-news-followup
-```
-
-After adding or updating the skill, start a new OpenClaw session (e.g. `/new` in chat) or restart the gateway so it reloads skills.
-
-The skill instructs OpenClaw to use the `exec` tool with a **fixed command template** —
-`uv run ai-news-agent openclaw-digest ...` — run from this repository root. The client
-calls the warm local digest service (`ai-news-agent service`). Argument mapping (timeframe,
-sources, topics) aligns with [`adapters/openclaw.py`](src/ai_news_agent/adapters/openclaw.py).
-
-Latency baseline and comparison procedure: [`docs/benchmarks/openclaw-latency-baseline.md`](docs/benchmarks/openclaw-latency-baseline.md).
-
-### Usage
-
-Send natural-language digest requests through any OpenClaw-connected channel. The skill maps intent to CLI flags and returns the markdown digest stdout unchanged (including source links and connector caveats).
-
-| Smoke prompt | Expected CLI shape |
-|--------------|-------------------|
-| Give me today's AI digest. | `openclaw-digest --timeframe today --sources juya` |
-| Give me today's AI digest from GitHub only. | `openclaw-digest --timeframe today --sources github` |
-| Give me this week's AI digest on RAG and agents. | `openclaw-digest --timeframe last_7_days --sources juya --topics RAG,agents` |
-| Give me Hugging Face trending RAG models. | `openclaw-digest --message "trending RAG models on hugging face"` |
-| Give me Zhihu practitioner insights on RAG. | `openclaw-digest --message "zhihu practitioner insights on RAG"` |
-| Give me a mixed digest from GitHub and Bilibili. | `openclaw-digest --timeframe today --sources github,bilibili` |
-| Digest bilibili video BV1gRJs63EYX | `openclaw-digest --message "Digest bilibili video BV1gRJs63EYX"` |
-| Digest https://github.com/langchain-ai/langgraph | `openclaw-digest --message "Digest https://github.com/langchain-ai/langgraph"` |
-| Digest https://daily.juya.uk/ | `openclaw-digest --message "Digest https://daily.juya.uk/" --output-style editorial --output-language zh-CN` |
-| Digest https://github.com/jujuyaya/juya-ai-daily | **Rejected** — use `https://daily.juya.uk/` instead |
-| Digest bilibili channel 285286947 | `openclaw-digest --message "Digest bilibili channel 285286947"` |
-
-Full commands (from repo root, service running):
-
-```bash
-uv run ai-news-agent openclaw-digest --timeframe today --sources juya
-uv run ai-news-agent openclaw-digest --timeframe today --sources github,bilibili
-uv run ai-news-agent openclaw-digest --message "Digest bilibili video BV1gRJs63EYX"
-uv run ai-news-agent openclaw-digest --message "Digest https://daily.juya.uk/" --output-style editorial --output-language zh-CN
-uv run ai-news-agent openclaw-followup --message "follow up on item 1"
-```
-
-Targeted Juya digests use **`https://daily.juya.uk/` only** (not the legacy `jujuyaya/juya-ai-daily` GitHub repo). Ingestion reads the website RSS feed, then enriches each issue from `daily.juya.uk/markdown/{date}.md` when available (falling back to RSS `content:encoded`). Use `--output-style editorial --output-language zh-CN` for a compact Chinese issue index. Ask for a specific issue with `openclaw-followup --message "Digest the first news"` to expand sub-news from persisted issue evidence.
-
-Targeted prompts must route through `openclaw-digest --message` (not `web_fetch` or manual API scraping).
-
-### Structured follow-up (OpenClaw)
-
-After generating a digest, use the **`ai-news-followup`** skill for deterministic inspection of the latest saved digest (same `digest.sqlite` as the warm service):
-
-| Smoke prompt | Expected CLI shape |
-|--------------|-------------------|
-| Show sources | `openclaw-followup --message "show sources"` |
-| Which item should I study first? | `openclaw-followup --message "which item should I study first"` |
-| Follow up on item 1 | `openclaw-followup --message "follow up on item 1"` |
-| Digest the first news (Juya deep dive) | `openclaw-followup --message "Digest the first news"` |
-| Follow up on the second one | `openclaw-followup --message "follow up on the second one"` |
-| Show caveats | `openclaw-followup --message "show caveats"` |
-
-```bash
-uv run ai-news-agent openclaw-followup --message "show sources"
-uv run ai-news-agent openclaw-followup --message "follow up on item 1"
-```
-
-Rank-targeted follow-up uses those same phrases and the latest digest **display rank** (global list order). It is persist-only: no Hub re-fetch and no Zhihu page crawl. Kind-specific cards:
-
-- **Juya** daily issues: **issue deep-dive** with sub-news from persisted website markdown
-- **Hugging Face**: **family card** from saved Hub stats / Also variants / snippet (first rank follow-up may live-fetch the representative model-card README once; later follow-ups reuse saved text; Hub trending is popularity, not quality)
-- **Zhihu**: **practitioner-insight card** from saved search evidence (搜索相关性 is official-search relevance, not 热度)
-- **GitHub / Bilibili**: generic digest-item reprint
-
-Open-ended follow-up Q&A is still **not** supported in OpenClaw; use Gradio for tool-agent follow-ups.
-
-Offline smoke (no API key, no network) — run directly from repo root:
-
-```bash
-uv run ai-news-agent digest --fake --timeframe today
-uv run ai-news-agent digest --fake --timeframe today --sources huggingface
-uv run ai-news-agent digest --fake --timeframe today --sources zhihu
-uv run ai-news-agent digest --fake --timeframe today --sources huggingface,zhihu,github
-uv run ai-news-agent digest --fake --timeframe today --sources github,bilibili
-```
-
-Live equivalent (Juya-only default):
-
-```bash
-uv run ai-news-agent digest --timeframe today
-```
-
-Live mixed sources (explicit opt-in):
-
-```bash
-uv run ai-news-agent digest --timeframe today --sources github,bilibili
-```
-
-### Security notes
-
-- Keep the gateway on loopback / trusted local contexts only.
-- Commands use validated tokens; do not interpolate raw user text into shell strings.
-- OpenClaw supports **structured** follow-up only (`openclaw-followup`); open-ended Q&A remains in Gradio.
-
 ## Tests
 
 Full suite:
@@ -525,18 +383,13 @@ Set `BILIBILI_SESSDATA`, `BILIBILI_BILI_JCT`, and `BILIBILI_BUVID3` in `.env` if
 
 - Tool agent has a **bounded iteration cap**; very complex multi-step questions may hit the fallback message.
 - **Fake mode** does not run a real tool-calling model or live connector search for open-ended prompts.
-- **Out of scope:** scheduled runs, cloud deployment, arXiv / generic RSS connectors, Hugging Face datasets/Spaces, Zhihu hotlist/direct-answer/page crawl, vector RAG, OpenClaw follow-up orchestration (see design spec milestones).
-
-**Milestone 3 OpenClaw:**
-
-- Digest generation only via CLI delegation; no gateway-native TypeScript plugin.
-- OpenClaw supports structured follow-up via `openclaw-followup`; open-ended Q&A in channels uses Gradio.
+- **Out of scope:** scheduled runs, cloud deployment, arXiv / generic RSS connectors, Hugging Face datasets/Spaces, Zhihu hotlist/direct-answer/page crawl, vector RAG (see design spec milestones).
 
 **Milestone 8A.1 web API:**
 
 - Local loopback only. No accounts, quotas, or public fake backend.
 - Session search is lexical. Embeddings and memory RAG are later work.
-- Gradio and the OpenClaw client commands stay as documented above.
+- The CLI remains available for one-shot digests and history search.
 
 ## Documentation
 
@@ -544,8 +397,7 @@ Set `BILIBILI_SESSDATA`, `BILIBILI_BILI_JCT`, and `BILIBILI_BUVID3` in `.env` if
 - [Milestone 8A.1 web API and sessions design](docs/superpowers/specs/2026-09-11-milestone-8a1-web-api-and-sessions-design.md)
 - [Implementation plan (T1–T14, Milestone 1)](docs/superpowers/plans/2026-05-02-ai-news-research-agent-plan.md)
 - [Milestone 2 LLM tool usage layer plan](docs/superpowers/plans/2026-05-21-llm-tool-usage-layer-plan.md)
-- [Milestone 3 OpenClaw integration plan](docs/superpowers/plans/2026-06-08-openclaw-integration-plan.md)
-- [Milestone 3 OpenClaw integration design](docs/superpowers/specs/2026-06-08-openclaw-integration-design.md)
+- [ADR-0011 Remove Gradio UI and OpenClaw integration](docs/adr/0011-remove-gradio-ui-and-openclaw-integration.md)
 - [Design spec](docs/superpowers/specs/2026-05-02-ai-news-research-agent-design.md)
 - [Milestone 6 AI ecosystem and practitioner signals design](docs/superpowers/specs/2026-08-16-ai-ecosystem-and-practitioner-signals-design.md)
 - [Milestone 6 implementation plan](docs/superpowers/plans/2026-08-16-ai-ecosystem-and-practitioner-signals-plan.md)

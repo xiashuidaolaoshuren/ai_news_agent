@@ -15,7 +15,7 @@ import { setupApiClient } from '@/api/setupClient'
 import { prefersReducedMotion } from '@/lib/motion'
 import { useSessionsStore } from '@/stores/sessions'
 import { toDigestVm, type DigestVm } from '@/vm/digest'
-import { toMessageVm, toRequestStateVm, toSentSourcesVm, type MessageVm, type RequestStateVm, type SentSourcesInput, type SentSourcesVm } from '@/vm/session'
+import { toMessageVm, toRequestStateVm, toResolvedSourcesVm, toSentSourcesVm, type MessageVm, type RequestStateVm, type SentSourcesInput, type SentSourcesVm } from '@/vm/session'
 import {
   toCancelledVm,
   toRunVm,
@@ -101,7 +101,7 @@ export function createThreadController(deps: ThreadDeps) {
   const loadError = ref<string | null>(null)
   const session = shallowRef<SessionOut | null>(null)
   const draft = ref('')
-  const pendingUser = ref<{ text: string; chips: SentSourcesVm } | null>(null)
+  const pendingUser = ref<{ text: string; chips: SentSourcesVm | null } | null>(null)
   const freshIds = ref<number[]>([])
   const rawSnapshot = shallowRef<RequestSnapshot>(deps.lifecycle.state)
   const progressTimes = ref<string[]>([])
@@ -196,11 +196,26 @@ export function createThreadController(deps: ThreadDeps) {
         next.userMessageId !== previous.userMessageId &&
         pendingUser.value !== null
       ) {
-        // The row the backend persisted for the question the user just sent keeps
-        // the chips of that send, even after the reload replaces the pending bubble.
+        // The row the backend persisted for the question keeps the chips of what the
+        // run actually resolved to, which can differ from the composer's selection.
         const nextSources = new Map(sentSources.value)
-        nextSources.set(next.userMessageId, pendingUser.value.chips)
+        let chips: SentSourcesVm | null
+        if (next.intent !== null && next.intent !== 'digest') {
+          nextSources.delete(next.userMessageId)
+          chips = null
+        } else if (next.request !== null) {
+          chips = toResolvedSourcesVm(next.request)
+          nextSources.set(next.userMessageId, chips)
+        } else {
+          chips = pendingUser.value.chips
+          if (chips === null) {
+            nextSources.delete(next.userMessageId)
+          } else {
+            nextSources.set(next.userMessageId, chips)
+          }
+        }
         sentSources.value = nextSources
+        pendingUser.value = { ...pendingUser.value, chips }
       }
       if (next.digest !== null) {
         // The `digest` event is the reply: show it now rather than waiting for `done`
@@ -337,7 +352,9 @@ export function createThreadController(deps: ThreadDeps) {
               kind: 'user' as const,
               text: pendingUser.value.text,
               createdAt: '',
-              chips: pendingUser.value.chips,
+              ...(pendingUser.value.chips === null
+                ? {}
+                : { chips: pendingUser.value.chips }),
               warnings: [],
             },
           ]

@@ -544,6 +544,7 @@ export type MessageOut = {
      */
     warnings?: Array<ConnectorWarning>;
     digest?: DigestView | null;
+    request?: ResolvedRequestOut | null;
 };
 
 /**
@@ -632,6 +633,38 @@ export type RequestOut = {
      * Completed At
      */
     completed_at: string | null;
+};
+
+/**
+ * ResolvedRequestOut
+ *
+ * Public, user-relevant options of one resolved digest request.
+ */
+export type ResolvedRequestOut = {
+    /**
+     * Sources
+     */
+    sources?: Array<string>;
+    /**
+     * Per Source
+     */
+    per_source?: number | null;
+    /**
+     * Timeframe
+     */
+    timeframe?: string | null;
+    /**
+     * Topics
+     */
+    topics?: Array<string>;
+    /**
+     * Language
+     */
+    language?: string | null;
+    /**
+     * Audience
+     */
+    audience?: string | null;
 };
 
 /**
@@ -793,6 +826,11 @@ export type StartedPayload = {
      * User Message Id
      */
     user_message_id: number;
+    request?: ResolvedRequestOut | null;
+    /**
+     * Intent
+     */
+    intent?: string | null;
 };
 
 /**
@@ -981,6 +1019,26 @@ export type ErrorStreamEvent = {
     event?: 'error';
     data: ErrorPayload;
 };
+
+export type RootGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/';
+};
+
+export type RootGetResponses = {
+    /**
+     * Response Root  Get
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: string;
+    };
+};
+
+export type RootGetResponse = RootGetResponses[keyof RootGetResponses];
 
 export type HealthApiV1HealthGetData = {
     body?: never;
@@ -1426,51 +1484,3 @@ export type ShowHistoryApiV1HistoryHistoricalItemRefGetResponses = {
 };
 
 export type ShowHistoryApiV1HistoryHistoricalItemRefGetResponse = ShowHistoryApiV1HistoryHistoricalItemRefGetResponses[keyof ShowHistoryApiV1HistoryHistoricalItemRefGetResponses];
-
-export type HealthHealthGetData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/health';
-};
-
-export type HealthHealthGetResponses = {
-    /**
-     * Response Health Health Get
-     *
-     * Successful Response
-     */
-    200: {
-        [key: string]: unknown;
-    };
-};
-
-export type HealthHealthGetResponse = HealthHealthGetResponses[keyof HealthHealthGetResponses];
-
-export type DigestDigestPostData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/digest';
-};
-
-export type DigestDigestPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type FollowupFollowupPostData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/followup';
-};
-
-export type FollowupFollowupPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};

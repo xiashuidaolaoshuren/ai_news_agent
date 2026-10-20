@@ -1,4 +1,4 @@
-"""Central logging configuration for CLI and Gradio entrypoints."""
+"""Central logging configuration for CLI and service entrypoints."""
 
 from __future__ import annotations
 

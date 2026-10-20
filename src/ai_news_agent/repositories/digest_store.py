@@ -25,7 +25,7 @@ from ai_news_agent.models import (
 )
 
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 
 @dataclass
@@ -114,6 +114,7 @@ class DigestStore:
               correlation_id TEXT NOT NULL,
               error_code TEXT,
               error_message TEXT,
+              interpretation_json TEXT,
               started_at TEXT NOT NULL,
               completed_at TEXT,
               PRIMARY KEY (session_id, id)
@@ -136,6 +137,13 @@ class DigestStore:
         )
         for statement in statements:
             conn.execute(statement)
+
+    def _apply_v3_ddl(self, conn: sqlite3.Connection) -> None:
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(session_requests)").fetchall()
+        }
+        if "interpretation_json" not in columns:
+            conn.execute("ALTER TABLE session_requests ADD COLUMN interpretation_json TEXT")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -172,22 +180,26 @@ class DigestStore:
         if stored_version == SCHEMA_VERSION:
             return
 
-        if stored_version is not None and stored_version != "1":
+        if stored_version is not None and stored_version not in ("1", "2"):
             raise RuntimeError(
                 f"Unsupported DB schema version {stored_version!r}; expected {SCHEMA_VERSION!r}"
             )
 
-        if stored_version == "1":
-            self._ensure_v1_backup()
+        if stored_version in ("1", "2"):
+            if stored_version == "1":
+                self._ensure_v1_backup()
             try:
                 with self._conn() as conn:
-                    self._apply_v2_ddl(conn)
+                    if stored_version == "1":
+                        self._apply_v2_ddl(conn)
+                    self._apply_v3_ddl(conn)
                     conn.execute(
                         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schema_version', ?)",
                         (SCHEMA_VERSION,),
                     )
             except Exception:
-                self._restore_v1_backup()
+                if stored_version == "1":
+                    self._restore_v1_backup()
                 raise
             return
 
@@ -298,6 +310,7 @@ class DigestStore:
                   correlation_id TEXT NOT NULL,
                   error_code TEXT,
                   error_message TEXT,
+                  interpretation_json TEXT,
                   started_at TEXT NOT NULL,
                   completed_at TEXT,
                   PRIMARY KEY (session_id, id)

@@ -6,6 +6,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,8 @@ class SessionRequestRecord:
     error_message: str | None
     started_at: datetime
     completed_at: datetime | None
+    #: Stored conversation interpretation: resolved request, public metadata, pending clarification.
+    interpretation: dict[str, Any] | None = None
 
 
 def _parse_ts(value: str) -> datetime:
@@ -80,6 +83,10 @@ def message_record_from_row(row: sqlite3.Row) -> MessageRecord:
 
 def request_record_from_row(row: sqlite3.Row) -> SessionRequestRecord:
     completed_at = row["completed_at"]
+    raw_interpretation = row["interpretation_json"]
+    interpretation = (
+        json.loads(raw_interpretation) if raw_interpretation is not None else None
+    )
     return SessionRequestRecord(
         id=row["id"],
         session_id=row["session_id"],
@@ -92,6 +99,7 @@ def request_record_from_row(row: sqlite3.Row) -> SessionRequestRecord:
         error_message=row["error_message"],
         started_at=_parse_ts(row["started_at"]),
         completed_at=_parse_ts(completed_at) if completed_at is not None else None,
+        interpretation=interpretation,
     )
 
 

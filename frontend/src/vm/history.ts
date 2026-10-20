@@ -6,7 +6,7 @@ import type {
   SessionSearchHitOut,
 } from '@/api/generated/types.gen'
 import { sourceLabel } from '@/vm/digest'
-import { hostOf, safeHttpUrl, textOrNull, toVm } from '@/vm/entries'
+import { hostOf, safeHttpUrl, textOrNull, toEntryVm } from '@/vm/entries'
 import type { EntryKind, EntryVm } from '@/vm/types'
 
 /** Session search result row. */
@@ -241,7 +241,7 @@ export interface OpenedItemVm {
 export function toOpenedVm(show: HistoryItemShowOut): OpenedItemVm {
   return {
     token: show.token,
-    entry: show.entry == null ? null : toVm(show.entry),
+    entry: show.entry == null ? null : toEntryVm(show.entry),
     markdown: show.markdown,
   }
 }

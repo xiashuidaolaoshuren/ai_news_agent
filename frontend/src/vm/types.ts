@@ -34,6 +34,8 @@ export interface JuyaVm {
   originalUrl: string | null
   /** The story's number in its bulletin, which is not its digest rank. */
   storyNumber: number | null
+  /** Optional background the reader can expand. */
+  background: string | null
 }
 
 export interface EntryVm {

@@ -1,4 +1,4 @@
-"""Temporary SQLite copy for fake-mode web/Gradio runs so demo files stay unchanged."""
+"""Temporary SQLite copy for fake-mode service runs so demo files stay unchanged."""
 
 from __future__ import annotations
 

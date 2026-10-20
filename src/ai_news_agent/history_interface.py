@@ -1,4 +1,4 @@
-"""Gradio/CLI history command grammar and search chrome (Milestone 7D T6)."""
+"""CLI history command grammar and search chrome (Milestone 7D T6)."""
 
 from __future__ import annotations
 

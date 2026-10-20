@@ -5,6 +5,28 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/": {
+      "get": {
+        "summary": "Root",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Root  Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "summary": "Health",
@@ -1544,6 +1566,72 @@
                       "title": "PublisherOwnerView",
                       "type": "object"
                     },
+                    "ResolvedRequestOut": {
+                      "additionalProperties": false,
+                      "description": "Public, user-relevant options of one resolved digest request.",
+                      "properties": {
+                        "sources": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "title": "Sources",
+                          "type": "array"
+                        },
+                        "per_source": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Per Source"
+                        },
+                        "timeframe": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Timeframe"
+                        },
+                        "topics": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "title": "Topics",
+                          "type": "array"
+                        },
+                        "language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Language"
+                        },
+                        "audience": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Audience"
+                        }
+                      },
+                      "title": "ResolvedRequestOut",
+                      "type": "object"
+                    },
                     "StartedPayload": {
                       "additionalProperties": false,
                       "properties": {
@@ -1554,6 +1642,27 @@
                         "user_message_id": {
                           "title": "User Message Id",
                           "type": "integer"
+                        },
+                        "request": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/ResolvedRequestOut"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "intent": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Intent"
                         }
                       },
                       "required": [
@@ -1822,67 +1931,6 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/health": {
-      "get": {
-        "tags": [
-          "openclaw"
-        ],
-        "summary": "Health",
-        "operationId": "health_health_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Health Health Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/digest": {
-      "post": {
-        "tags": [
-          "openclaw"
-        ],
-        "summary": "Digest",
-        "operationId": "digest_digest_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/followup": {
-      "post": {
-        "tags": [
-          "openclaw"
-        ],
-        "summary": "Followup",
-        "operationId": "followup_followup_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           }
@@ -2885,6 +2933,16 @@
                 "type": "null"
               }
             ]
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolvedRequestOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -3080,6 +3138,72 @@
           "completed_at"
         ],
         "title": "RequestOut"
+      },
+      "ResolvedRequestOut": {
+        "properties": {
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "per_source": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Source"
+          },
+          "timeframe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeframe"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Topics"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "audience": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audience"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ResolvedRequestOut",
+        "description": "Public, user-relevant options of one resolved digest request."
       },
       "SessionListPage": {
         "properties": {
@@ -3374,6 +3498,78 @@
         "title": "ValidationError"
       },
       "StartedPayload": {
+        "$defs": {
+          "ResolvedRequestOut": {
+            "additionalProperties": false,
+            "description": "Public, user-relevant options of one resolved digest request.",
+            "properties": {
+              "sources": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Sources",
+                "type": "array"
+              },
+              "per_source": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Per Source"
+              },
+              "timeframe": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Timeframe"
+              },
+              "topics": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Topics",
+                "type": "array"
+              },
+              "language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Language"
+              },
+              "audience": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Audience"
+              }
+            },
+            "title": "ResolvedRequestOut",
+            "type": "object"
+          }
+        },
         "additionalProperties": false,
         "properties": {
           "request_id": {
@@ -3383,6 +3579,29 @@
           "user_message_id": {
             "title": "User Message Id",
             "type": "integer"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolvedRequestOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Intent"
           }
         },
         "required": [
@@ -4426,6 +4645,76 @@
       },
       "StartedStreamEvent": {
         "$defs": {
+          "ResolvedRequestOut": {
+            "additionalProperties": false,
+            "description": "Public, user-relevant options of one resolved digest request.",
+            "properties": {
+              "sources": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Sources",
+                "type": "array"
+              },
+              "per_source": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Per Source"
+              },
+              "timeframe": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Timeframe"
+              },
+              "topics": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Topics",
+                "type": "array"
+              },
+              "language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Language"
+              },
+              "audience": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Audience"
+              }
+            },
+            "title": "ResolvedRequestOut",
+            "type": "object"
+          },
           "StartedPayload": {
             "additionalProperties": false,
             "properties": {
@@ -4436,6 +4725,29 @@
               "user_message_id": {
                 "title": "User Message Id",
                 "type": "integer"
+              },
+              "request": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ResolvedRequestOut"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "intent": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Intent"
               }
             },
             "required": [

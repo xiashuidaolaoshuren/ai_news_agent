@@ -6,9 +6,8 @@ import asyncio
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, replace
-from typing import Any, TypeVar
+from typing import Any
 
-from ai_news_agent.digest_request_builder import resolve_digest_request
 from ai_news_agent.graph.state import DigestResult, WorkflowError
 from ai_news_agent.models import ConnectorWarning, Digest
 from ai_news_agent.logging_setup import get_logger
@@ -22,6 +21,13 @@ from ai_news_agent.history_interface import (
 from ai_news_agent.history_search import search_digest_history, show_historical_item
 from ai_news_agent.rendering import format_connector_warnings_notice
 from ai_news_agent.request import DigestRequest
+from ai_news_agent.services.conversation import (
+    ConversationContext,
+    ConversationDecision,
+    interpret_message,
+    request_metadata,
+    request_payload,
+)
 from ai_news_agent.services.session_records import SessionRequestRecord
 from ai_news_agent.services.session_service import (
     CANCELLED_ASSISTANT_MESSAGE,
@@ -42,8 +48,6 @@ StreamingWorkflowRunner = Callable[
 
 logger = get_logger("chat")
 
-_StreamPayloadT = TypeVar("_StreamPayloadT")
-
 _TERMINAL_REPLAY_STATUSES = frozenset(
     {"succeeded", "failed", "cancelled", "interrupted"}
 )
@@ -51,12 +55,57 @@ _WORKFLOW_ERROR_CODE = "workflow_error"
 _WORKFLOW_ERROR_MESSAGE = "Digest generation failed."
 _REQUEST_FAILED_CODE = "request_failed"
 _REQUEST_FAILED_MESSAGE = "Request failed."
+_CLARIFY_FALLBACK = (
+    "Tell me whether you want recent signals on that topic or a general explanation."
+)
+_GENERAL_FALLBACK = (
+    "I can answer general questions once a language model is configured. "
+    "For collected signals, ask for a digest, for example: “Give me today's AI digest”."
+)
+
+
+def _interpretation_payload(decision: ConversationDecision) -> dict[str, Any]:
+    payload: dict[str, Any] = {"intent": decision.intent}
+    if decision.intent == "digest" and decision.request is not None:
+        payload["request"] = request_payload(decision.request)
+        payload["public"] = request_metadata(decision.request)
+    if decision.intent == "clarify" and decision.pending:
+        payload["pending"] = decision.pending
+    return payload
+
+
+def _apply_session_defaults(
+    request: DigestRequest,
+    *,
+    session: Any | None,
+    juya_item_mode: str | None,
+) -> DigestRequest:
+    updates: dict[str, Any] = {}
+    if request.items_per_source is None and session is not None:
+        stored_count = getattr(session, "items_per_source", None)
+        if stored_count is not None:
+            updates["items_per_source"] = int(stored_count)
+    sources = list(request.connector_names or [])
+    if request.juya_item_mode is None:
+        if juya_item_mode is not None:
+            updates["juya_item_mode"] = juya_item_mode
+        if "juya" in sources and request.topics_are_filters:
+            updates["juya_item_mode"] = "stories"
+    if "items_per_source" in updates:
+        updates["max_items_per_source"] = max(
+            request.max_items_per_source, int(updates["items_per_source"])
+        )
+    return replace(request, **updates) if updates else request
 
 
 @dataclass(frozen=True)
 class StartedEvent:
     request_id: str
     user_message_id: int
+    #: Public resolved-request metadata when this message starts a digest.
+    request: dict[str, Any] | None = None
+    #: The interpreted intent: digest, followup, general, or clarify.
+    intent: str | None = None
 
 
 @dataclass(frozen=True)
@@ -124,6 +173,7 @@ class ChatService:
         tool_agent_runner: Any | None = None,
         interface_router: Any | None = None,
         session_service: SessionService | None = None,
+        conversation_model: Any | None = None,
     ) -> None:
         self._store = store
         self._workflow_runner = workflow_runner
@@ -132,203 +182,7 @@ class ChatService:
         self._tool_agent_runner = tool_agent_runner
         self._interface_router = interface_router
         self._session_service = session_service
-
-    def handle_message(
-        self,
-        message: str,
-        *,
-        digest_request: DigestRequest | None = None,
-        session_connector_names: list[str] | None = None,
-        session_items_per_source: int | None = None,
-    ) -> str:
-        """Sync wrapper for UI/CLI callers."""
-        return asyncio.run(
-            self.handle_message_async(
-                message,
-                digest_request=digest_request,
-                session_connector_names=session_connector_names,
-                session_items_per_source=session_items_per_source,
-            )
-        )
-
-    async def handle_message_async(
-        self,
-        message: str,
-        *,
-        digest_request: DigestRequest | None = None,
-        session_connector_names: list[str] | None = None,
-        session_items_per_source: int | None = None,
-    ) -> str:
-        preview = _message_preview(message)
-        logger.info("chat message received preview=%r", preview)
-
-        history_cmd = parse_history_chat_message(message)
-        if history_cmd is not None:
-            logger.info("chat path=history action=%s", history_cmd.action)
-            return self._handle_history_command(history_cmd)
-
-        if self._interface_router is not None:
-            result = await self._interface_router.route(
-                message=message,
-                digest_request=digest_request,
-                session_connector_names=session_connector_names,
-                session_items_per_source=session_items_per_source,
-            )
-            return _interface_result_to_text(result, store=self._store)
-
-        if digest_request is not None or _message_requests_digest(message):
-            req = _resolve_digest_request(
-                message,
-                digest_request=digest_request,
-                session_connector_names=session_connector_names,
-                session_items_per_source=session_items_per_source,
-            )
-            t0 = time.perf_counter()
-            result = await self._workflow_runner(req)
-            elapsed = time.perf_counter() - t0
-            _log_digest_result(result, elapsed=elapsed)
-            return _user_facing_digest_text(result)
-
-        return await self._handle_followup_message_async(message)
-
-    async def _handle_followup_message_async(self, message: str) -> str:
-        ctx = self._store.get_latest_followup_context()
-        if ctx.run_id is None and ctx.digest is None:
-            logger.info("follow-up path=no_saved_digest")
-            return NO_SAVED_DIGEST
-
-        structured = answer_structured_followup(message, ctx)
-        if structured is not None:
-            logger.info("follow-up path=structured")
-            return structured
-
-        if self._tool_agent_runner is not None:
-            logger.info("follow-up path=tool_agent")
-            result = await self._tool_agent_runner.run(message)
-            return _tool_agent_result_to_text(result, store=self._store)
-
-        llm_text = _try_llm_followup(self._chat_model, message, ctx)
-        if llm_text is not None:
-            logger.info("follow-up path=llm")
-            return llm_text
-
-        logger.info("follow-up path=guidance_fallback")
-        return (
-            "I need a configured language model to answer that question. "
-            "Try a concrete request like listing sources or asking for caveats."
-        )
-
-    async def handle_message_streaming_async(
-        self,
-        message: str,
-        *,
-        digest_request: DigestRequest | None = None,
-        session_connector_names: list[str] | None = None,
-        session_items_per_source: int | None = None,
-        chunk_size: int = 80,
-        chunk_delay_s: float = 0.02,
-    ) -> AsyncIterator[str]:
-        preview = _message_preview(message)
-        logger.info("chat streaming message received preview=%r", preview)
-
-        history_cmd = parse_history_chat_message(message)
-        if history_cmd is not None:
-            logger.info("chat streaming path=history action=%s", history_cmd.action)
-            text = self._handle_history_command(history_cmd)
-            async for chunk in iter_text_chunks(
-                text,
-                chunk_size=chunk_size,
-                delay_s=chunk_delay_s,
-            ):
-                yield chunk
-            return
-
-        if self._interface_router is not None:
-            async def _router_events() -> AsyncIterator[
-                tuple[str, bool, InterfaceAgentResult | None]
-            ]:
-                async for progress, done, payload in self._interface_router.route_streaming(
-                    message=message,
-                    digest_request=digest_request,
-                    session_connector_names=session_connector_names,
-                    session_items_per_source=session_items_per_source,
-                ):
-                    yield progress, done, payload
-
-            async for chunk in _stream_ephemeral_progress_then_chunks(
-                _router_events(),
-                chunk_size=chunk_size,
-                chunk_delay_s=chunk_delay_s,
-                extract_final_text=lambda result: _interface_result_to_text(
-                    result, store=self._store
-                ),
-            ):
-                yield chunk
-            return
-
-        if digest_request is not None or _message_requests_digest(message):
-            req = _resolve_digest_request(
-                message,
-                digest_request=digest_request,
-                session_connector_names=session_connector_names,
-                session_items_per_source=session_items_per_source,
-            )
-            if self._streaming_workflow_runner is not None:
-                t0 = time.perf_counter()
-                final_result: DigestResult | None = None
-
-                async def _digest_events() -> AsyncIterator[
-                    tuple[str, bool, DigestResult | None]
-                ]:
-                    nonlocal final_result
-                    async for progress, done, result in self._streaming_workflow_runner(
-                        req
-                    ):
-                        if done and result is not None:
-                            final_result = result
-                        yield progress, done, result
-
-                async for chunk in _stream_ephemeral_progress_then_chunks(
-                    _digest_events(),
-                    chunk_size=chunk_size,
-                    chunk_delay_s=chunk_delay_s,
-                    extract_final_text=_user_facing_digest_text,
-                ):
-                    yield chunk
-                if final_result is not None:
-                    _log_digest_result(
-                        final_result, elapsed=time.perf_counter() - t0
-                    )
-                return
-
-            t0 = time.perf_counter()
-            result = await self._workflow_runner(req)
-            elapsed = time.perf_counter() - t0
-            _log_digest_result(result, elapsed=elapsed)
-            async for chunk in iter_text_chunks(
-                _user_facing_digest_text(result),
-                chunk_size=chunk_size,
-                delay_s=chunk_delay_s,
-            ):
-                yield chunk
-            return
-
-        if self._tool_agent_runner is not None:
-            async for chunk in self._stream_followup_tool_agent_async(
-                message,
-                chunk_size=chunk_size,
-                chunk_delay_s=chunk_delay_s,
-            ):
-                yield chunk
-            return
-
-        text = await self._handle_followup_message_async(message)
-        async for chunk in iter_text_chunks(
-            text,
-            chunk_size=chunk_size,
-            delay_s=chunk_delay_s,
-        ):
-            yield chunk
+        self._conversation_model = conversation_model
 
     async def stream_events(
         self,
@@ -358,14 +212,13 @@ class ChatService:
                 yield event
             return
 
-        yield StartedEvent(
-            request_id=record.id,
-            user_message_id=record.user_message_id,
-        )
-
         history_cmd = parse_history_chat_message(message)
         try:
             if history_cmd is not None:
+                yield StartedEvent(
+                    request_id=record.id,
+                    user_message_id=record.user_message_id,
+                )
                 async for event in self._stream_session_text_events(
                     session_id=session_id,
                     record=record,
@@ -377,12 +230,60 @@ class ChatService:
                     yield event
                 return
 
-            if _message_requests_digest(message):
+            decision = await self._resolve_conversation_decision(session_id, message)
+            request = decision.request
+            if decision.intent == "digest" and request is not None:
+                request = _apply_session_defaults(
+                    request,
+                    session=self._session_service.get_session(session_id),
+                    juya_item_mode=juya_item_mode,
+                )
+                decision = replace(decision, request=request)
+            interpretation = _interpretation_payload(decision)
+            self._session_service.set_request_interpretation(
+                session_id,
+                record.id,
+                interpretation,
+            )
+            yield StartedEvent(
+                request_id=record.id,
+                user_message_id=record.user_message_id,
+                request=interpretation.get("public") or None,
+                intent=decision.intent,
+            )
+
+            if decision.intent == "digest" and request is not None:
                 async for event in self._stream_session_digest_events(
                     session_id=session_id,
                     record=record,
-                    message=message,
-                    juya_item_mode=juya_item_mode,
+                    request=request,
+                    chunk_size=chunk_size,
+                    chunk_delay_s=chunk_delay_s,
+                ):
+                    yield event
+                return
+
+            if decision.intent == "general":
+                text = await self._answer_general_question(
+                    decision.question or message
+                )
+                async for event in self._stream_session_text_events(
+                    session_id=session_id,
+                    record=record,
+                    text=text,
+                    path="general",
+                    chunk_size=chunk_size,
+                    chunk_delay_s=chunk_delay_s,
+                ):
+                    yield event
+                return
+
+            if decision.intent == "clarify":
+                async for event in self._stream_session_text_events(
+                    session_id=session_id,
+                    record=record,
+                    text=decision.clarification or _CLARIFY_FALLBACK,
+                    path="clarify",
                     chunk_size=chunk_size,
                     chunk_delay_s=chunk_delay_s,
                 ):
@@ -405,22 +306,47 @@ class ChatService:
             ):
                 yield event
 
+    async def _resolve_conversation_decision(
+        self,
+        session_id: str,
+        message: str,
+    ) -> ConversationDecision:
+        assert self._session_service is not None
+        ctx = self._store.get_followup_context_for_session(session_id)
+        session = self._session_service.get_session(session_id)
+        context = ConversationContext(
+            has_digest=ctx.run_id is not None or ctx.digest is not None,
+            pending=self._session_service.pending_clarification(session_id),
+            last_request=self._session_service.last_digest_request(session_id),
+            connector_names=session.connector_names if session is not None else None,
+        )
+        return await asyncio.to_thread(
+            interpret_message,
+            message,
+            context=context,
+            model=self._conversation_model,
+        )
+
+    async def _answer_general_question(self, question: str) -> str:
+        answer = getattr(self._conversation_model, "generate_general_answer", None)
+        if answer is not None and callable(answer):
+            try:
+                return str(await asyncio.to_thread(answer, question=question))
+            except Exception:  # noqa: BLE001 - a model failure gets guidance
+                logger.exception("general answer failed")
+        return _GENERAL_FALLBACK
+
     async def _stream_session_digest_events(
         self,
         *,
         session_id: str,
         record: SessionRequestRecord,
-        message: str,
-        juya_item_mode: str | None = None,
+        request: DigestRequest,
         chunk_size: int,
         chunk_delay_s: float,
     ) -> AsyncIterator[ChatEvent]:
         assert self._session_service is not None
-        req = self._session_service.build_request(
-            session_id,
-            message,
-            juya_item_mode=juya_item_mode,
-        )
+        req = request
         runner = self._iter_streaming_runner(
             req,
             session_id=session_id,
@@ -678,6 +604,8 @@ class ChatService:
         yield StartedEvent(
             request_id=record.id,
             user_message_id=record.user_message_id,
+            request=(record.interpretation or {}).get("public") or None,
+            intent=(record.interpretation or {}).get("intent"),
         )
         assert self._session_service is not None
         text = ""
@@ -792,56 +720,6 @@ class ChatService:
             "Try a concrete request like listing sources or asking for caveats."
         )
 
-    async def _stream_followup_tool_agent_async(
-        self,
-        message: str,
-        *,
-        chunk_size: int,
-        chunk_delay_s: float,
-    ) -> AsyncIterator[str]:
-        ctx = self._store.get_latest_followup_context()
-        if ctx.run_id is None and ctx.digest is None:
-            logger.info("follow-up path=no_saved_digest")
-            yield NO_SAVED_DIGEST
-            return
-
-        structured = answer_structured_followup(message, ctx)
-        if structured is not None:
-            logger.info("follow-up path=structured")
-            async for chunk in iter_text_chunks(
-                structured,
-                chunk_size=chunk_size,
-                delay_s=chunk_delay_s,
-            ):
-                yield chunk
-            return
-
-        logger.info("follow-up path=tool_agent")
-        runner = self._tool_agent_runner
-        run_streaming = getattr(runner, "run_streaming", None)
-        if callable(run_streaming):
-            async for chunk in _stream_ephemeral_progress_then_chunks(
-                run_streaming(message),
-                chunk_size=chunk_size,
-                chunk_delay_s=chunk_delay_s,
-                extract_final_text=lambda result: _tool_agent_result_to_text(
-                    result,
-                    store=self._store,
-                ),
-            ):
-                yield chunk
-            return
-
-        text = _tool_agent_result_to_text(
-            await runner.run(message),
-            store=self._store,
-        )
-        async for chunk in iter_text_chunks(
-            text,
-            chunk_size=chunk_size,
-            delay_s=chunk_delay_s,
-        ):
-            yield chunk
 
 
     def _handle_history_command(self, cmd: HistoryChatCommand) -> str:
@@ -860,28 +738,6 @@ class ChatService:
         raise NotImplementedError
 
 
-async def _stream_ephemeral_progress_then_chunks(
-    events: AsyncIterator[tuple[str, bool, _StreamPayloadT | None]],
-    *,
-    chunk_size: int,
-    chunk_delay_s: float,
-    extract_final_text: Callable[[_StreamPayloadT], str],
-) -> AsyncIterator[str]:
-    """Yield ephemeral progress lines, then chunked final text without progress."""
-    async for progress, done, payload in events:
-        if not done:
-            if progress:
-                yield progress
-            continue
-        if payload is None:
-            continue
-        text = extract_final_text(payload)
-        async for chunk in iter_text_chunks(
-            text,
-            chunk_size=chunk_size,
-            delay_s=chunk_delay_s,
-        ):
-            yield chunk
 
 
 def _tool_agent_result_to_text(result: Any, *, store: DigestStore | None = None) -> str:
@@ -918,13 +774,6 @@ def _digest_failure_message(result: DigestResult) -> str:
     return _WORKFLOW_ERROR_MESSAGE
 
 
-def _user_facing_digest_text(result: DigestResult) -> str:
-    notice = format_connector_warnings_notice(result.warnings, result.errors)
-    if not notice:
-        return result.text
-    if notice in result.text:
-        return result.text
-    return f"{notice}\n\n{result.text}"
 
 
 def _user_facing_digest_markdown(result: DigestResult) -> str:
@@ -936,111 +785,6 @@ def _user_facing_digest_markdown(result: DigestResult) -> str:
     return f"{notice}\n\n{result.markdown}"
 
 
-def _apply_session_items_per_source(
-    req: DigestRequest,
-    session_items_per_source: int | None,
-) -> DigestRequest:
-    if session_items_per_source is None:
-        return req
-    return replace(
-        req,
-        items_per_source=session_items_per_source,
-        max_items_per_source=max(req.max_items_per_source, session_items_per_source),
-    )
-
-
-def _resolve_digest_request(
-    message: str,
-    *,
-    digest_request: DigestRequest | None,
-    session_connector_names: list[str] | None,
-    session_items_per_source: int | None = None,
-) -> DigestRequest:
-    if digest_request is not None:
-        req = digest_request
-        logger.info(
-            "digest path=explicit_request topics=%d connector_names=%s items_per_source=%s",
-            len(req.topics),
-            req.connector_names,
-            req.items_per_source,
-        )
-        return req
-
-    req = resolve_digest_request(message, session_connector_names=session_connector_names)
-    req = _apply_session_items_per_source(req, session_items_per_source)
-    logger.info(
-        "digest path=resolved_request explicit=%s timeframe=%r connector_names=%s "
-        "items_per_source=%s",
-        req.has_explicit_selectors(),
-        req.timeframe,
-        req.connector_names,
-        req.items_per_source,
-    )
-    return req
-
-
-def _log_digest_result(result: DigestResult, *, elapsed: float) -> None:
-    logger.info(
-        "digest completed run_id=%s entries=%d warnings=%d errors=%d elapsed=%.2fs",
-        result.run_id,
-        len(result.digest.entries) if result.digest else 0,
-        len(result.warnings),
-        len(result.errors),
-        elapsed,
-    )
-    if result.warnings:
-        for w in result.warnings:
-            if w.detail:
-                logger.warning(
-                    "[%s] %s: %s | detail=%s",
-                    w.connector,
-                    w.code,
-                    w.message,
-                    w.detail[:300],
-                )
-            else:
-                logger.warning(
-                    "[%s] %s: %s",
-                    w.connector,
-                    w.code,
-                    w.message,
-                )
-    if result.errors:
-        for err in result.errors:
-            logger.error(
-                "workflow stage=%s: %s",
-                err.stage,
-                err.message,
-            )
-
-
-def _message_preview(message: str, *, max_len: int = 120) -> str:
-    s = " ".join(message.split())
-    if len(s) <= max_len:
-        return s
-    return s[: max_len - 3] + "..."
-
-
-def _message_requests_digest(message: str) -> bool:
-    low = message.strip().lower()
-    if not low:
-        return False
-    triggers = (
-        "digest",
-        "today's ai",
-        "todays ai",
-        "give me today's",
-        "give me todays",
-        "generate digest",
-        "run digest",
-        "ai digest",
-        "news digest",
-    )
-    if any(t in low for t in triggers):
-        return True
-    from ai_news_agent.intent import parse_connector_names_from_message
-
-    return parse_connector_names_from_message(message) is not None
 
 
 def _try_llm_followup(model: Any | None, question: str, ctx: FollowupContext) -> str | None:

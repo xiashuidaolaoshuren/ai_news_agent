@@ -49,33 +49,3 @@ def test_get_logger_child_name() -> None:
     configure_logging()
     child = get_logger("chat")
     assert child.name == "ai_news_agent.chat"
-
-
-def test_gradio_respond_returns_friendly_message_on_exception(tmp_path) -> None:
-    import asyncio
-
-    from ai_news_agent.app.gradio_app import _UI_ERROR_MESSAGE, create_app
-    from ai_news_agent.chat import ChatService
-    from ai_news_agent.graph.state import DigestResult
-    from ai_news_agent.request import DigestRequest
-    from ai_news_agent.storage import DigestStore
-
-    async def boom(_: DigestRequest) -> DigestResult:
-        raise RuntimeError("simulated failure")
-
-    store = DigestStore(tmp_path / "g.db")
-    store.init_schema()
-    configure_logging()
-    svc = ChatService(store=store, workflow_runner=boom)
-    create_app(svc)
-
-    async def call_respond() -> str:
-        try:
-            return await svc.handle_message_async("Give me today's AI digest")
-        except Exception:
-            get_logger("gradio").exception("gradio request failed")
-            return _UI_ERROR_MESSAGE
-
-    reply = asyncio.run(call_respond())
-    assert reply == _UI_ERROR_MESSAGE
-    assert "simulated failure" not in reply

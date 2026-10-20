@@ -3,6 +3,7 @@ import type {
   PostMessageBody,
   ProgressPayload,
   RequestOut,
+  ResolvedRequestOut,
 } from '@/api/generated/types.gen'
 import {
   cancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPost,
@@ -41,6 +42,10 @@ export interface RequestSnapshot {
   sessionId: string | null
   /** The row the backend persisted for the question, once the run has started. */
   userMessageId: number | null
+  /** What the interpreted message will do, once the backend has decided. */
+  intent: string | null
+  /** The options a digest run was resolved with, when it started one. */
+  request: ResolvedRequestOut | null
   text: string
   progress: ProgressPayload[]
   digest: DigestPayload | null
@@ -78,6 +83,8 @@ export function idleRequestSnapshot(): RequestSnapshot {
     requestId: null,
     sessionId: null,
     userMessageId: null,
+    intent: null,
+    request: null,
     text: '',
     progress: [],
     digest: null,
@@ -159,7 +166,12 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
       }
       switch (event.event) {
         case 'started':
-          emit({ requestId: event.data.request_id, userMessageId: event.data.user_message_id })
+          emit({
+            requestId: event.data.request_id,
+            userMessageId: event.data.user_message_id,
+            intent: event.data.intent ?? null,
+            request: event.data.request ?? null,
+          })
           break
         case 'progress':
           emit({ progress: [...snapshot.progress, event.data] })

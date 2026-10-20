@@ -73,8 +73,8 @@ The suggested next learning move stored on a digest row (read, watch, try, or bu
 _Avoid_: Structured follow-up, rank deep-dive, “follow-up section”
 
 **Structured follow-up**:
-Deterministic inspection of the current follow-up context via fixed phrases: show sources, study first, caveats, and rank. A browser Session uses its latest successful digest; CLI, Gradio, and OpenClaw use Shared-interface context. OpenClaw supports only this; Gradio also allows open-ended Q&A.
-_Avoid_: New OpenClaw path strings, treating open-ended chat as structured follow-up, inventing Hub quality or Zhihu freshness beyond saved evidence
+Deterministic inspection of the current follow-up context via fixed phrases: show sources, study first, caveats, and rank. A browser Session uses its latest successful digest; the CLI uses Shared-interface context.
+_Avoid_: New path strings for removed interfaces, treating open-ended chat as structured follow-up, inventing Hub quality or Zhihu freshness beyond saved evidence
 
 **Rank deep-dive**:
 The structured reply for one 1-based **display rank**. Kind-specific cards from saved digest evidence: Juya **issue deep-dive**, Hugging Face **family card**, Zhihu **practitioner-insight card**; other kinds stay a generic entry reprint. On the **latest** digest, Hugging Face may live-fetch the representative model-card README once (ADR-0006); Zhihu stays persist-only. **History show** never live-fetches.
@@ -90,7 +90,7 @@ _Avoid_: Treating every Juya row as a single bulletin story, assuming story mode
 
 **Juya bulletin story**:
 An opt-in Juya digest item — one numbered story from a daily issue when the web client requests story mode. It has its own display rank, history reference, and story-specific summary.
-_Avoid_: Silent story mode on CLI/Gradio/OpenClaw, inferring story identity from title alone, giving Also variants their own story ranks
+_Avoid_: Silent story mode on the CLI, inferring story identity from title alone, giving Also variants their own story ranks
 
 **Digest presentation metadata**:
 Whitelisted API fields derived from persisted connector evidence: publisher owner (name, profile, avatar, account type), GitHub preview image, Juya issue cover, and Juya story/issue structure. Not raw `source_evidence`.
@@ -121,12 +121,34 @@ A durable browser conversation thread that owns ordered chat messages, session-s
 _Avoid_: An HTTP cookie/session token, an ephemeral browser tab, a user account or authorization boundary, multiple simultaneous requests in one session, treating all sessions as one global latest-digest context, using a session to limit historical digest search
 
 **Shared-interface context**:
-The latest saved digest that does not belong to a browser session. CLI, Gradio, and OpenClaw structured follow-ups inspect this context, independently of every browser Session.
-_Avoid_: Global latest across every interface, a Session's context, a browser-created digest changing CLI/Gradio/OpenClaw follow-up behavior
+The latest saved digest that does not belong to a browser session. CLI structured follow-ups inspect this context, independently of every browser Session.
+_Avoid_: Global latest across every interface, a Session's context, a browser-created digest changing CLI follow-up behavior
 
 **Session Request**:
 One durable user-initiated chat execution within a Session, from accepted user message to one terminal outcome: succeeded, failed, cancelled, or interrupted. It gives that message a stable lifecycle independently of transient response delivery.
 _Avoid_: The user message itself, a Digest run, a transient delivery channel, automatically retrying an interrupted request
+
+### Browser conversation
+
+**Digest request (conversation)**:
+A browser message asking for fresh signals, in English or Chinese, whether or not it uses the word “digest”. It carries its own topic, source, timeframe, count, language, and audience, and executes one Digest run.
+_Avoid_: Requiring a trigger phrase, treating a source name alone as a request for collection, silently reusing saved preferences over an explicit option
+
+**Digest follow-up**:
+A browser message about a digest already in the conversation — explanation, inspection, or a change to how it is described. It reads saved evidence and does not collect again unless freshness, source, or timeframe changes.
+_Avoid_: Fetching new signals for a rephrasing, answering from general knowledge when saved evidence exists
+
+**General explanation**:
+An answer from general knowledge to a standalone question, used when no digest evidence applies. It is labelled as general knowledge and makes no claim to current or collected evidence.
+_Avoid_: Presenting it as a digest result, implying freshness, running source collection to answer it
+
+**Unresolved clarification**:
+The single pending question asked when a browser request is genuinely ambiguous. A short reply completes the original request; a new complete request replaces it.
+_Avoid_: Stacking multiple pending questions, losing the original topic across a reload, treating the clarification reply as a new standalone request
+
+**Resolved request**:
+The options a browser Digest request actually ran with — sources, count, timeframe, language, audience, and topic — shown with the question and restored after reload.
+_Avoid_: Echoing the composer's unconfirmed selection, exposing interpreter reasoning or raw evidence, claiming a result that was never collected
 
 ### Shared
 

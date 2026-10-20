@@ -1079,3 +1079,73 @@ def test_rank_items_items_per_source_bilibili_guarantee_stays_within_quota() -> 
     assert len(bilibili_selected) == 1
     assert bilibili_selected[0].item.source_id == "BVjune2new"
     assert len(selected) == 3
+
+
+def test_strict_timeframe_excludes_older_and_undated_items() -> None:
+    from datetime import timedelta
+
+    from ai_news_agent.ranking import rank_items
+
+    now = _fixed_ts()
+    stale = NewsItem(
+        source=SourceKind.JUYA,
+        source_id="stale",
+        url="https://daily.juya.uk/stale",
+        title="Stale bulletin",
+        published_at=now - timedelta(days=40),
+        collected_at=now,
+        metadata_completeness=0.9,
+        content_confidence=ConfidenceLevel.HIGH,
+        raw_snippet="old",
+    )
+    fresh = NewsItem(
+        source=SourceKind.JUYA,
+        source_id="fresh",
+        url="https://daily.juya.uk/fresh",
+        title="Fresh bulletin",
+        published_at=now - timedelta(days=1),
+        collected_at=now,
+        metadata_completeness=0.9,
+        content_confidence=ConfidenceLevel.HIGH,
+        raw_snippet="new",
+    )
+    undated = NewsItem(
+        source=SourceKind.JUYA,
+        source_id="undated",
+        url="https://daily.juya.uk/undated",
+        title="Undated bulletin",
+        collected_at=now,
+        metadata_completeness=0.6,
+    )
+
+    ranked = rank_items(
+        [stale, fresh, undated],
+        top_n=5,
+        now=now,
+        timeframe="last_7_days",
+        strict_timeframe=True,
+    )
+
+    assert [row.item.source_id for row in ranked] == ["fresh"]
+
+
+def test_default_ranking_keeps_older_items_eligible() -> None:
+    from datetime import timedelta
+
+    from ai_news_agent.ranking import rank_items
+
+    now = _fixed_ts()
+    stale = NewsItem(
+        source=SourceKind.JUYA,
+        source_id="stale",
+        url="https://daily.juya.uk/stale",
+        title="Stale bulletin",
+        published_at=now - timedelta(days=40),
+        collected_at=now,
+        metadata_completeness=0.9,
+        content_confidence=ConfidenceLevel.HIGH,
+    )
+
+    ranked = rank_items([stale], top_n=5, now=now, timeframe="last_7_days")
+
+    assert len(ranked) == 1

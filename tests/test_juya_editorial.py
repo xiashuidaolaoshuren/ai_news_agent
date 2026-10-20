@@ -9,12 +9,10 @@ from pathlib import Path
 import httpx
 import pytest
 
-from ai_news_agent.adapters.openclaw import (
+from ai_news_agent.digest_request_builder import (
     normalize_output_language_hint,
     normalize_output_style_hint,
-    resolve_openclaw_digest_request,
 )
-from ai_news_agent.app.digest_service import build_digest_request_payload
 from ai_news_agent.connectors.base import ConnectorRequest
 from ai_news_agent.connectors.juya import (
     JuyaConnector,
@@ -161,27 +159,6 @@ def test_normalize_output_style_and_language_hints() -> None:
     assert normalize_output_style_hint(None) is None
     assert normalize_output_language_hint("zh-CN") == "zh-CN"
     assert normalize_output_language_hint("chinese") == "zh-CN"
-
-
-def test_build_digest_request_payload_includes_style_fields() -> None:
-    payload = build_digest_request_payload(
-        message="Digest https://daily.juya.uk/",
-        output_style_hint="editorial",
-        output_language_hint="zh-CN",
-    )
-    assert payload["message"].startswith("Digest")
-    assert payload["output_style"] == "editorial"
-    assert payload["output_language"] == "zh-CN"
-
-
-def test_resolve_openclaw_digest_request_applies_style_hints() -> None:
-    req = resolve_openclaw_digest_request(
-        message="Digest https://daily.juya.uk/",
-        output_style_hint="editorial",
-        output_language_hint="zh-CN",
-    )
-    assert req.output_style == "editorial"
-    assert req.output_language == "zh-CN"
 
 
 def test_render_digest_editorial_text_is_compact_index() -> None:

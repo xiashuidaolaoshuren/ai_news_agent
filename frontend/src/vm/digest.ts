@@ -1,6 +1,6 @@
 import type { ConnectorWarning, DigestView, JuyaDigestEntryView, SourceKind } from '@/api/generated/types.gen'
 import type { ApiDigestEntry } from '@/vm/entries'
-import { resolveDemoAsset, safeHttpUrl, textOrNull, toVm } from '@/vm/entries'
+import { resolveDemoAsset, safeHttpUrl, textOrNull, toEntryVm } from '@/vm/entries'
 import type { EntryKind, EntryVm } from '@/vm/types'
 
 export type SectionSubtitle = string | null
@@ -94,23 +94,6 @@ export function toJuyaIssuesVm(
 }
 
 /**
- * Entry with its Juya story presentation attached.
- *
- * `rank` stays the digest-wide `display_rank`: a bulletin number is local to its
- * issue and can skip (#1, #2, #4), so it is kept beside the rank rather than in it.
- */
-function toJuyaEntryVm(api: JuyaDigestEntryView): EntryVm {
-  const vm = toVm(api)
-  const storyNumber = api.story?.number
-  vm.juya = {
-    topic: textOrNull(api.story?.section ?? null),
-    originalUrl: safeHttpUrl(api.story?.original_url),
-    storyNumber: typeof storyNumber === 'number' ? storyNumber : null,
-  }
-  return vm
-}
-
-/**
  * Group entries into contiguous `source_kind` runs, preserving entry order.
  *
  * Interleaved kinds produce several sections of the same kind; the rank range is
@@ -120,7 +103,7 @@ export function toSectionsVm(entries: ApiDigestEntry[]): SectionVm[] {
   const sections: SectionVm[] = []
   const sectionApis: ApiDigestEntry[][] = []
   for (const api of entries) {
-    const vm: EntryVm = api.source_kind === 'juya' ? toJuyaEntryVm(api) : toVm(api)
+    const vm: EntryVm = toEntryVm(api)
     const current = sections.at(-1)
     if (current !== undefined && current.kind === vm.kind) {
       current.entries.push(vm)

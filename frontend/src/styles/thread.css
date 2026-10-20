@@ -526,6 +526,29 @@
   margin: 0;
 }
 
+/* Juya prose is multi-paragraph, so it stacks instead of pairing two columns. */
+.entry-body-juya {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.entry-body dd.clamp-summary,
+.entry-body dd.clamp-why {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.entry-body dd.clamp-why {
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.entry-details {
+  margin-top: 8px;
+}
+
 .entry-body dt {
   font: 500 11px/1.4 var(--font-mono);
   text-transform: uppercase;
@@ -537,6 +560,15 @@
 .entry-body dd {
   margin: 0;
   text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+.entry-body dd p {
+  margin: 0;
+}
+
+.entry-body dd p + p {
+  margin-top: 6px;
 }
 
 .entry-caveat {
