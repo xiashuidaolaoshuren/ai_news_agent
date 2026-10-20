@@ -11,8 +11,8 @@ A first-class curated daily AI bulletin source identified by the website (`daily
 _Avoid_: GitHub special case, `github_manual_urls` alias as the conceptual or operational home, generic RSS, treating `github.com/jujuyaya/juya-ai-daily` as Juya, silently turning that URL into a repo news item
 
 **Bilibili**:
-A source whose digest items are video learning signals from Bilibili. Opt-in unless the user asks for it or names it in sources.
-_Avoid_: Transcript-first news (until that milestone exists)
+A source whose digest items are video learning signals from Bilibili. Opt-in unless the user asks for it or names it in sources. It is hidden from discovery by default, which does not disable explicit requests or past results.
+_Avoid_: Transcript-first news (until that milestone exists), a removed source, hiding historical Bilibili entries
 
 **GitHub (ecosystem signal)**:
 A source whose digest items are open-source momentum signals (trending repos), not article-like news or curated bulletins. Opt-in unless the user asks for ecosystem/repo signals or names it in sources.
@@ -33,6 +33,26 @@ _Avoid_: Emoji in editorial digest output, emoji on non-HF search lists, treatin
 **Zhihu (practitioner insight signal)**:
 A source for Chinese-language practitioner lessons, trade-offs, and pitfalls about AI topics, distinct from primary academic evidence.
 _Avoid_: arXiv substitute with equivalent evidence, generic web search, claiming relevance-ranked results are trending
+
+**OpenRouter (callable-model signal)**:
+A source for models you can call through one API: newly listed, free-priced, and priced. It is distinct from Hugging Face model momentum. The same model may legitimately appear in both.
+_Avoid_: Usage rankings, price-change history, a quality ranking, a Hugging Face substitute
+
+**Callable model**:
+The atomic OpenRouter digest item — one model listing with its provider, context length, token prices, and input modalities.
+_Avoid_: A Hugging Face model family, a usage ranking, inferring availability or limits from token prices
+
+**Free token pricing**:
+An OpenRouter listing whose input and output token prices are both explicitly zero. A free-route name is supporting metadata, not proof of zero prices. Missing or invalid prices are unknown.
+_Avoid_: Treating an unknown price as zero, a claim about availability, limits, or other charges
+
+**Hidden source**:
+A source omitted from discovery, empty-result suggestions, and source-selection lists. Explicit requests, its settings, its credentials, and its historical results remain available.
+_Avoid_: Disabled source, removed connector, hiding past entries
+
+**Related coverage**:
+Different digest entries that confidently name the same model or product, including its version, size, and product variant. The link does not merge, delete, or rerank those entries.
+_Avoid_: Topical similarity, grouping different sizes or variants, treating uncertain name overlap as the same identity
 
 **Practitioner insight**:
 The atomic Zhihu digest item — one traceable search result framed for its practical experience, trade-off, or pitfall value.
@@ -73,12 +93,24 @@ The suggested next learning move stored on a digest row (read, watch, try, or bu
 _Avoid_: Structured follow-up, rank deep-dive, “follow-up section”
 
 **Structured follow-up**:
-Deterministic inspection of the current follow-up context via fixed phrases: show sources, study first, caveats, and rank. A browser Session uses its latest successful digest; the CLI uses Shared-interface context.
+Deterministic inspection of the current follow-up context via fixed phrases: show sources, study first, caveats, and rank. An untargeted browser follow-up uses that Session's latest successful digest; the CLI uses Shared-interface context.
 _Avoid_: New path strings for removed interfaces, treating open-ended chat as structured follow-up, inventing Hub quality or Zhihu freshness beyond saved evidence
 
+**Targeted follow-up**:
+A follow-up bound to one saved entry in the current conversation, identified by digest identity and display rank. It does not change which digest untargeted follow-ups use.
+_Avoid_: Free-text rank phrasing as the only way to select an entry, switching the conversation's latest digest, a historical search that leaves the conversation
+
+**Deep dive**:
+The targeted action that returns the source-specific rank deep-dive for the selected entry.
+_Avoid_: Using it to answer an arbitrary typed question
+
+**Ask about this**:
+The targeted action that answers the typed question from the selected entry's evidence. It says when that evidence is insufficient.
+_Avoid_: Repeating the full deep dive as the answer, searching other sources to fill a gap
+
 **Rank deep-dive**:
-The structured reply for one 1-based **display rank**. Kind-specific cards from saved digest evidence: Juya **issue deep-dive**, Hugging Face **family card**, Zhihu **practitioner-insight card**; other kinds stay a generic entry reprint. On the **latest** digest, Hugging Face may live-fetch the representative model-card README once (ADR-0006); Zhihu stays persist-only. **History show** never live-fetches.
-_Avoid_: A digest-renderer “follow-up section”, giving Also variants their own ranks, synthesizing multiple Zhihu results, changing show-sources / study-first / caveats in the same change, git clone, Also-variant READMEs, Zhihu page fetch, treating history show as latest-digest enrich
+The structured reply for one 1-based **display rank**. Kind-specific cards from saved digest evidence: Juya **issue deep-dive**, Hugging Face **family card**, Zhihu **practitioner-insight card**; other kinds stay a generic entry reprint. On the conversation's latest successful digest, Hugging Face may live-fetch the representative model-card README once (ADR-0006). A targeted follow-up on an older digest, and history show, stay persist-only. Zhihu stays persist-only.
+_Avoid_: A digest-renderer “follow-up section”, giving Also variants their own ranks, synthesizing multiple Zhihu results, changing show-sources / study-first / caveats in the same change, git clone, Also-variant READMEs, Zhihu page fetch, treating history show or an older target as latest-digest enrich
 
 **Issue deep-dive**:
 The Juya rank deep-dive — one daily issue expanded into sub-news from persisted website markdown. Chinese chrome.
@@ -117,16 +149,16 @@ Opening one historical item by **historical item reference** as a read-only **ra
 _Avoid_: Making the old digest the active follow-up context, live connector enrichment on historical open
 
 **Session**:
-A durable browser conversation thread that owns ordered chat messages, session-sticky source preferences, and its own latest digest context. It permits one active **Session Request** at a time. A session's structured follow-ups inspect its latest successful digest; older digests must be opened by historical item reference. Historical digest search still spans the shared digest archive.
-_Avoid_: An HTTP cookie/session token, an ephemeral browser tab, a user account or authorization boundary, multiple simultaneous requests in one session, treating all sessions as one global latest-digest context, using a session to limit historical digest search
+A durable browser conversation thread that owns ordered chat messages, session-sticky source selection, and its own latest digest context. It permits one active **Session Request** at a time. Untargeted structured follow-ups inspect its latest successful digest. A targeted follow-up may inspect an older entry in that same conversation without changing the latest context. Historical digest search still spans the shared digest archive.
+_Avoid_: An HTTP cookie/session token, an ephemeral browser tab, a user account or authorization boundary, multiple simultaneous requests in one session, treating all sessions as one global latest-digest context, using a session to limit historical digest search, making an older targeted digest the latest context
 
 **Shared-interface context**:
 The latest saved digest that does not belong to a browser session. CLI structured follow-ups inspect this context, independently of every browser Session.
 _Avoid_: Global latest across every interface, a Session's context, a browser-created digest changing CLI follow-up behavior
 
 **Session Request**:
-One durable user-initiated chat execution within a Session, from accepted user message to one terminal outcome: succeeded, failed, cancelled, or interrupted. It gives that message a stable lifecycle independently of transient response delivery.
-_Avoid_: The user message itself, a Digest run, a transient delivery channel, automatically retrying an interrupted request
+One durable user-initiated chat execution within a Session, from accepted user message to one terminal outcome: succeeded, failed, cancelled, or interrupted. Its identity is bound to the original submission: message, target, action, and explicit options. An identical retry replays it; a different submission under that identity is refused.
+_Avoid_: The user message itself, a Digest run, a transient delivery channel, automatically retrying an interrupted request, returning an old result for changed input
 
 ### Browser conversation
 
@@ -139,16 +171,32 @@ A browser message about a digest already in the conversation — explanation, in
 _Avoid_: Fetching new signals for a rephrasing, answering from general knowledge when saved evidence exists
 
 **General explanation**:
-An answer from general knowledge to a standalone question, used when no digest evidence applies. It is labelled as general knowledge and makes no claim to current or collected evidence.
-_Avoid_: Presenting it as a digest result, implying freshness, running source collection to answer it
+An answer from general knowledge to a standalone question that neither asks for fresh signals nor refers to a saved digest entry. It is labelled as general knowledge. A digest already being present does not by itself make the question a follow-up.
+_Avoid_: Presenting it as a digest result, implying freshness, running source collection to answer it, changing the meaning because a digest exists or a language model is unavailable
 
 **Unresolved clarification**:
-The single pending question asked when a browser request is genuinely ambiguous. A short reply completes the original request; a new complete request replaces it.
-_Avoid_: Stacking multiple pending questions, losing the original topic across a reload, treating the clarification reply as a new standalone request
+The single pending question asked when a browser request is genuinely ambiguous. A short reply completes the original request. A self-contained new request, or an explicit targeted follow-up, replaces it and clears it durably.
+_Avoid_: Stacking multiple pending questions, losing the original topic across a reload, treating the clarification reply as a new standalone request, restoring a clarification that a later request already replaced
 
 **Resolved request**:
-The options a browser Digest request actually ran with — sources, count, timeframe, language, audience, and topic — shown with the question and restored after reload.
-_Avoid_: Echoing the composer's unconfirmed selection, exposing interpreter reasoning or raw evidence, claiming a result that was never collected
+The options a Digest request actually ran with — sources, each source's count and effective time window, language, audience, and topic — shown with the question and restored after reload. Run again repeats these options.
+_Avoid_: Echoing the composer's unconfirmed selection, exposing interpreter reasoning or raw evidence, claiming a result that was never collected, re-resolving the message against settings changed later
+
+**No eligible results**:
+A completed collection that found nothing matching the request's sources, filters, and timeframe.
+_Avoid_: A failed collection presented as an empty digest
+
+**Collection failure**:
+A selected source that did not complete collection. It is not evidence that no matching items exist.
+_Avoid_: Offering it as a normal empty digest, hiding the failure behind an alternative-source suggestion
+
+**Partial results**:
+A digest in which at least one selected source returned eligible entries and at least one selected source failed.
+_Avoid_: Treating the whole digest as empty, hiding the failed source
+
+**Run again**:
+A new collection that repeats a previous request's resolved options, using fresh data and the provider credentials current at the new run.
+_Avoid_: Replaying the saved response, re-resolving the original message against settings changed since that run
 
 ### Shared
 
@@ -157,13 +205,41 @@ The normalized candidate collected from any connector before ranking and summari
 _Avoid_: Treating every NewsItem as an article; shape depends on SourceKind
 
 **SourceKind**:
-Which source family produced a NewsItem (`github`, `bilibili`, `juya`, …).
-_Avoid_: Overloading `github` for Juya bulletin rows
+Which source family produced a NewsItem (`github`, `bilibili`, `juya`, `huggingface`, `zhihu`, `openrouter`, …).
+_Avoid_: Overloading `github` for Juya bulletin rows, treating OpenRouter and Hugging Face as the same source family
+
+**Item count**:
+The upper bound on eligible display entries one source may contribute. Filters, timeframe, and model-family grouping still apply. A shortfall is shown rather than filled by relaxing those constraints.
+_Avoid_: A guaranteed exact count, counting packaging variants as separate Hugging Face families, silently widening the timeframe
+
+**Juya all**:
+The Juya item-count choice meaning every eligible story in the issues selected by the request, after topic and timeframe filtering. Summarizing more than 20 stories requires confirmation.
+_Avoid_: An unlimited archive crawl, removing only the display cap while collection stays capped, applying all to other sources
+
+**Output language**:
+The language of generated digest text and entry labels. The saved preference is global: source default, English, or Simplified Chinese. Source default keeps each source's existing presentation language. A language named in the message overrides it for that run. Original titles, quotations, names, and identifiers stay as collected.
+_Avoid_: A Juya-only language setting that changes every other source, translating quoted evidence
+
+**Source profile**:
+The saved settings for one source, shared by every conversation and by every supported interface that uses the same digest archive. Explicit request options override it.
+_Avoid_: A per-conversation count, a web-only preference
+
+**Owner access token**:
+The shared credential that identifies the single owner of a remotely reachable app. It is neither a user account nor a provider credential.
+_Avoid_: Per-user login, a provider API key, treating a browser conversation as a security boundary
+
+**Provider credential**:
+A credential the app uses to call a source or a language-model service.
+_Avoid_: The owner access token, a per-conversation secret
+
+**Unreadable credential override**:
+A saved provider-credential override that exists but cannot be read. Operations that depend on it stay blocked until the owner restores the key, replaces the override, or explicitly deletes it.
+_Avoid_: Treating it as unset, silently using an environment credential instead
 
 **Source selection**:
 Which connectors run for a digest. Bare digest with no platform cue defaults to Juya only. Explicit source lists, clear intent phrases, or platform-specific targets select those connectors and replace the Juya default unless Juya is also named or targeted. Juya targets are website URLs only (`daily.juya.uk`), not the former GitHub repo alias.
 _Avoid_: Always running GitHub+Bilibili by default; always adding Juya on top of platform-targeted digests; requiring a source name when a target already implies the platform; routing `jujuyaya/juya-ai-daily` to Juya
 
 **Cross-source ranking**:
-When a digest mixes SourceKinds, candidates are scored with kind-aware features (not one naive “newsiness”), then presented in segmented sections by source rather than a single interleaved top-N. Section order is intent-first (primary kind from the ask leads); otherwise fixed fallback Juya → Hugging Face → GitHub → Zhihu → Bilibili, omitting empty sections.
+When a digest mixes SourceKinds, candidates are scored with kind-aware features (not one naive “newsiness”), then presented in segmented sections by source rather than a single interleaved top-N. Section order is intent-first (primary kind from the ask leads); otherwise fixed fallback Juya → Hugging Face → OpenRouter → GitHub → Zhihu → Bilibili, omitting empty sections.
 _Avoid_: One score that treats bulletins, trending models, repos, practitioner insights, and videos as the same kind of “newsiness” without kind-aware rules; interleaving unlike genres into one ranked list as the primary UX; unstable size-based section order

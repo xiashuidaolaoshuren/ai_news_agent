@@ -1,11 +1,12 @@
 # Targeted follow-ups, empty-digest suggestions, and conversation polish
 
-Status: draft for review
+Status: agreed
 Date: 2026-10-20
+Review: agreed 2026-10-20. Vocabulary: [CONTEXT.md](../../../CONTEXT.md). Decisions: [ADR-0015](../../adr/0015-targeted-followups-and-request-identity.md).
 
 ## Goal
 
-Make "Ask a follow-up" answer about the exact entry the user clicked, and fix the rough edges seen in the running app: a flash of the empty state, dead-end empty digests, and inconsistent routing of identical messages.
+Make **Deep dive** and **Ask about this** answer about the exact entry the user selected, and fix the rough edges seen in the running app: a flash of the empty state, dead-end empty digests, and inconsistent routing of identical messages.
 
 ## Problems observed
 
@@ -17,26 +18,42 @@ Make "Ask a follow-up" answer about the exact entry the user clicked, and fix th
 
 ## Follow-up target
 
-- `PostMessageBody` gains optional `followup_target: {run_id: int, display_rank: int}`.
-- Validation: the run must belong to this session (a succeeded request with that `run_id`) and the rank must exist, otherwise `400`. The intent is forced to `followup`; the interpreter is skipped.
-- Resolution: `ChatService` builds the follow-up context from `run_id` instead of the latest, then answers in two parts: first the existing deterministic deep dive for that entry's source kind, then, when an LLM is configured, a short grounded elaboration using only that entry's stored evidence. Without an LLM only the deterministic part is returned.
-- Typed follow-ups with no target keep today's behaviour (latest digest in the session).
-- The target is stored on the user message and returned on `MessageOut.followup_target`, so a reload restores the chip.
-- Idempotency, cancellation and replay work unchanged because the target is part of the stored request.
+The public target is `{digest_id: int, display_rank: int}`, the same identity as a historical item reference (`dN:rN`). Digest id and run id are different database identities and need not match. The server resolves the run from the digest.
+
+- `PostMessageBody` gains optional `followup_target` and `followup_action: "deep_dive" | "ask"`.
+- Validation: the digest must belong to this session, the rank must exist on it, and the action must be present when a target is present. Otherwise `400`. The intent is forced to `followup`; the interpreter is skipped.
+- The target does not change the session's latest successful digest. Untargeted follow-ups still use that latest digest.
+- Typed follow-ups with no target keep today's behaviour.
+
+### Deep dive and Ask about this
+
+- **Deep dive** returns the existing deterministic rank deep-dive for that entry's source kind. When an LLM is configured, it may append a short elaboration grounded only in that entry. Without an LLM, only the deterministic card is returned.
+- **Ask about this** answers the typed question from that entry's evidence. If the evidence is insufficient, the reply says so and does not search other sources. Without an LLM, it shows the deterministic card and says that question-specific answering is unavailable.
+- On the session's latest successful digest, a Hugging Face target may live-fetch the representative model-card README once, label that snippet as fetched after the digest, and save it. The fetch must reload the targeted digest, not the global latest digest. Older targets, history show, and Zhihu stay saved-evidence-only.
+- The target and action are stored with the user message and returned on `MessageOut`, so a reload restores the chip.
+- Idempotency binds the session request id to the original message, target, action, and explicit options. An identical retry replays the stored request and its saved settings. The same id with different input returns `409` and executes nothing. A change to global settings alone does not invalidate an identical retry.
 
 ## UI
 
-- Per entry: **Deep dive** (sends at once with the target) and **Ask about this** (fills the composer and shows a removable chip "↳ d12 #3 title"; sending includes the target; removing the chip sends a plain message).
-- The reply shows a "re: #3" link that scrolls to the entry.
+- Per entry: **Deep dive** (sends at once with the target and `deep_dive`) and **Ask about this** (fills the composer and shows a removable chip `↳ d12 #3 title`; sending includes the target and `ask`; removing the chip sends a plain message).
+- The reply shows a `re: #3` link that scrolls to that entry in its digest.
 - The user bubble shows the same chip from the stored target.
 - Follow-up replies stay Markdown; rich cards are out of scope.
-- Run again and suggestions keep their current behaviour.
+- **Run again** repeats the original resolved request, including counts, filters, timeframe rules, and output language. It collects fresh data and uses the provider credentials current at the new run. It is not replay: replay returns the stored request and never re-resolves settings or collects again.
 
-## Empty-digest suggestions
+## Empty and failed collection
 
-- When a digest result has zero entries, the assistant message shows buttons for up to three other visible sources not used in that run, in catalog order, labelled "Try Hugging Face".
-- A button sends a message naming that source and repeating the original topic. A source named in a message already applies to that run only, so no API change.
+Distinguish three outcomes:
+
+| Outcome | Meaning | UI |
+|---|---|---|
+| No eligible results | Collection completed and nothing matched | Up to three buttons for other visible sources, in catalog order, such as "Try Hugging Face" |
+| Collection failure | A selected source did not complete | Explain the failure. Prefer Retry or credential repair. Alternatives may be offered as alternatives, not as proof the source had no news |
+| Partial results | At least one source returned entries and at least one failed | Show the entries and name the failed source |
+
+- A no-results suggestion creates a new digest request from the original resolved options, changing only the source. It keeps an explicit topic, timeframe, language, and audience. For count and source filters the original message did not set, it uses the destination source's saved profile. The button states what will run; the interpreter does not reconstruct those options from text.
 - Suggestions come from the visible source catalog, so hidden sources never appear.
+- A suggestion is a new request. It replaces a pending clarification.
 
 ## Loading state
 
@@ -46,37 +63,50 @@ Make "Ask a follow-up" answer about the exact entry the user clicked, and fix th
 
 ## Consistent routing
 
-- First write the two Qwen cases as failing tests: the same text under the same context must give the same decision, and "Recent updates" after a pending clarification must keep its topic.
-- Fix by making the rule order in `interpret_message` independent of incidental context (a model call or session source list must not change a rule-matched decision), and by logging the chosen branch.
-- The scope is limited to what the tests expose. A rewrite of the interpreter is out of scope.
+Rule-matched decisions do not change because a digest exists, a model is available, or the session source list differs.
+
+- A standalone "Tell me about Qwen" is a **general explanation**, with or without an existing digest. It is labelled as general knowledge.
+- "Explain the Qwen entry above", or another explicit digest reference, is a follow-up over saved evidence.
+- "Recent Qwen updates", or another request for fresh signals, is a digest request.
+- If a general explanation needs an LLM and none is configured, say so. Do not change the intent to a digest or a clarification.
+- While a clarification is pending, a short direct reply completes the original request and keeps its topic. A self-contained new request replaces it. An explicit targeted action also replaces it. The replacement is persisted, so a reload cannot restore the old clarification.
+- Log the chosen branch. The scope is these rules, not a rewrite of the interpreter.
 
 ## Error handling
 
 | Case | Behaviour |
 |---|---|
-| Target run not in session or rank missing | 400, composer shows "That entry is no longer available" and clears the chip |
-| LLM unavailable | deterministic part only |
-| Target digest has no stored evidence | generic entry card from the digest entry |
+| Target digest not in session, or rank missing | 400; composer shows "That entry is no longer available" and clears the chip |
+| Same request id, different message, target, action, or explicit options | 409; nothing runs |
+| LLM unavailable for Deep dive | deterministic card only |
+| LLM unavailable for Ask about this | deterministic card, plus a statement that question-specific answering is unavailable |
+| Targeted entry has no stored evidence | generic entry card from the digest entry |
+| Older Hugging Face target | saved evidence only; no live README fetch |
 
 ## Testing (TDD; one failing test per behaviour)
 
 Backend:
-1. A target selects its own run even when a newer digest exists.
+
+1. A target selects its own digest even when a newer digest exists, and leaves the latest-digest context unchanged.
 2. A target from another session is rejected.
 3. An unknown rank is rejected.
-4. Each source kind returns its deterministic deep dive for a target.
-5. LLM elaboration is grounded only in the targeted entry and skipped when no model.
-6. `followup_target` persists and round-trips on `MessageOut`; replay keeps it.
-7. Routing: the two Qwen cases give stable decisions.
+4. Deep dive returns the deterministic card; Ask about this answers the question from that entry only.
+5. A latest-digest Hugging Face target may fetch the README once; an older target does not, and the fetch does not replace the targeted context with the global latest.
+6. LLM elaboration or answers use only the targeted entry and are skipped, with the agreed fallback, when no model is configured.
+7. `followup_target` and action persist and round-trip on `MessageOut`.
+8. An identical request id replays; a changed body with that id returns 409.
+9. Routing: standalone "Tell me about Qwen" is general explanation with and without a digest; an explicit entry reference is follow-up; "Recent updates" after a pending Qwen clarification keeps Qwen.
+10. A no-results suggestion preserves explicit options and changes only the source. A connector failure is not presented as no eligible results.
 
 Frontend:
-8. Deep dive sends the target in one click; Ask about this shows the chip and sends the target; removing the chip drops it.
-9. Chip restored from stored messages; "re: #n" scrolls.
-10. Zero-item digest shows suggestions from visible sources only; click sends the right message.
-11. Skeleton while loading; empty state only when truly empty; retry on failure.
+
+11. Deep dive sends the target and action in one click. Ask about this shows the chip and sends both. Removing the chip drops them.
+12. Chip restored from stored messages; `re: #n` scrolls to the entry in that digest.
+13. No-results, failure, and partial-results states show the actions defined above.
+14. Skeleton while loading; empty state only when truly empty; retry on failure.
 
 Verification: regenerate OpenAPI and client; manual check in the running app on the conversation with three digests.
 
 ## Open items
 
-None blocking. Decision recorded: targeted follow-ups use a structured field rather than text patterns, so the deterministic path is reached without relying on phrasing.
+None blocking.

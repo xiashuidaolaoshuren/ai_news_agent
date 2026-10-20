@@ -1,6 +1,6 @@
 # Web client always uses Juya story mode; composer sources are session preferences
 
-Status: accepted
+Status: accepted; decision 2 superseded by ADR-0013
 
 The approved prototype shows a Juya issue cover followed by numbered stories, and its composer shows source checkboxes and a per-source count as if they applied to each message. The 8A.1 backend stores sources and count as sticky session preferences (`PATCH /sessions/{id}`, count 1-20), and accepts `juya_item_mode` per message (ADR-0009).
 
@@ -14,7 +14,7 @@ The approved prototype shows a Juya issue cover followed by numbered stories, an
 ## Decision
 
 1. The web client sends `juya_item_mode: "stories"` with every message. CLI, Gradio and OpenClaw stay in issue mode (ADR-0009 unchanged).
-2. Composer source checkboxes and the per-source stepper look as in the prototype but write session preferences with `PATCH`. The stepper range is 1-20.
+2. Superseded by ADR-0013. Source checkboxes remain session preferences. The shared per-source stepper no longer writes an active session count; item counts live in global source profiles.
 3. Stories are grouped client-side under one issue cover, keyed by `issue.id`. The UI shows no issue number because the API does not provide a verified one.
 
 ## Consequences

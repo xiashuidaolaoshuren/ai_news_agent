@@ -125,7 +125,7 @@ Messages come from `GET /sessions/{id}/messages` (newest page first, rendered ch
 ### Composer (`composer`)
 
 - Textarea (`composer-input`): Enter sends, Shift+Enter inserts a newline, ignore Enter during IME composition.
-- Source checkboxes (`source-checkboxes`) and "Per source" stepper (`items-per-source`) are session preferences. A committed change sends `PATCH /sessions/{id}` with `connector_names` and `items_per_source`. Before the first PATCH both are null and the UI shows the `/sources` defaults (Juya on) and a default count of 5.
+- Source checkboxes (`source-checkboxes`) and "Per source" stepper (`items-per-source`) are session preferences. A committed change sends `PATCH /sessions/{id}` with `connector_names` and `items_per_source`. Before the first PATCH both are null and the UI shows the `/sources` defaults (Juya on) and a default count of 5. ADR-0013 supersedes the stepper: later source profiles make item count global, while source checkboxes stay session preferences.
 - Stepper range is 1-20. Error copy: "Items per source must be a whole number from 1 to 20."
 - Validation: empty text, no source selected, count out of range. These match the backend 400s, so they are checked client-side first.
 - While a request is active: inputs disabled, Cancel (`cancel-request`) shown, Send disabled, info notice "A request is running in this conversation. You can draft your next message." A send attempt shows the blocked notice. A `409 session_busy` or `request_in_progress` response shows the same blocked notice.

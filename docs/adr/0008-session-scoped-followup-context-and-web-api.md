@@ -32,6 +32,6 @@ Session Requests provide a durable idempotency key, terminal replay, cancellatio
 - FastAPI becomes the HTTP implementation and `/api/v1` is the Vue client's OpenAPI contract; OpenClaw routes remain unversioned.
 - Server-rendered Markdown remains the text contract; source-kind-discriminated `DigestView` data supports richer frontend presentation without exposing raw connector evidence.
 - An SSE reconnect uses durable Session Request status and transcript reload/replay rather than resuming arbitrary partial stream bytes.
-- One Session Request can be active per session; requests are idempotent, terminally replayable, and safely marked interrupted on startup after a crash.
+- One Session Request can be active per session; requests are idempotent, terminally replayable, and safely marked interrupted on startup after a crash. ADR-0015 tightens replay: the same request id returns the stored result only when the message, target, action, and explicit options match. A different submission returns 409.
 - SQLite remains the system of record. Semantic session search and memory RAG are deferred to 8A.2 behind the `/api/v1/sessions/search` contract.
 - Gradio remains temporarily, then is removed only after Milestone 8B provides equivalent functionality.
