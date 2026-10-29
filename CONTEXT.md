@@ -75,8 +75,8 @@ The Hugging Face presentation unit: Hub repositories that share architecture ver
 _Avoid_: Grouping different sizes or product SKUs together, splitting the same size/version across multiple visible rows because of GGUF/MLX/quant/Instruct/Chat/Uncensored suffixes
 
 **Family representative**:
-The Hub repository shown for a model family — the member with the highest Hub trending score. Other format or packaging variants may appear on an **Also:** line but do not occupy their own slot.
-_Avoid_: Picking a representative by downloads alone when trending score is available, hiding that sibling variants exist when they were collected
+The Hub repository shown for a model family — the member with the highest Hub trending score. The **Also** line shows the entry's declared base-model relationship, such as a GGUF or MLX quantization or a fine-tune of another model, mirroring the comparison table's Variants column; those repositories do not occupy their own slot.
+_Avoid_: Picking a representative by downloads alone when trending score is available, limiting Also to packaging variants when the table declares a fine-tune, hiding that a declared base model exists
 
 **Display rank**:
 The 1-based position shown before each digest entry or search row. In digests it is the continuous index across the full entry list (mixed sections do not restart at 1). In search lists it is the order of rows actually shown after any Hugging Face family collapse.
@@ -129,8 +129,8 @@ Whitelisted API fields derived from persisted connector evidence: publisher owne
 _Avoid_: Exposing raw evidence, inventing daily star deltas or issue numbers, treating UI initials as a backend field
 
 **Hugging Face family card**:
-The Hugging Face rank deep-dive — the **model family** at that display rank: representative, comparison-table Hub stats, Also variants, publisher, card snippet, and the popularity-not-quality caveat. English chrome matching the comparison table. Snippet may come from collect-time card data or a once-fetched live model-card README (ADR-0006).
-_Avoid_: Repeating only the table with no snippet, dumping every Hub key, git clone, Also-variant READMEs, treating the row as a raw weights repo rather than a family, inventing description from HTML
+The Hugging Face rank deep-dive — the **model family** at that display rank: representative, comparison-table Hub stats, **Also** line, publisher, card snippet, and the popularity-not-quality caveat. English chrome matching the comparison table. The Also line mirrors the comparison table's Variants column, including a declared fine-tune of another model. A field the digest never recorded reads `Not saved` rather than being inferred. Snippet may come from collect-time card data or a once-fetched live model-card README (ADR-0006); an older entry's snippet is labelled as saved with its digest.
+_Avoid_: Repeating only the table with no snippet, dumping every Hub key, git clone, Also-variant READMEs, treating the row as a raw weights repo rather than a family, inventing description from HTML, inferring a missing stat, implying a live fetch for an older entry
 
 **Zhihu practitioner-insight card**:
 The Zhihu rank deep-dive — that rank’s single **practitioner insight**: Chinese chrome, evidence-first snippet/lens/author, 搜索相关性 labeled as search relevance not 热度, optional labeled LLM 摘要 / 为什么值得看, thin-evidence and no-freshness caveats.

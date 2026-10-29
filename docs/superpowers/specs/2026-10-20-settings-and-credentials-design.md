@@ -19,7 +19,7 @@ Give the app one Settings area where its single owner can configure each source,
 - A **Settings** button in the sidebar footer opens a panel with tabs **Sources** and **Keys**.
 - Each visible source chip in the composer gets a gear icon that opens that source's section.
 - The composer's **Per source** stepper is removed. Counts live in source profiles. This supersedes ADR-0010 decision 2. Source checkboxes remain session preferences.
-- A sign-in screen appears when an owner access token is required and missing or rejected.
+- A sign-in screen appears when an owner access token is required and missing or rejected. A rejected token keeps the field masked and shows the inline error `That token was rejected.` with the app still locked.
 - On the first run after session counts stop being active, show a one-time notice that new requests use the global source profiles. Historical messages keep the counts they ran with.
 
 ## Source profiles
@@ -36,7 +36,7 @@ One profile per source, shared by every conversation and by the web app and comm
 | Bilibili | none. Hidden from discovery, but its section remains in Settings and says "Hidden from source selection" |
 
 - Defaults reproduce today's behaviour: count 5, no keywords, OpenRouter `free_only` false.
-- **Item count** means up to that many eligible display entries. Filters, timeframe, and Hugging Face model-family grouping still apply. Raise collection limits where the source supports it. If fewer eligible entries exist, show the shortfall. Do not widen the timeframe, relax filters, or split packaging variants to fill the count.
+- **Item count** means up to that many eligible display entries. Filters, timeframe, and Hugging Face model-family grouping still apply. Raise collection limits where the source supports it. If fewer eligible entries exist, show the shortfall in the resolved request line as returned of requested (for example `3 of 5`). Do not widen the timeframe, relax filters, or split packaging variants to fill the count.
 - **Juya `all`** means every eligible story in the issues selected by that request, after topic and timeframe filtering. It removes the ordinary collection and selection caps for that bounded selection. It does not crawl an unlimited archive. Before summarizing more than 20 stories, ask for confirmation. Cancellation remains available. `all` is not offered for other sources.
 - **Precedence:** an explicit message or command-line option beats the saved profile, which beats the built-in default. A count named for one source overrides only that source. "Each" overrides every selected source. An unqualified count means per selected source, not a total across sources. Show the resolved counts.
 - **GitHub keywords** are topics for the GitHub query only when the message names no topic. A message topic wins. Keywords do not turn `topics_are_filters` on.
@@ -126,7 +126,7 @@ The repository is already schema version 3. This change migrates v3 to v4 throug
 | Secret key missing | writes 409; panel read-only with instructions |
 | Saved override cannot be decrypted | status `unreadable`; dependent operations fail until the owner resolves it |
 | Test fails | sanitized message shown, value kept |
-| Token wrong or missing in remote mode | 401; sign-in screen |
+| Token wrong or missing in remote mode | 401; sign-in screen. A rejected token shows `That token was rejected.` and keeps the app locked |
 | Remote mode without a configured token | process refuses to start |
 | LLM endpoint fails the remote-mode network rule | 400; value not saved |
 | LLM required but not configured | the operation explains that Settings must be completed; other operations continue |
@@ -138,7 +138,7 @@ Backend:
 1. Settings validation per source, including GitHub `item_count`. Defaults reproduce current behaviour.
 2. `PUT` and `GET` round-trip. Invalid values return 400. A hidden source remains readable and writable.
 3. An unqualified count applies per selected source. A source-scoped count overrides only that source.
-4. Count means up to N eligible entries. A shortfall is reported without relaxing filters or timeframe.
+4. Count means up to N eligible entries. A shortfall is reported as returned of requested without relaxing filters or timeframe.
 5. Juya `all` covers every eligible story in the selected issues and asks for confirmation above 20.
 6. Output language defaults to source default. English or Chinese applies across the digest, and a message language overrides it. Entry language is stored.
 7. GitHub keywords are used only when the message names no topic.
@@ -160,7 +160,7 @@ Frontend:
 20. The one-time notice explains the move from session counts to global profiles.
 21. Keys shows status only, write-only inputs, read-only mode, and the unreadable state.
 22. The LLM fields save together. The test control discloses the possible small charge.
-23. Sign-in on 401. The token is attached to requests and SSE and is stored in `sessionStorage`.
+23. Sign-in on 401. The token is attached to requests and SSE and is stored in `sessionStorage`. A rejected token shows the inline error and keeps the app locked.
 24. Entry labels follow the digest entry's recorded language.
 25. The health dot follows the current credential version.
 
