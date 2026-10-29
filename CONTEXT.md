@@ -160,6 +160,40 @@ _Avoid_: Global latest across every interface, a Session's context, a browser-cr
 One durable user-initiated chat execution within a Session, from accepted user message to one terminal outcome: succeeded, failed, cancelled, or interrupted. Its identity is bound to the original submission: message, target, action, and explicit options. An identical retry replays it; a different submission under that identity is refused.
 _Avoid_: The user message itself, a Digest run, a transient delivery channel, automatically retrying an interrupted request, returning an old result for changed input
 
+### Research
+
+**Evidence-only follow-up**:
+An explanation or inspection limited to its permitted saved evidence, with missing information stated explicitly. An offer to research does not authorize retrieval; separately defined source-specific enrichment exceptions retain their own meaning.
+_Avoid_: Silently researching an evidence gap, assuming every follow-up has live retrieval permission, treating saved evidence as freshly checked
+
+**Research request**:
+An explicitly authorized investigation of a question about one selected saved entry in the current conversation. It may gather additional evidence within that entry's permitted source scope without changing the original digest or latest-digest context.
+_Avoid_: Ordinary Ask about this, a new digest, standalone discovery, multi-entry comparison, blanket permission to browse
+
+**Research record**:
+The saved question, target entry, bounded evidence actually supplied for the investigation, source attribution and retrieval times, answer, and limitations from one research request. It is separate from the original digest and linked to the entry and conversation.
+_Avoid_: Rewriting digest-time evidence, an archive of complete source documents, only an answer with URLs, conversation-wide retrieval permission
+
+**Research follow-up**:
+A question explicitly referring to a research record and answered from that record's saved evidence. It does not authorize another retrieval or make the evidence current.
+_Avoid_: Automatically refreshing research, silently broadening an entry-only Ask about this action, presenting saved research as newly verified
+
+**Research continuation**:
+A new explicitly authorized research request linked to a prior research record to investigate its unresolved question further. It may reuse attributed saved evidence while preserving the prior record and outcome.
+_Avoid_: Replay, automatic retry, silently extending a budget, rewriting a previous result
+
+**Original source (research)**:
+The page or repository represented by the selected entry and permitted as the starting source for its research. It may be community-maintained or third-party coverage; its inclusion does not establish authority for every claim it makes.
+_Avoid_: Always the original model developer, permission for every linked site, treating coverage as publisher-verified requirements
+
+**Verified maintainer documentation**:
+Documentation whose publisher's responsibility for the exact researched project, model, or variant has been established. It may belong to the original developer or a community maintainer; the publisher remains explicitly identified.
+_Avoid_: Official because a page says so, a model's unsupported authority claim, treating base-model guidance as verification of a community variant
+
+**Verified documentation scope**:
+The approved project-specific area within verified maintainer documentation that an authorized investigation may navigate. Links within it do not authorize other publishers or projects, even on the same shared host.
+_Avoid_: Whole-domain trust, unrestricted web research, a link granting permission, a documentation homepage being the only permitted page
+
 ### Browser conversation
 
 **Digest request (conversation)**:

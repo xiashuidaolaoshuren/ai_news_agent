@@ -8,6 +8,10 @@ Review: agreed 2026-10-20. Vocabulary: [CONTEXT.md](../../../CONTEXT.md). Decisi
 
 Make **Deep dive** and **Ask about this** answer about the exact entry the user selected, and fix the rough edges seen in the running app: a flash of the empty state, dead-end empty digests, and inconsistent routing of identical messages.
 
+## Relationship to authorized research
+
+The [2026-10-29 agent-loop and entry-bound research design](2026-10-29-agent-loop-and-entry-research-design.md) adds a separate, explicitly authorized research operation; it is agreed but not implemented. It does not broaden **Ask about this** or **Deep dive**: insufficient evidence may lead to an offer to research, but the offer alone runs no retrieval. An explicit research request may gather evidence within verified source scopes and saves that evidence in a separate research record, leaving this spec's digest-targeting, historical-open, and latest-digest rules intact. Follow-ups explicitly about that research may reuse its saved evidence without turning an ordinary entry-only question into a research request. The research action's API/UI representation is deferred; this spec's `deep_dive | ask` contract is unchanged.
+
 ## Problems observed
 
 1. `prefillFollowUp` (`stores/composer.ts`) pastes free text that matches none of the rank patterns in `followup_structured.py`, so it skips the built-in deep dives (Juya story, live Hugging Face card, Zhihu card).

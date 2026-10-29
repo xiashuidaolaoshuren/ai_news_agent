@@ -393,6 +393,12 @@ Set `BILIBILI_SESSDATA`, `BILIBILI_BILI_JCT`, and `BILIBILI_BUVID3` in `.env` if
 
 ## Documentation
 
+### Agreed future research design
+
+The [agent-loop and entry-bound research design](docs/superpowers/specs/2026-10-29-agent-loop-and-entry-research-design.md) is **agreed but not implemented**. It preserves predictable digest workflows and adds explicitly authorized, bounded research about one selected saved entry. Research evaluates successive tool results, uses the original source and verified project documentation, and saves its evidence separately from the digest. Ordinary **Ask about this** remains evidence-only; its question alone does not authorize research. [ADR-0016](docs/adr/0016-hybrid-agent-loop-and-separate-research-records.md) records the architectural trade-offs.
+
+### Existing designs and plans
+
 - [Milestone 8A.1 web API and sessions plan](docs/superpowers/plans/2026-09-11-milestone-8a1-web-api-and-sessions-plan.md)
 - [Milestone 8A.1 web API and sessions design](docs/superpowers/specs/2026-09-11-milestone-8a1-web-api-and-sessions-design.md)
 - [Implementation plan (T1–T14, Milestone 1)](docs/superpowers/plans/2026-05-02-ai-news-research-agent-plan.md)
