@@ -191,16 +191,29 @@ class ChatService:
         session_id: str,
         request_id: str | None = None,
         juya_item_mode: str | None = None,
+        followup_target: Any | None = None,
+        followup_action: str | None = None,
         chunk_size: int = 80,
         chunk_delay_s: float = 0.02,
     ) -> AsyncIterator[ChatEvent]:
         if self._session_service is None:
             raise RuntimeError("session_service is required for stream_events")
 
+        followup_target_payload: dict[str, object] | None = None
+        if followup_target is not None:
+            followup_target_payload = (
+                followup_target.model_dump()
+                if hasattr(followup_target, "model_dump")
+                else dict(followup_target)
+            )
+
         record = self._session_service.begin_request(
             session_id,
             content=message,
             request_id=request_id,
+            juya_item_mode=juya_item_mode,
+            followup_target=followup_target_payload,
+            followup_action=followup_action,
         )
         if record.status in _TERMINAL_REPLAY_STATUSES:
             async for event in self._replay_terminal_events(
@@ -208,6 +221,36 @@ class ChatService:
                 record,
                 chunk_size=chunk_size,
                 chunk_delay_s=chunk_delay_s,
+            ):
+                yield event
+            return
+
+        if followup_target_payload is not None and followup_action is not None:
+            interpretation: dict[str, Any] = {
+                "intent": "followup",
+                "followup": {
+                    "digest_id": int(followup_target_payload["digest_id"]),
+                    "display_rank": int(followup_target_payload["display_rank"]),
+                    "action": followup_action,
+                },
+            }
+            self._session_service.set_request_interpretation(
+                session_id,
+                record.id,
+                interpretation,
+            )
+            yield StartedEvent(
+                request_id=record.id,
+                user_message_id=record.user_message_id,
+                intent="followup",
+            )
+            async for event in self._stream_session_followup_events(
+                session_id=session_id,
+                record=record,
+                message=message,
+                chunk_size=chunk_size,
+                chunk_delay_s=chunk_delay_s,
+                digest_id=int(followup_target_payload["digest_id"]),
             ):
                 yield event
             return
@@ -532,8 +575,13 @@ class ChatService:
         message: str,
         chunk_size: int,
         chunk_delay_s: float,
+        digest_id: int | None = None,
     ) -> AsyncIterator[ChatEvent]:
-        text = await self._handle_session_followup_message_async(session_id, message)
+        text = await self._handle_session_followup_message_async(
+            session_id,
+            message,
+            digest_id=digest_id,
+        )
         cancelled = self._cancelled_error_event(session_id, record)
         if cancelled is not None:
             yield cancelled
@@ -680,8 +728,21 @@ class ChatService:
         self,
         session_id: str,
         message: str,
+        *,
+        digest_id: int | None = None,
     ) -> str:
-        ctx = self._store.get_followup_context_for_session(session_id)
+        if digest_id is not None:
+            ctx = self._store.get_followup_context_for_digest(digest_id)
+            if ctx is None:
+                ctx = FollowupContext(
+                    run_id=None,
+                    digest=None,
+                    news_items=[],
+                    ranked_items=[],
+                    warnings=[],
+                )
+        else:
+            ctx = self._store.get_followup_context_for_session(session_id)
         if ctx.run_id is None and ctx.digest is None:
             logger.info("follow-up path=no_saved_digest session_id=%s", session_id)
             return NO_SAVED_DIGEST

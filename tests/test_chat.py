@@ -7,6 +7,8 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from ai_news_agent.services.chat import ChatService
 from ai_news_agent.repositories.session_store import SessionStore
 from ai_news_agent.services.chat import (
@@ -310,6 +312,147 @@ def _save_session_digest(
     session_store.update_request_run_id(session_id, request_id, run_id)
     session_store.mark_terminal(session_id, request_id, status="succeeded")
     return run_id
+
+
+def _save_session_digest_ids(
+    store: DigestStore,
+    session_store: SessionStore,
+    *,
+    session_id: str,
+    topics: list[str],
+    request_id: str,
+    ensure_session: bool = True,
+) -> tuple[int, int]:
+    run_id = _save_session_digest(
+        store,
+        session_store,
+        session_id=session_id,
+        topics=topics,
+        request_id=request_id,
+        ensure_session=ensure_session,
+    )
+    digest_id = store.get_digest_id_for_run(run_id)
+    assert digest_id is not None
+    return run_id, digest_id
+
+
+def test_stream_events_targeted_followup_uses_named_digest_skips_interpreter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "stream-targeted-followup.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+
+    old_run_id, old_digest_id = _save_session_digest_ids(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["older-topic"],
+        request_id="req-old-digest",
+        ensure_session=False,
+    )
+    new_run_id, _new_digest_id = _save_session_digest_ids(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["newer-topic"],
+        request_id="req-new-digest",
+        ensure_session=False,
+    )
+
+    def _forbid_interpret(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("interpret_message must not run for targeted follow-up")
+
+    monkeypatch.setattr("ai_news_agent.services.chat.interpret_message", _forbid_interpret)
+
+    async def unused_runner(_: DigestRequest) -> DigestResult:
+        raise AssertionError("digest runner must not run for targeted follow-up")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=unused_runner,
+        session_service=session_service,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "follow up on item 1",
+            session_id=created.id,
+            request_id="req-targeted",
+            followup_target={"digest_id": old_digest_id, "display_rank": 1},
+            followup_action="ask",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    started = next(e for e in events if isinstance(e, StartedEvent))
+    assert started.intent == "followup"
+    latest = store.get_followup_context_for_session(created.id)
+    assert latest.run_id == new_run_id
+    assert latest.run_id != old_run_id
+    deltas = "".join(e.text for e in events if isinstance(e, DeltaEvent))
+    assert "older-topic" in deltas or "Repo older-topic" in deltas
+    assert "newer-topic" not in deltas
+
+
+def test_stream_events_targeted_followup_replaces_pending_clarification(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "stream-targeted-clarify.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _run_id, digest_id = _save_session_digest_ids(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["clarify-topic"],
+        request_id="req-clarify-digest",
+        ensure_session=False,
+    )
+
+    async def unused_runner(_: DigestRequest) -> DigestResult:
+        raise AssertionError("digest runner must not run")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=unused_runner,
+        session_service=session_service,
+    )
+
+    asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Tell me about Qwen",
+            session_id=created.id,
+            request_id="req-clarify",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    assert session_service.pending_clarification(created.id) is not None
+
+    asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Deep dive",
+            session_id=created.id,
+            request_id="req-targeted-clarify",
+            followup_target={"digest_id": digest_id, "display_rank": 1},
+            followup_action="deep_dive",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    assert session_service.pending_clarification(created.id) is None
 
 
 def test_stream_events_followup_uses_session_context_not_shared_or_other_session(
@@ -651,7 +794,7 @@ def test_stream_events_terminal_replay_returns_stored_outcome_without_rerun(
     replay = asyncio.run(
         _collect_stream_events(
             svc,
-            "list sources again",
+            "list sources",
             session_id=created.id,
             request_id="req-replay",
             chunk_size=1000,
@@ -748,7 +891,7 @@ def test_stream_events_digest_deltas_and_persistence_use_markdown(
     replay = asyncio.run(
         _collect_stream_events(
             svc,
-            "ignored",
+            "Give me today's AI digest",
             session_id=created.id,
             request_id="req-md-digest",
             chunk_size=1000,
@@ -804,7 +947,7 @@ def test_stream_events_terminal_digest_replay_emits_digest_event(
     replay = asyncio.run(
         _collect_stream_events(
             svc,
-            "ignored",
+            "digest please",
             session_id=created.id,
             request_id="req-digest-replay",
             chunk_size=1000,
@@ -845,8 +988,12 @@ def test_stream_events_followup_cancel_emits_cancelled_error(
         session_service=session_service,
     )
 
-    async def slow_followup(session_id: str, message: str) -> str:
-        del session_id, message
+    async def slow_followup(
+        session_id: str,
+        message: str,
+        **kwargs: object,
+    ) -> str:
+        del session_id, message, kwargs
         await gate.wait()
         return "too late"
 
@@ -946,8 +1093,12 @@ def test_stream_events_followup_failure_completes_failed_and_frees_session(
         session_service=session_service,
     )
 
-    async def boom_followup(session_id: str, message: str) -> str:
-        del session_id, message
+    async def boom_followup(
+        session_id: str,
+        message: str,
+        **kwargs: object,
+    ) -> str:
+        del session_id, message, kwargs
         raise RuntimeError("boom-token")
 
     svc._handle_session_followup_message_async = boom_followup  # noqa: SLF001
@@ -1137,8 +1288,12 @@ def test_stream_events_cancel_wins_at_completion_emits_cancelled_not_done(
         session_service=session_service,
     )
 
-    async def slow_followup(session_id: str, message: str) -> str:
-        del session_id, message
+    async def slow_followup(
+        session_id: str,
+        message: str,
+        **kwargs: object,
+    ) -> str:
+        del session_id, message, kwargs
         await gate.wait()
         return "answer after cancel"
 

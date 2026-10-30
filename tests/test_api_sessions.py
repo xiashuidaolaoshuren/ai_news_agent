@@ -196,6 +196,176 @@ def test_post_message_fake_mode_all_sources_returns_presentation_evidence(
     assert juya["issue"]["lead_title"] == "Fake Juya lead headline"
 
 
+def test_post_message_body_followup_target_and_action_must_be_paired() -> None:
+    from pydantic import ValidationError
+
+    from ai_news_agent.api.schemas.sessions import PostMessageBody
+
+    body = PostMessageBody(
+        content="Explain this entry",
+        followup_target={"digest_id": 1, "display_rank": 2},
+        followup_action="deep_dive",
+    )
+    assert body.followup_target is not None
+    assert body.followup_target.digest_id == 1
+    assert body.followup_target.display_rank == 2
+    assert body.followup_action == "deep_dive"
+
+    with pytest.raises(ValidationError):
+        PostMessageBody(
+            content="x",
+            followup_target={"digest_id": 1, "display_rank": 1},
+        )
+    with pytest.raises(ValidationError):
+        PostMessageBody(content="x", followup_action="ask")
+
+
+def _seed_session_owned_digest(
+    tmp_path: Path,
+    *,
+    db_name: str = "target-digest.db",
+) -> tuple[object, str, int]:
+    """Session with one digest linked through a succeeded session_request."""
+    from ai_news_agent.models import Digest, DigestEntry, FollowUpAction, SourceKind
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.composition import build_application
+    from ai_news_agent.storage import DigestStore
+    from fastapi.testclient import TestClient
+
+    from ai_news_agent.api.app import create_app
+
+    db_path = tmp_path / db_name
+    application = build_application(fake=True, db_path=db_path)
+    client = TestClient(create_app(application))
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    store = DigestStore(db_path)
+    collected = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
+    run_id = store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=["ai"],
+        connector_names=["github"],
+        session_id=session_id,
+    )
+    digest = Digest(
+        generated_at=collected,
+        entries=[
+            DigestEntry(
+                source_kind=SourceKind.GITHUB,
+                source_id="repo-1",
+                title="Repo 1",
+                source_name="GitHub",
+                source_url="https://example.com/repo-1",
+                summary="summary",
+                why_it_matters="why",
+                background_knowledge="bg",
+                follow_up_action=FollowUpAction.READ,
+            )
+        ],
+        topics=["ai"],
+        timeframe="today",
+    )
+    digest_id = store.save_digest(run_id, digest)
+
+    session_store = SessionStore(db_path)
+    user_message_id = session_store.insert_message(
+        session_id,
+        role="user",
+        content="Give me a digest",
+    )
+    session_store.create_request(
+        session_id,
+        "req-digest",
+        user_message_id=user_message_id,
+        correlation_id="corr-digest",
+    )
+    session_store.update_request_run_id(session_id, "req-digest", run_id)
+    session_store.mark_terminal(session_id, "req-digest", status="succeeded")
+    return client, session_id, digest_id
+
+
+def test_post_message_rejects_unknown_followup_digest(tmp_path: Path) -> None:
+    client, session_id, _digest_id = _seed_session_owned_digest(tmp_path)
+
+    response = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Deep dive",
+            "followup_target": {"digest_id": 9999, "display_rank": 1},
+            "followup_action": "deep_dive",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_post_message_rejects_followup_rank_out_of_range(tmp_path: Path) -> None:
+    client, session_id, digest_id = _seed_session_owned_digest(tmp_path)
+
+    response = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Deep dive",
+            "followup_target": {"digest_id": digest_id, "display_rank": 99},
+            "followup_action": "deep_dive",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_list_messages_includes_followup_target_on_user_and_assistant(
+    tmp_path: Path,
+) -> None:
+    client, session_id, digest_id = _seed_session_owned_digest(tmp_path)
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "follow up on item 1",
+            "client_request_id": "req-target-projection",
+            "followup_target": {"digest_id": digest_id, "display_rank": 1},
+            "followup_action": "deep_dive",
+        },
+    ) as response:
+        assert response.status_code == 200
+        response.read()
+
+    page = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    target = {"digest_id": digest_id, "display_rank": 1}
+    for message in page["messages"]:
+        if message["role"] not in {"user", "assistant"}:
+            continue
+        if message["content"] in {"Give me a digest", "Digest text"}:
+            continue
+        assert message["followup_target"] == target
+        assert message["followup_action"] == "deep_dive"
+
+    reloaded = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    assert reloaded["messages"] == page["messages"]
+
+
+def test_post_message_rejects_followup_target_from_other_session(
+    tmp_path: Path,
+) -> None:
+    client_a, _session_a, digest_id = _seed_session_owned_digest(
+        tmp_path,
+        db_name="target-owner-a.db",
+    )
+    client_b = _build_test_client(fake=True, db_path=tmp_path / "target-owner-b.db")
+    session_b = client_b.post("/api/v1/sessions").json()["id"]
+
+    response = client_b.post(
+        f"/api/v1/sessions/{session_b}/messages",
+        json={
+            "content": "Deep dive",
+            "followup_target": {"digest_id": digest_id, "display_rank": 1},
+            "followup_action": "deep_dive",
+        },
+    )
+    assert response.status_code == 400
+
+
 def test_post_message_unknown_field_returns_400(tmp_path: Path) -> None:
     client = _build_test_client(fake=True, db_path=tmp_path / "validation-400.db")
     session_id = client.post("/api/v1/sessions").json()["id"]
@@ -977,6 +1147,42 @@ def test_post_message_status_mapping(tmp_path: Path) -> None:
     assert duplicate.json()["detail"]["code"] == "request_in_progress"
 
 
+def test_post_message_request_conflict_when_client_request_id_reused_with_different_body(
+    tmp_path: Path,
+) -> None:
+    client, session_id, digest_id = _seed_session_owned_digest(tmp_path)
+
+    payload = {
+        "content": "follow up on item 1",
+        "client_request_id": "req-conflict",
+        "followup_target": {"digest_id": digest_id, "display_rank": 1},
+        "followup_action": "deep_dive",
+    }
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json=payload,
+    ) as first:
+        assert first.status_code == 200
+        first.read()
+
+    before = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    message_count_before = len(before["messages"])
+
+    conflict = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            **payload,
+            "content": "different submission",
+        },
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == {"code": "request_conflict"}
+
+    after = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    assert len(after["messages"]) == message_count_before
+
+
 def test_post_message_terminal_request_id_replays_without_new_messages(
     tmp_path: Path,
 ) -> None:
@@ -997,7 +1203,7 @@ def test_post_message_terminal_request_id_replays_without_new_messages(
     with client.stream(
         "POST",
         f"/api/v1/sessions/{session_id}/messages",
-        json={"content": "ignored content", "client_request_id": "req-replay"},
+        json={"content": "list sources", "client_request_id": "req-replay"},
     ) as replay:
         assert replay.status_code == 200
         body = replay.read().decode()
@@ -1033,7 +1239,7 @@ def test_post_message_terminal_digest_replay_emits_digest_sse_event(
         "POST",
         f"/api/v1/sessions/{session_id}/messages",
         json={
-            "content": "ignored content",
+            "content": "Give me today's AI digest",
             "client_request_id": "req-digest-replay",
         },
     ) as replay:

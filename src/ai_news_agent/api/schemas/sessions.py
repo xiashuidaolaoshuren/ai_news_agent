@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ai_news_agent.api.schemas.digests import DigestView
 from ai_news_agent.models import ConnectorWarning
@@ -39,6 +39,16 @@ class SessionPatch(BaseModel):
     items_per_source: int | None = None
 
 
+FollowupAction = Literal["deep_dive", "ask"]
+
+
+class FollowupTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    digest_id: int
+    display_rank: int
+
+
 class ResolvedRequestOut(BaseModel):
     """Public, user-relevant options of one resolved digest request."""
 
@@ -67,6 +77,8 @@ class MessageOut(BaseModel):
     digest: DigestView | None = None
     #: What a user message's digest run actually used, when it started one.
     request: ResolvedRequestOut | None = None
+    followup_target: FollowupTarget | None = None
+    followup_action: FollowupAction | None = None
 
 
 class MessageListPage(BaseModel):
@@ -82,6 +94,18 @@ class PostMessageBody(BaseModel):
     content: str
     client_request_id: str | None = Field(default=None)
     juya_item_mode: Literal["issue", "stories"] = "issue"
+    followup_target: FollowupTarget | None = None
+    followup_action: FollowupAction | None = None
+
+    @model_validator(mode="after")
+    def _followup_target_and_action_paired(self) -> PostMessageBody:
+        has_target = self.followup_target is not None
+        has_action = self.followup_action is not None
+        if has_target != has_action:
+            raise ValueError(
+                "followup_target and followup_action must both be present or both absent"
+            )
+        return self
 
 
 MatchKind = Literal["title", "user", "assistant"]

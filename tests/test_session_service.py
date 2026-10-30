@@ -458,6 +458,85 @@ def test_begin_request_uses_provided_request_id(tmp_path: Path) -> None:
     assert record.status == "active"
 
 
+def test_begin_request_rejects_changed_submission_on_terminal_replay(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import (
+        RequestConflictError,
+        SessionService,
+    )
+
+    db_path = tmp_path / "svc-submission-conflict.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(
+        created.id,
+        content="First",
+        request_id="req-1",
+        juya_item_mode="issue",
+    )
+    store.mark_terminal(created.id, "req-1", status="succeeded")
+
+    with pytest.raises(RequestConflictError):
+        service.begin_request(
+            created.id,
+            content="Different",
+            request_id="req-1",
+            juya_item_mode="issue",
+        )
+
+
+def test_begin_request_replays_when_submission_matches(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-submission-replay.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(
+        created.id,
+        content="First",
+        request_id="req-1",
+        juya_item_mode="stories",
+        followup_target={"digest_id": 3, "display_rank": 1},
+        followup_action="ask",
+    )
+    store.mark_terminal(created.id, "req-1", status="succeeded")
+
+    replay = service.begin_request(
+        created.id,
+        content="First",
+        request_id="req-1",
+        juya_item_mode="stories",
+        followup_target={"digest_id": 3, "display_rank": 1},
+        followup_action="ask",
+    )
+
+    assert replay.status == "succeeded"
+    assert len(store.list_messages(created.id)) == 1
+
+
+def test_begin_request_replay_ignores_session_preference_changes(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-submission-settings.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(created.id, content="Plain", request_id="req-1")
+    store.mark_terminal(created.id, "req-1", status="succeeded")
+    service.update_preferences(created.id, connector_names=["github"], items_per_source=10)
+
+    replay = service.begin_request(created.id, content="Plain", request_id="req-1")
+
+    assert replay.status == "succeeded"
+    assert len(store.list_messages(created.id)) == 1
+
+
 def test_idempotent_replay_returns_terminal_request_without_new_message(
     tmp_path: Path,
 ) -> None:
@@ -476,7 +555,7 @@ def test_idempotent_replay_returns_terminal_request_without_new_message(
     )
     store.mark_terminal(created.id, "req-1", status="succeeded")
 
-    replay = service.begin_request(created.id, content="Retry", request_id="req-1")
+    replay = service.begin_request(created.id, content="First", request_id="req-1")
 
     assert replay.id == "req-1"
     assert replay.status == "succeeded"
@@ -503,7 +582,7 @@ def test_idempotent_replay_returns_interrupted_request_without_new_message(
     )
     store.mark_terminal(created.id, "req-1", status="interrupted")
 
-    replay = service.begin_request(created.id, content="Retry", request_id="req-1")
+    replay = service.begin_request(created.id, content="First", request_id="req-1")
 
     assert replay.id == "req-1"
     assert replay.status == "interrupted"
@@ -594,7 +673,7 @@ def test_interrupt_replay_returns_interrupted_outcome_without_rerun(
 
     service.interrupt_active_requests()
 
-    replay = service.begin_request(created.id, content="Retry", request_id="req-1")
+    replay = service.begin_request(created.id, content="First", request_id="req-1")
     assert replay.status == "interrupted"
     assert len(store.list_messages(created.id)) == 1
 

@@ -27,6 +27,10 @@ class RequestInProgressError(Exception):
     """The same request ID is already active for this session."""
 
 
+class RequestConflictError(Exception):
+    """The same request ID was reused with a different submission."""
+
+
 class _CancelRaceLost(Exception):
     """Internal signal: digest persistence committed before cancellation landed."""
 
@@ -72,13 +76,22 @@ class SessionService:
     ) -> SessionRequestRecord | None:
         return self._store.get_request(session_id, request_id)
 
+    def list_requests(self, session_id: str) -> list[SessionRequestRecord]:
+        return self._store.list_requests(session_id)
+
     def set_request_interpretation(
         self,
         session_id: str,
         request_id: str,
         interpretation: dict[str, object] | None,
     ) -> None:
-        self._store.set_request_interpretation(session_id, request_id, interpretation)
+        if interpretation is None:
+            self._store.set_request_interpretation(session_id, request_id, None)
+            return
+        existing = self._store.get_request(session_id, request_id)
+        merged = dict(existing.interpretation or {}) if existing is not None else {}
+        merged.update(interpretation)
+        self._store.set_request_interpretation(session_id, request_id, merged)
 
     def pending_clarification(self, session_id: str) -> dict[str, object] | None:
         """The newest succeeded request's pending question, if it has one."""
@@ -105,6 +118,30 @@ class SessionService:
             public = (request.interpretation or {}).get("public")
             if isinstance(public, dict) and public:
                 out[request.user_message_id] = public
+        return out
+
+    def followup_projection(self, session_id: str) -> dict[int, dict[str, object]]:
+        """Follow-up target and action keyed by user and assistant message ids."""
+        out: dict[int, dict[str, object]] = {}
+        for request in self._store.list_requests(session_id):
+            followup = (request.interpretation or {}).get("followup")
+            if not isinstance(followup, dict):
+                continue
+            digest_id = followup.get("digest_id")
+            display_rank = followup.get("display_rank")
+            action = followup.get("action")
+            if digest_id is None or display_rank is None or action is None:
+                continue
+            payload = {
+                "followup_target": {
+                    "digest_id": int(digest_id),
+                    "display_rank": int(display_rank),
+                },
+                "followup_action": str(action),
+            }
+            out[request.user_message_id] = payload
+            if request.assistant_message_id is not None:
+                out[request.assistant_message_id] = payload
         return out
 
     def rename_session(self, session_id: str, title: str) -> None:
@@ -174,15 +211,60 @@ class SessionService:
             raise SessionBusyError(f"session {session_id} has an active request")
         self._store.delete_session(session_id)
 
+    @staticmethod
+    def _normalize_submission(
+        *,
+        content: str,
+        juya_item_mode: str | None,
+        followup_target: dict[str, object] | None,
+        followup_action: str | None,
+    ) -> dict[str, object]:
+        return {
+            "content": content,
+            "juya_item_mode": juya_item_mode if juya_item_mode is not None else "issue",
+            "followup_target": followup_target,
+            "followup_action": followup_action,
+        }
+
+    def _stored_submission(self, record: SessionRequestRecord) -> dict[str, object]:
+        interpretation = record.interpretation or {}
+        stored = interpretation.get("submission")
+        if isinstance(stored, dict):
+            return stored
+        for message in self._store.list_messages(record.session_id):
+            if message.id == record.user_message_id:
+                return self._normalize_submission(
+                    content=message.content,
+                    juya_item_mode=None,
+                    followup_target=None,
+                    followup_action=None,
+                )
+        return self._normalize_submission(
+            content="",
+            juya_item_mode=None,
+            followup_target=None,
+            followup_action=None,
+        )
+
     def begin_request(
         self,
         session_id: str,
         *,
         content: str,
         request_id: str | None = None,
+        juya_item_mode: str | None = None,
+        followup_target: dict[str, object] | None = None,
+        followup_action: str | None = None,
     ) -> SessionRequestRecord:
         if self._store.get_session(session_id) is None:
             raise KeyError(f"session not found: {session_id}")
+
+        submission = self._normalize_submission(
+            content=content,
+            juya_item_mode=juya_item_mode,
+            followup_target=followup_target,
+            followup_action=followup_action,
+        )
 
         if request_id is not None:
             existing = self._store.get_request(session_id, request_id)
@@ -190,6 +272,10 @@ class SessionService:
                 if existing.status == "active":
                     raise RequestInProgressError(
                         f"request {request_id!r} is already active for session {session_id!r}"
+                    )
+                if self._stored_submission(existing) != submission:
+                    raise RequestConflictError(
+                        f"request {request_id!r} submission does not match for session {session_id!r}"
                     )
                 return existing
 
@@ -208,6 +294,13 @@ class SessionService:
             resolved_id,
             user_message_id=message.id,
             correlation_id=new_correlation_id(),
+        )
+        record = self._store.get_request(session_id, resolved_id)
+        assert record is not None
+        self.set_request_interpretation(
+            session_id,
+            resolved_id,
+            {"submission": submission},
         )
         record = self._store.get_request(session_id, resolved_id)
         assert record is not None
@@ -289,6 +382,7 @@ class SessionService:
 
 __all__ = [
     "CANCELLED_ASSISTANT_MESSAGE",
+    "RequestConflictError",
     "RequestInProgressError",
     "SessionBusyError",
     "SessionService",
