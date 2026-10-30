@@ -172,6 +172,8 @@ def _build_chat_service(
             interface_name="api",
         )
 
+    hf_factory = None if fake else build_connector_factory(fake=fake, name="huggingface")
+
     return ChatService(
         store=store,
         workflow_runner=workflow_runner,
@@ -181,4 +183,5 @@ def _build_chat_service(
         interface_router=interface_router,
         session_service=session_service,
         conversation_model=None if fake else model,
+        huggingface_connector_factory=hf_factory,
     )

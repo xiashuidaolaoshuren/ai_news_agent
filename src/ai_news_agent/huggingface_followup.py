@@ -21,6 +21,10 @@ _LIVE_SNIPPET_CAVEAT = (
     "Snippet is from a live Hub model card fetched after digest time; "
     "Trending, Downloads, and Likes remain digest-time values."
 )
+_SAVED_WITH_DIGEST_SNIPPET_CAVEAT = (
+    "Snippet is from the model card saved with this digest."
+)
+_NOT_SAVED = "Not saved"
 _MODEL_CARD_UNAVAILABLE_CAVEAT = (
     "Live Hub model card was unavailable; showing digest-time evidence only."
 )
@@ -32,6 +36,9 @@ def format_huggingface_family_card(
     *,
     rank: int,
     model_card_unavailable: bool = False,
+    targeted: bool = False,
+    saved_with_digest: bool = False,
+    related_display_ranks: list[int] | None = None,
 ) -> str:
     """Render an English family card from persisted digest evidence."""
     lines = [
@@ -49,17 +56,32 @@ def format_huggingface_family_card(
         lines.append(_MISSING_EVIDENCE_CAVEAT)
         return "\n".join(lines).rstrip()
     trending = evidence.get("trending_score")
-    if trending:
-        lines.append(_field_line("Trending", trending))
     downloads_30d = evidence.get("downloads_30d")
-    if downloads_30d:
-        lines.append(_field_line("Downloads (30d)", downloads_30d))
     likes = evidence.get("likes")
-    if likes:
-        lines.append(_field_line("Likes", likes))
     pipeline_tag = evidence.get("pipeline_tag")
-    if pipeline_tag:
-        lines.append(_field_line("Pipeline", pipeline_tag))
+    if targeted:
+        lines.append(
+            _field_line("Trending", trending if trending else _NOT_SAVED)
+        )
+        lines.append(
+            _field_line(
+                "Downloads (30d)",
+                downloads_30d if downloads_30d else _NOT_SAVED,
+            )
+        )
+        lines.append(_field_line("Likes", likes if likes else _NOT_SAVED))
+        lines.append(
+            _field_line("Pipeline", pipeline_tag if pipeline_tag else _NOT_SAVED)
+        )
+    else:
+        if trending:
+            lines.append(_field_line("Trending", trending))
+        if downloads_30d:
+            lines.append(_field_line("Downloads (30d)", downloads_30d))
+        if likes:
+            lines.append(_field_line("Likes", likes))
+        if pipeline_tag:
+            lines.append(_field_line("Pipeline", pipeline_tag))
     also = _also_column(evidence)
     if also:
         lines.append(_field_line("Also", also))
@@ -67,7 +89,12 @@ def format_huggingface_family_card(
         lines.append(_field_line("Publisher", news_item.author))
     if news_item.raw_snippet:
         _append_snippet_lines(lines, news_item.raw_snippet)
-    if evidence.get("model_card_live_fetched"):
+    if targeted and related_display_ranks:
+        ranks = ", ".join(f"#{r}" for r in related_display_ranks)
+        lines.append(_field_line("Related", ranks))
+    if saved_with_digest and news_item.raw_snippet:
+        lines.append(_SAVED_WITH_DIGEST_SNIPPET_CAVEAT)
+    elif evidence.get("model_card_live_fetched"):
         lines.append(_LIVE_SNIPPET_CAVEAT)
     if model_card_unavailable:
         lines.append(_MODEL_CARD_UNAVAILABLE_CAVEAT)

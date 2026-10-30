@@ -6,6 +6,7 @@ import asyncio
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -453,6 +454,333 @@ def test_stream_events_targeted_followup_replaces_pending_clarification(
         )
     )
     assert session_service.pending_clarification(created.id) is None
+
+
+def _save_session_hf_digest(
+    store: DigestStore,
+    session_store: SessionStore,
+    *,
+    session_id: str,
+    topics: list[str],
+    request_id: str,
+    ensure_session: bool = True,
+    raw_snippet: str | None = "Saved snippet.",
+) -> tuple[int, int]:
+    collected = datetime(2026, 5, 7, 10, 0, 0, tzinfo=UTC)
+    source_id = f"Org/Model-{topics[0]}"
+    item = NewsItem(
+        source=SourceKind.HUGGINGFACE,
+        source_id=source_id,
+        url=f"https://huggingface.co/{source_id}",
+        title=f"Model {topics[0]}",
+        collected_at=collected,
+        content_confidence=ConfidenceLevel.HIGH,
+        raw_snippet=raw_snippet,
+        source_evidence={"trending_score": 88.0, "downloads_30d": 100},
+    )
+    entry = DigestEntry(
+        source_kind=SourceKind.HUGGINGFACE,
+        source_id=source_id,
+        title=item.title,
+        source_name="Hugging Face",
+        source_url=item.url,
+        summary="HF summary",
+        why_it_matters="why",
+        background_knowledge="bg",
+        follow_up_action=FollowUpAction.READ,
+    )
+    digest = Digest(
+        generated_at=collected,
+        entries=[entry],
+        topics=topics,
+        timeframe="today",
+    )
+    run_id = store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=topics,
+        connector_names=["huggingface"],
+    )
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE runs SET session_id = ? WHERE id = ?",
+            (session_id, run_id),
+        )
+        conn.commit()
+    store.save_connector_result(run_id, ConnectorResult(items=[item], warnings=[]))
+    store.save_ranked_items(run_id, [RankedItem(item=item, score_total=1.0, selected=True)])
+    store.save_digest(run_id, digest)
+    digest_id = store.get_digest_id_for_run(run_id)
+    assert digest_id is not None
+    if ensure_session:
+        session_store.create_session(session_id)
+    user_message_id = session_store.insert_message(
+        session_id,
+        role="user",
+        content="digest please",
+    )
+    session_store.create_request(
+        session_id,
+        request_id,
+        user_message_id=user_message_id,
+        correlation_id=f"corr-{request_id}",
+    )
+    session_store.update_request_run_id(session_id, request_id, run_id)
+    session_store.mark_terminal(session_id, request_id, status="succeeded")
+    return run_id, digest_id
+
+
+def test_targeted_deep_dive_hf_returns_family_card(tmp_path: Path) -> None:
+    db_path = tmp_path / "targeted-deep-dive-hf.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _run_id, digest_id = _save_session_hf_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["hf-card"],
+        request_id="req-hf",
+        ensure_session=False,
+    )
+
+    async def unused_runner(_: DigestRequest) -> DigestResult:
+        raise AssertionError("digest runner must not run")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=unused_runner,
+        session_service=session_service,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Deep dive",
+            session_id=created.id,
+            request_id="req-deep-dive",
+            followup_target={"digest_id": digest_id, "display_rank": 1},
+            followup_action="deep_dive",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    deltas = "".join(e.text for e in events if isinstance(e, DeltaEvent))
+    assert "Rank 1" in deltas
+    assert "Model hf-card" in deltas
+    assert "configured language model" not in deltas
+
+
+def test_targeted_deep_dive_older_digest_does_not_fetch(tmp_path: Path) -> None:
+    db_path = tmp_path / "targeted-deep-dive-old.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _old_run, old_digest_id = _save_session_hf_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["older-hf"],
+        request_id="req-old-hf",
+        ensure_session=False,
+    )
+    _new_run, _new_digest_id = _save_session_hf_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["newer-hf"],
+        request_id="req-new-hf",
+        ensure_session=False,
+    )
+
+    factory = MagicMock(return_value=MagicMock())
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=AsyncMock(),
+        session_service=session_service,
+        huggingface_connector_factory=factory,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Deep dive",
+            session_id=created.id,
+            request_id="req-old-deep-dive",
+            followup_target={"digest_id": old_digest_id, "display_rank": 1},
+            followup_action="deep_dive",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    deltas = "".join(e.text for e in events if isinstance(e, DeltaEvent))
+    assert "saved with this digest" in deltas.lower()
+    factory.assert_not_called()
+
+
+def test_targeted_deep_dive_latest_digest_fetches_once(tmp_path: Path) -> None:
+    db_path = tmp_path / "targeted-deep-dive-fetch.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _run_id, digest_id = _save_session_hf_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["latest-hf"],
+        request_id="req-latest-hf",
+        ensure_session=False,
+    )
+    ctx = store.get_followup_context_for_digest(digest_id)
+    assert ctx is not None
+    base_item = ctx.news_items[0]
+    enriched = NewsItem(
+        source=base_item.source,
+        source_id=base_item.source_id,
+        url=base_item.url,
+        title=base_item.title,
+        collected_at=base_item.collected_at,
+        content_confidence=ConfidenceLevel.HIGH,
+        raw_snippet="Live README.",
+        source_evidence={
+            "trending_score": 88.0,
+            "downloads_30d": 100,
+            "model_card_live_fetched": True,
+        },
+    )
+    mock_connector = MagicMock()
+    mock_connector.enrich_news_item = AsyncMock(return_value=(enriched, []))
+    mock_connector.aclose = AsyncMock()
+    factory = MagicMock(return_value=mock_connector)
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=AsyncMock(),
+        session_service=session_service,
+        huggingface_connector_factory=factory,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Deep dive",
+            session_id=created.id,
+            request_id="req-fetch-deep-dive",
+            followup_target={"digest_id": digest_id, "display_rank": 1},
+            followup_action="deep_dive",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    deltas = "".join(e.text for e in events if isinstance(e, DeltaEvent))
+    assert "Live README." in deltas
+    assert "after digest" in deltas.lower()
+    factory.assert_called_once()
+    mock_connector.enrich_news_item.assert_awaited_once()
+
+
+def test_targeted_ask_calls_generate_followup_reply_without_fetch(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "targeted-ask-model.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _run_id, digest_id = _save_session_hf_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["ask-hf"],
+        request_id="req-ask-hf",
+        ensure_session=False,
+    )
+
+    factory = MagicMock(return_value=MagicMock())
+    calls: list[dict[str, object]] = []
+
+    class _Model:
+        def generate_followup_reply(self, *, question: str, grounding: dict) -> str:
+            calls.append({"question": question, "grounding": grounding})
+            return "Grounded answer."
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=AsyncMock(),
+        session_service=session_service,
+        chat_model=_Model(),
+        huggingface_connector_factory=factory,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "What is the download count?",
+            session_id=created.id,
+            request_id="req-ask",
+            followup_target={"digest_id": digest_id, "display_rank": 1},
+            followup_action="ask",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    deltas = "".join(e.text for e in events if isinstance(e, DeltaEvent))
+    assert deltas == "Grounded answer."
+    assert len(calls) == 1
+    grounding = calls[0]["grounding"]
+    assert "entries" not in grounding
+    assert "ranked_items" not in grounding
+    assert "news_items" not in grounding
+    factory.assert_not_called()
+
+
+def test_targeted_ask_without_model_returns_card_and_unavailable_note(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "targeted-ask-fallback.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _run_id, digest_id = _save_session_hf_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["ask-fallback"],
+        request_id="req-ask-fallback",
+        ensure_session=False,
+    )
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=AsyncMock(),
+        session_service=session_service,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "What is trending?",
+            session_id=created.id,
+            request_id="req-ask-fallback-send",
+            followup_target={"digest_id": digest_id, "display_rank": 1},
+            followup_action="ask",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    deltas = "".join(e.text for e in events if isinstance(e, DeltaEvent))
+    assert "Rank 1" in deltas
+    assert "Question-specific answering is unavailable." in deltas
 
 
 def test_stream_events_followup_uses_session_context_not_shared_or_other_session(

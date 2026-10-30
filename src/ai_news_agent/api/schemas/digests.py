@@ -91,6 +91,7 @@ class HuggingFaceDigestEntryView(DigestEntryView):
     likes: int | None = None
     pipeline_tag: str | None = None
     family_variants: list[FamilyVariant] = Field(default_factory=list)
+    related_display_ranks: list[int] = Field(default_factory=list)
 
 
 class JuyaDigestEntryView(DigestEntryView):

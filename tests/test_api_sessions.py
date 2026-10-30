@@ -1541,6 +1541,16 @@ def test_build_application_live_uses_model_factory(
     assert "build_chat_model" in calls
     assert "build_tool_chat_model" in calls
     assert application.chat_service is not None
+    assert application.chat_service._huggingface_connector_factory is not None
+
+
+def test_build_application_fake_has_no_huggingface_connector_factory(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.composition import build_application
+
+    application = build_application(fake=True, db_path=tmp_path / "digest.db")
+    assert application.chat_service._huggingface_connector_factory is None
 
 
 def test_natural_digest_report_exposes_its_resolved_request(tmp_path: Path) -> None:

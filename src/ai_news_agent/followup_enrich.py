@@ -18,6 +18,7 @@ async def enrich_huggingface_for_rank(
     rank: int,
     *,
     huggingface_connector: HuggingFaceConnector | None,
+    digest_id: int | None = None,
 ) -> tuple[FollowupContext, bool]:
     """Refresh context after optional live model-card fetch; return enrich-failed flag."""
     if ctx.digest is None or rank < 1 or rank > len(ctx.digest.entries):
@@ -33,7 +34,11 @@ async def enrich_huggingface_for_rank(
     failed = bool(warnings)
     if enriched is not news_item and ctx.run_id is not None:
         store.upsert_news_item(ctx.run_id, enriched)
-        ctx = store.get_latest_followup_context()
+        if digest_id is not None:
+            reloaded = store.get_followup_context_for_digest(digest_id)
+            ctx = reloaded if reloaded is not None else ctx
+        else:
+            ctx = store.get_latest_followup_context()
     return ctx, failed
 
 

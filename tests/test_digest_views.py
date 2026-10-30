@@ -633,3 +633,73 @@ def test_build_digest_view_huggingface_entry_without_matching_news_item() -> Non
     assert entry.likes is None
     assert entry.pipeline_tag is None
     assert entry.family_variants == []
+
+def test_build_digest_view_related_display_ranks_same_hf_family() -> None:
+    from ai_news_agent.api.schemas.digests import (
+        GitHubDigestEntryView,
+        HuggingFaceDigestEntryView,
+        build_digest_view,
+    )
+    from ai_news_agent.models import ConfidenceLevel, NewsItem
+    from ai_news_agent.services.digest_views import build_digest_view_payload
+
+    base = "Qwen/Qwen3.8-27B"
+    hf_a = _huggingface_entry(source_id=f"{base}-A").model_copy(update={"title": "Qwen A"})
+    hf_b = _huggingface_entry(source_id=f"{base}-B").model_copy(update={"title": "Qwen B"})
+    hf_other = _huggingface_entry(source_id="Other/Model").model_copy(
+        update={"title": "Other model"}
+    )
+    gh = _github_entry()
+    digest = Digest(
+        generated_at=_fixture_dt(),
+        entries=[hf_a, hf_b, hf_other, gh],
+    )
+    news_items = [
+        NewsItem(
+            source=SourceKind.HUGGINGFACE,
+            source_id=hf_a.source_id,
+            url=hf_a.source_url,
+            title=hf_a.title,
+            collected_at=_fixture_dt(),
+            content_confidence=ConfidenceLevel.HIGH,
+            source_evidence={"base_model": base},
+        ),
+        NewsItem(
+            source=SourceKind.HUGGINGFACE,
+            source_id=hf_b.source_id,
+            url=hf_b.source_url,
+            title=hf_b.title,
+            collected_at=_fixture_dt(),
+            content_confidence=ConfidenceLevel.HIGH,
+            source_evidence={"base_model": base},
+        ),
+        NewsItem(
+            source=SourceKind.HUGGINGFACE,
+            source_id=hf_other.source_id,
+            url=hf_other.source_url,
+            title=hf_other.title,
+            collected_at=_fixture_dt(),
+            content_confidence=ConfidenceLevel.HIGH,
+            source_evidence={"base_model": "Other/Model"},
+        ),
+        NewsItem(
+            source=SourceKind.GITHUB,
+            source_id=gh.source_id,
+            url=gh.source_url,
+            title=gh.title,
+            collected_at=_fixture_dt(),
+        ),
+    ]
+
+    payload = build_digest_view_payload(digest, news_items=news_items)
+    assert payload["entries"][0]["related_display_ranks"] == [2]
+    assert payload["entries"][1]["related_display_ranks"] == [1]
+
+    view = build_digest_view(digest, news_items=news_items)
+    assert isinstance(view.entries[0], HuggingFaceDigestEntryView)
+    assert view.entries[0].related_display_ranks == [2]
+    assert view.entries[1].related_display_ranks == [1]
+    assert isinstance(view.entries[2], HuggingFaceDigestEntryView)
+    assert view.entries[2].related_display_ranks == []
+    assert isinstance(view.entries[3], GitHubDigestEntryView)
+    assert "related_display_ranks" not in view.entries[3].model_dump()

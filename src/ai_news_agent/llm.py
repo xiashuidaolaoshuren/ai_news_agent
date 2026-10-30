@@ -107,6 +107,29 @@ class OpenAIChatModel:
         )
         return (resp.choices[0].message.content or "").strip()
 
+    def generate_followup_reply(self, *, question: str, grounding: dict[str, Any]) -> str:
+        user = json.dumps(
+            {"question": question, "grounding": grounding},
+            ensure_ascii=False,
+        )
+        resp = self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": _FOLLOWUP_REPLY_SYSTEM_PROMPT},
+                {"role": "user", "content": user},
+            ],
+            temperature=0.2,
+        )
+        return (resp.choices[0].message.content or "").strip()
+
+
+_FOLLOWUP_REPLY_SYSTEM_PROMPT = (
+    "Answer the user's question using only the grounded digest entry evidence "
+    "provided in the user message. If the evidence is insufficient, say so plainly. "
+    "Do not search other sources, offer research, or cite material outside the "
+    "grounded entry."
+)
+
 
 _GENERAL_ANSWER_SYSTEM_PROMPT = (
     "Answer the user's question briefly from general knowledge. This is not a "

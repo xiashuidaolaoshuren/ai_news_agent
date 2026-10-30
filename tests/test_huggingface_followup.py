@@ -320,6 +320,48 @@ def test_family_card_renders_snippet_as_markdown() -> None:
     assert "Overview paragraph." in out
 
 
+def test_targeted_family_card_shows_not_saved_for_missing_stats() -> None:
+    entry = _hf_entry()
+    item = _hf_news_item(source_evidence={"trending_score": 88.0})
+    out = format_huggingface_family_card(entry, item, rank=1, targeted=True)
+    assert "Trending —" in out and "88" in out
+    assert "Downloads (30d) — Not saved" in out
+    assert "Likes — Not saved" in out
+    assert "Pipeline — Not saved" in out
+
+
+def test_targeted_family_card_saved_with_digest_snippet_label() -> None:
+    entry = _hf_entry()
+    item = _hf_news_item(
+        raw_snippet="Saved README.",
+        source_evidence={"trending_score": 88.0, "model_card_live_fetched": True},
+    )
+    out = format_huggingface_family_card(
+        entry,
+        item,
+        rank=1,
+        targeted=True,
+        saved_with_digest=True,
+    )
+    assert "saved with this digest" in out.lower()
+    assert "after digest" not in out.lower()
+
+
+def test_targeted_family_card_related_line() -> None:
+    entry = _hf_entry()
+    item = _hf_news_item(source_evidence={"trending_score": 88.0})
+    out = format_huggingface_family_card(
+        entry,
+        item,
+        rank=1,
+        targeted=True,
+        related_display_ranks=[4, 7],
+    )
+    assert "Related —" in out
+    assert "#4" in out
+    assert "#7" in out
+
+
 def test_family_card_renders_markdown_after_stripped_frontmatter() -> None:
     entry = _hf_entry()
     snippet = (

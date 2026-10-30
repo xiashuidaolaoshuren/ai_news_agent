@@ -11,7 +11,13 @@ from typing import Any
 from ai_news_agent.graph.state import DigestResult, WorkflowError
 from ai_news_agent.models import ConnectorWarning, Digest
 from ai_news_agent.logging_setup import get_logger
-from ai_news_agent.followup_structured import NO_SAVED_DIGEST, answer_structured_followup
+from ai_news_agent.followup_structured import (
+    NO_SAVED_DIGEST,
+    answer_structured_followup,
+    answer_targeted_deep_dive,
+    build_targeted_card,
+)
+from ai_news_agent.juya_followup import match_news_item_for_digest_entry
 from ai_news_agent.history_interface import (
     HISTORY_NOT_FOUND,
     HistoryChatCommand,
@@ -47,6 +53,8 @@ StreamingWorkflowRunner = Callable[
 ]
 
 logger = get_logger("chat")
+
+_TARGETED_ASK_UNAVAILABLE = "Question-specific answering is unavailable."
 
 _TERMINAL_REPLAY_STATUSES = frozenset(
     {"succeeded", "failed", "cancelled", "interrupted"}
@@ -174,6 +182,7 @@ class ChatService:
         interface_router: Any | None = None,
         session_service: SessionService | None = None,
         conversation_model: Any | None = None,
+        huggingface_connector_factory: Callable[[], Any] | None = None,
     ) -> None:
         self._store = store
         self._workflow_runner = workflow_runner
@@ -183,6 +192,7 @@ class ChatService:
         self._interface_router = interface_router
         self._session_service = session_service
         self._conversation_model = conversation_model
+        self._huggingface_connector_factory = huggingface_connector_factory
 
     async def stream_events(
         self,
@@ -244,13 +254,15 @@ class ChatService:
                 user_message_id=record.user_message_id,
                 intent="followup",
             )
-            async for event in self._stream_session_followup_events(
+            async for event in self._stream_session_targeted_followup_events(
                 session_id=session_id,
                 record=record,
                 message=message,
+                digest_id=int(followup_target_payload["digest_id"]),
+                display_rank=int(followup_target_payload["display_rank"]),
+                followup_action=followup_action,
                 chunk_size=chunk_size,
                 chunk_delay_s=chunk_delay_s,
-                digest_id=int(followup_target_payload["digest_id"]),
             ):
                 yield event
             return
@@ -567,6 +579,39 @@ class ChatService:
             correlation_id=record.correlation_id,
         )
 
+    async def _stream_session_targeted_followup_events(
+        self,
+        *,
+        session_id: str,
+        record: SessionRequestRecord,
+        message: str,
+        digest_id: int,
+        display_rank: int,
+        followup_action: str,
+        chunk_size: int,
+        chunk_delay_s: float,
+    ) -> AsyncIterator[ChatEvent]:
+        text = await self._handle_targeted_followup_async(
+            session_id,
+            message,
+            digest_id=digest_id,
+            display_rank=display_rank,
+            followup_action=followup_action,
+        )
+        cancelled = self._cancelled_error_event(session_id, record)
+        if cancelled is not None:
+            yield cancelled
+            return
+        async for event in self._stream_session_text_events(
+            session_id=session_id,
+            record=record,
+            text=text,
+            path="followup",
+            chunk_size=chunk_size,
+            chunk_delay_s=chunk_delay_s,
+        ):
+            yield event
+
     async def _stream_session_followup_events(
         self,
         *,
@@ -575,12 +620,10 @@ class ChatService:
         message: str,
         chunk_size: int,
         chunk_delay_s: float,
-        digest_id: int | None = None,
     ) -> AsyncIterator[ChatEvent]:
         text = await self._handle_session_followup_message_async(
             session_id,
             message,
-            digest_id=digest_id,
         )
         cancelled = self._cancelled_error_event(session_id, record)
         if cancelled is not None:
@@ -724,25 +767,77 @@ class ChatService:
             result = await self._workflow_runner(req)
         yield "", True, result
 
-    async def _handle_session_followup_message_async(
+    async def _handle_targeted_followup_async(
         self,
         session_id: str,
         message: str,
         *,
-        digest_id: int | None = None,
+        digest_id: int,
+        display_rank: int,
+        followup_action: str,
     ) -> str:
-        if digest_id is not None:
-            ctx = self._store.get_followup_context_for_digest(digest_id)
-            if ctx is None:
-                ctx = FollowupContext(
-                    run_id=None,
-                    digest=None,
-                    news_items=[],
-                    ranked_items=[],
-                    warnings=[],
+        ctx = self._store.get_followup_context_for_digest(digest_id)
+        if ctx is None:
+            return NO_SAVED_DIGEST
+        if ctx.run_id is None and ctx.digest is None:
+            logger.info(
+                "targeted follow-up path=no_saved_digest session_id=%s digest_id=%s",
+                session_id,
+                digest_id,
+            )
+            return NO_SAVED_DIGEST
+
+        latest = self._store.get_followup_context_for_session(session_id)
+        fetch_allowed = (
+            ctx.run_id is not None
+            and latest.run_id is not None
+            and ctx.run_id == latest.run_id
+        )
+
+        if followup_action == "deep_dive":
+            logger.info(
+                "targeted follow-up path=deep_dive session_id=%s rank=%s",
+                session_id,
+                display_rank,
+            )
+            return await answer_targeted_deep_dive(
+                ctx,
+                display_rank,
+                self._store,
+                fetch_allowed=fetch_allowed,
+                digest_id=digest_id,
+                huggingface_connector_factory=self._huggingface_connector_factory,
+            )
+
+        if followup_action == "ask":
+            logger.info(
+                "targeted follow-up path=ask session_id=%s rank=%s",
+                session_id,
+                display_rank,
+            )
+            fn = getattr(self._chat_model, "generate_followup_reply", None)
+            if fn is None or not callable(fn):
+                card = build_targeted_card(
+                    ctx,
+                    display_rank,
+                    saved_with_digest=not fetch_allowed,
                 )
-        else:
-            ctx = self._store.get_followup_context_for_session(session_id)
+                return f"{card}\n\n{_TARGETED_ASK_UNAVAILABLE}"
+            grounding = _build_targeted_grounding(ctx, display_rank)
+            return str(fn(question=message, grounding=grounding))
+
+        return build_targeted_card(
+            ctx,
+            display_rank,
+            saved_with_digest=not fetch_allowed,
+        )
+
+    async def _handle_session_followup_message_async(
+        self,
+        session_id: str,
+        message: str,
+    ) -> str:
+        ctx = self._store.get_followup_context_for_session(session_id)
         if ctx.run_id is None and ctx.digest is None:
             logger.info("follow-up path=no_saved_digest session_id=%s", session_id)
             return NO_SAVED_DIGEST
@@ -856,6 +951,35 @@ def _try_llm_followup(model: Any | None, question: str, ctx: FollowupContext) ->
         return None
     grounding = _build_grounding_context(ctx)
     return str(fn(question=question, grounding=grounding))
+
+
+def _build_targeted_grounding(ctx: FollowupContext, rank: int) -> dict[str, Any]:
+    if ctx.digest is None or rank < 1 or rank > len(ctx.digest.entries):
+        return {"entry": None, "news_item": None}
+    entry = ctx.digest.entries[rank - 1]
+    news_item = match_news_item_for_digest_entry(entry, ctx.news_items)
+    payload: dict[str, Any] = {
+        "entry": {
+            "title": entry.title,
+            "source_url": entry.source_url,
+            "summary": entry.summary,
+            "why_it_matters": entry.why_it_matters,
+            "background_knowledge": entry.background_knowledge,
+            "confidence_caveat": entry.confidence_caveat,
+            "source_kind": entry.source_kind.value,
+            "source_id": entry.source_id,
+        }
+    }
+    if news_item is not None:
+        payload["news_item"] = {
+            "title": news_item.title,
+            "url": news_item.url,
+            "raw_snippet": news_item.raw_snippet,
+            "source_evidence": dict(news_item.source_evidence),
+        }
+    else:
+        payload["news_item"] = None
+    return payload
 
 
 def _build_grounding_context(ctx: FollowupContext) -> dict[str, Any]:

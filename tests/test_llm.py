@@ -154,6 +154,29 @@ def test_openai_chat_model_rejects_unusable_conversation_output() -> None:
     assert model.interpret_conversation({"message": "hello"}) == {}
 
 
+def test_generate_followup_reply_uses_entry_only_prompt() -> None:
+    prompts: list[str] = []
+
+    def create(**kwargs: object) -> SimpleNamespace:
+        messages = kwargs["messages"]
+        prompts.append(str(messages[0]["content"]))  # type: ignore[index]
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="From the entry."))]
+        )
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    model = OpenAIChatModel(client=client, model="test")
+
+    answer = model.generate_followup_reply(
+        question="What is trending?",
+        grounding={"entry": {"title": "T"}, "news_item": None},
+    )
+
+    assert answer == "From the entry."
+    assert "grounded digest entry" in prompts[0]
+    assert "research" in prompts[0].lower()
+
+
 def test_general_answer_is_labelled_as_general_knowledge() -> None:
     prompts: list[str] = []
 

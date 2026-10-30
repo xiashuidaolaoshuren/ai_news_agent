@@ -42,7 +42,10 @@ Settings then replace the session item-count. Profiles and output language ship 
 | `src/ai_news_agent/followup_enrich.py` | modify | README reload uses the targeted digest | `enrich_huggingface_for_rank` | verified |
 | `src/ai_news_agent/huggingface_followup.py` | modify | `Not saved` and snippet labels | `format_huggingface_family_card` | verified |
 | `src/ai_news_agent/services/digest_views.py` | modify | Related ranks | `related_display_ranks: list[int]` | verified path; grouping rule provisional |
-| `tests/test_api_sessions.py`, `tests/test_chat.py`, `tests/test_conversation.py`, `tests/test_huggingface_followup.py`, `tests/test_digest_views.py`, `tests/test_session_service.py` | modify | Follow-up acceptance | pytest | verified |
+| `src/ai_news_agent/api/schemas/digests.py` | modify | Related ranks on HF entry DTO | `HuggingFaceDigestEntryView.related_display_ranks` | verified |
+| `src/ai_news_agent/llm.py` | modify | Entry-only Ask follow-up | `OpenAIChatModel.generate_followup_reply` | verified |
+| `src/ai_news_agent/services/composition.py` | modify | HF connector factory for targeted fetch | `ChatService` wiring in `build_application` | verified |
+| `tests/test_api_sessions.py`, `tests/test_chat.py`, `tests/test_conversation.py`, `tests/test_huggingface_followup.py`, `tests/test_digest_views.py`, `tests/test_followup_context.py`, `tests/test_llm.py`, `tests/test_session_service.py` | modify | Follow-up acceptance | pytest | verified |
 
 ### Goal: Settings, keys, and sign-in
 
@@ -85,7 +88,8 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ### B1 — Entry target and submission identity
 
-- [ ] **Do:** Bind a follow-up to one session entry and replay a request id only when the submission is the same.
+- [x] **Do:** Bind a follow-up to one session entry and replay a request id only when the submission is the same.
+
 - **Consumes:** `get_followup_context_for_digest`; `get_followup_context_for_session`; `begin_request`; `interpretation_json`.
 - **Produces:** `FollowupTarget { digest_id: int, display_rank: int }`. `FollowupAction = "deep_dive" | "ask"`. Both body fields absent, or both present. `MessageOut.followup_target` and `followup_action` on the user message and the assistant message of that request, stored under interpretation `followup`. Submission match compares content, target, action, and `juya_item_mode`.
 - **Acceptance:** The target's digest is used even when a newer digest exists, and the latest successful digest is unchanged. Another session's digest or an unknown rank returns 400. A target without an action, or an action without a target, returns 400. `interpret_message` is not called. Untargeted messages still use the latest digest. Reload returns the same target and action. An identical `client_request_id` replays. The same id with a different message, target, action, or `juya_item_mode` returns 409 `request_conflict` and runs nothing. A targeted action replaces a pending clarification, and reload does not restore it. A change to global settings alone does not invalidate an identical retry. Session-busy and in-progress 409s stay.
@@ -98,6 +102,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 ### B2 — Deep dive and Ask about this
 
 - [ ] **Do:** Answer the targeted entry from its saved card, with the existing latest-digest Hugging Face README exception.
+
 - **Consumes:** B1's resolved context. `followup_structured`, `enrich_huggingface_for_rank`, `format_huggingface_family_card`, `build_digest_view_payload`.
 - **Produces:** Deep-dive text is the deterministic card. Ask-about-this text uses that entry only and says when evidence is insufficient, without fetching and without a research offer. `related_display_ranks: list[int]` for other entries in the same digest that share the saved model identity.
 - **Acceptance:** Deep dive returns the Juya, Hugging Face, Zhihu, or generic card, including a comparison-table row. Ask about this does not search other sources. With no model, Deep dive is the card only, and Ask about this adds that question-specific answering is unavailable. A Hugging Face target in the session's latest successful digest may fetch the representative README once, reloading that digest rather than `get_latest_followup_context()`. Older targets and history show do not fetch. A missing stat is `Not saved`. A fetched-after snippet and a saved-with-digest snippet are labelled differently. An entry with no news item still returns the generic card.
@@ -110,6 +115,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 ### B3 — Untargeted routing
 
 - [ ] **Do:** Make the same untargeted sentence take the same branch with or without a digest, a model, or a session source list.
+
 - **Consumes:** `interpret_message`. B1 already replaces a pending clarification when the body is targeted.
 - **Produces:** No new intent.
 - **Acceptance:** "Tell me about Qwen" is `general` with and without a digest, and the reply is labelled general knowledge. An explicit entry reference is `followup`. "Recent Qwen updates" is `digest`. No model does not turn a general explanation into a digest or a clarification. A short reply completes a pending clarification and keeps its topic. A self-contained new request replaces it, and reload shows the replacement. The branch is logged.
@@ -122,6 +128,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 ### B4 — Collection outcomes and repeat
 
 - [ ] **Do:** Distinguish a finished empty collect, a source failure, and a partial digest, and start a new digest from the stored resolution.
+
 - **Consumes:** B1's submission comparison. `MessageOut.request`. Stored connector warnings and entry counts.
 - **Produces:** `MessageOut.collection_outcome: "results" | "no_eligible" | "failed" | "partial" | None`. `PostMessageBody.repeat_of_user_message_id: int | None` and `replace_source: str | None`. A repeat loads the stored resolution, skips the interpreter, and starts a new request. `replace_source` is valid only with the repeat id and replaces the source list with that one catalog source. Both fields join the submission comparison.
 - **Acceptance:** A completed no-match is `no_eligible`. A source that did not complete, with no entries, is `failed`. Entries plus a failed source is `partial`. A suggestion keeps topic, timeframe, language, and audience, and changes only the source. Run again keeps the stored resolution, collects fresh data, and uses the credentials current at the new run. Neither is a replay. A repeat id with no stored resolution returns 400. Suggested sources are the composer catalog, excluding a source marked hidden. The interpreter does not rebuild the options from the old text.
@@ -134,6 +141,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 ### B5 — Settings schema
 
 - [ ] **Do:** Migrate schema 3 to schema 4 with the settings tables, and leave existing rows in place.
+
 - **Consumes:** `DigestStore.init_schema`, `SCHEMA_VERSION = "3"`, the v1 backup path.
 - **Produces:** `SCHEMA_VERSION = "4"`. Tables for `source_settings`, `secrets` (name, ciphertext, updated_at), the global language preference, and credential-health observations. A failed backup aborts the migration and leaves the v3 file usable.
 - **Acceptance:** A v3 database gains the new tables and keeps digests, sessions, messages, and requests. A fresh database is created at version 4. A backup failure does not write version 4. Version 1 and 2 still migrate forward through the existing steps. Research-record tables are not created here.
@@ -146,6 +154,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 ### B6 — Source profiles
 
 - [ ] **Do:** Store one global profile per source and use it for new web and command-line digests.
+
 - **Consumes:** B5 tables. `digest_request_builder.py`. `_apply_session_defaults`.
 - **Produces:** `GET /api/v1/settings/sources` and `PUT /api/v1/settings/sources/{name}`. Profiles: Juya `item_count` 1–50 or `all`; GitHub `item_count`, `keywords` (max 10), `min_stars >= 0`, `language`; Hugging Face `item_count`, `pipeline_tag`; OpenRouter `item_count`, `free_only`; Zhihu `item_count`; Bilibili no fields and `hidden: true`. Defaults are count 5, no keywords, `free_only` false. Unknown source is 404. Invalid values are 400. `SourceSettingsService` is what the request builder and the CLI call. Connectors receive resolved values on the request, not the service.
 - **Acceptance:** GET returns every profile, including hidden Bilibili, with defaults filled. PUT round-trips. An unqualified count applies per selected source. A count named for one source overrides only that source. "Each" overrides every selected source. The count is a cap on eligible display entries. A shortfall is reported as returned of requested and does not widen timeframe, relax filters, or split packaging variants. GitHub keywords apply only when the message names no topic and do not turn `topics_are_filters` on. Web and CLI against the same database resolve the same profile. An explicit message or CLI option wins over the profile, which wins over the default. New requests ignore `sessions.items_per_source`. That column remains for old rows and for Run again. OpenRouter's profile can be saved; this task does not collect from OpenRouter.
@@ -158,6 +167,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 ### B7 — Output language
 
 - [ ] **Do:** Save a global output language and record the language each digest entry was generated in.
+
 - **Consumes:** B5. B6's precedence rule (explicit message or CLI wins).
 - **Produces:** `GET /api/v1/settings/language` and `PUT /api/v1/settings/language`. Values `source_default`, `en`, and `zh-CN`. Initial value `source_default`. Each digest entry stores the language it was generated in.
 - **Acceptance:** `source_default` keeps each source's current presentation language. `en` or `zh-CN` applies to generated text and entry labels. Original titles, quotations, model names, and identifiers stay as collected. A language named in the message or on the CLI overrides the saved preference for that run. Reopening an entry shows the labels from the language stored on it.
@@ -170,6 +180,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 ### B8 — Juya all confirmation
 
 - [ ] **Do:** When a request would summarize more than 20 Juya stories, wait for confirmation before writing the digest.
+
 - **Consumes:** B6 Juya `item_count: "all"`. The selected issues after topic and timeframe filtering.
 - **Produces:** A pending confirmation on the session request with the story count, issue, and issue number. Confirm continues that same request into the digest. Cancel stores the cancellation and does not collect. `all` is rejected for every source except Juya.
 - **Acceptance:** `all` includes every eligible story in the issues that request selected, and it does not crawl an unlimited archive. More than 20 stories asks for confirmation and does not summarize first. Twenty or fewer proceeds. Cancellation still works. A later message that is a new request replaces the pending confirmation.
@@ -182,6 +193,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 ### B9 — Credential storage
 
 - [ ] **Do:** Store provider overrides encrypted, and resolve them only through `CredentialsProvider`.
+
 - **Consumes:** B5 `secrets`. Environment and `.env` values used today by `llm.py` and the connectors.
 - **Produces:** Fernet encryption with `AI_NEWS_AGENT_SECRET_KEY`. `GET /api/v1/settings/credentials` returns per name `status` (`ui`, `env`, `unset`, `unreadable`), `last4` for a readable secret, and the credential version. It never returns the value. `PUT /api/v1/settings/credentials/llm` saves `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` atomically. `PUT /api/v1/settings/credentials/{name}` saves one of `GITHUB_TOKEN`, `HUGGINGFACE_TOKEN`, `ZHIHU_ACCESS_SECRET`, `BILIBILI_SESSDATA`, `BILIBILI_BILI_JCT`, `BILIBILI_BUVID3`. `DELETE` clears the UI override. Names and bodies are redacted in logs. Without `AI_NEWS_AGENT_SECRET_KEY`, writes return 409. A ciphertext that cannot be decrypted is `unreadable`, not `unset`, and blocks that credential's work. Clearing a readable override falls back to the environment. A request keeps the credential version it started with.
 - **Acceptance:** GET never contains the secret. A readable UI override wins over the environment. An unreadable override does not silently use the environment. Deleting an unreadable override restores the environment fallback. The LLM triple is saved or rejected together. Connectors and both LLM builders receive values from the provider. The process starts when no LLM configuration exists. An operation that needs an LLM says to configure it in Settings. Fake mode does not turn on by itself. Bilibili credentials stay editable while Bilibili is hidden. A command-line run that needs an encrypted override requires `AI_NEWS_AGENT_SECRET_KEY` and does not require the access token.
@@ -194,6 +206,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 ### B10 — Credential tests and health
 
 - [ ] **Do:** Test a configured credential with a real provider call, and record health against the credential version.
+
 - **Consumes:** B9 `CredentialsProvider` and version.
 - **Produces:** `POST /api/v1/settings/credentials/{name}/test`. GitHub uses an authenticated rate-limit call. Hugging Face uses `whoami`. The LLM sends one minimal request to the configured model. Zhihu uses a minimal authenticated call. The result is `ok` or a short sanitized reason, with no key and no raw provider body. Health observations store source, time, credential version, kind (`connector` or `test`), and result (`ok`, `auth_error`, `unavailable`, `rate_limited`, `timeout`, or another distinct failure). `GET /api/v1/sources` includes the current-version summary. Replacing a credential marks older observations stale.
 - **Acceptance:** A test distinguishes authentication failure from the source being unavailable. Timeout, rate limiting, and authentication failure stay distinct. The newest observation for the current version is the current health. A successful authenticated call clears an earlier authentication error for that version. After a credential change, health is stale until a new test or connector result exists. Tests are time-bounded.
@@ -206,6 +219,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 ### B11 — Owner access token
 
 - [ ] **Do:** Require a bearer token in remote mode, and limit unauthenticated credential writes to loopback in local mode.
+
 - **Consumes:** B9 credential routes. `create_app` CORS middleware.
 - **Produces:** Remote mode is an explicit server setting. Startup fails in remote mode when `AI_NEWS_AGENT_ACCESS_TOKEN` is missing. Every `/api/v1` route except `/health` requires `Authorization: Bearer`, compared in constant time. A missing or wrong token is 401. Local mode may run without a token. Credential writes in local mode accept only `127.0.0.1` and `::1`. CORS origins come from `AI_NEWS_AGENT_CORS_ORIGINS` when set, with no wildcards. Allowed methods include PUT. Allowed headers include Authorization. A remote-mode LLM base URL must be HTTPS on a public address, including after a redirect, unless a server-side switch allows a local endpoint. The browser contract is `sessionStorage`; this task does not add a Remember-me flag.
 - **Acceptance:** Remote startup without a token refuses to start. `/health` answers without a token. Other routes without a token return 401. A mismatch returns 401. Local mode without a token still serves loopback reads, and a non-loopback credential write is refused. A private or plain-HTTP LLM base URL is 400 in remote mode and is not saved. Failed-authentication throttling, body size, and concurrent-spend bounds are either enforced here or named in the README as reverse-proxy duties. CORS is not treated as authentication.
@@ -218,6 +232,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 ### B12 — Backend contract check
 
 - [ ] **Do:** Prove the follow-up fields, the settings routes, and the v4 migration in one offline run.
+
 - **Consumes:** B1–B11.
 - **Produces:** OpenAPI lists the follow-up fields, the settings routes, and `followup_action` limited to `deep_dive` and `ask`.
 - **Acceptance:** `GET /openapi.json` contains those contracts. `uv run pytest -q` passes with no network. A v3 fixture migrates to v4.
@@ -229,10 +244,11 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ## TDD note (Agent mode)
 
-Per subtask, obey **`TDD suitable`**. **`yes`** means strict test-first. **B9** without **B11** is an unfinished security boundary: do not point the frontend Keys tab at it early.
+Per subtask, obey `TDD suitable`. `yes` means strict test-first. **B9** without **B11** is an unfinished security boundary: do not point the frontend Keys tab at it early.
 
 ## Plan changelog
 
 | Date | Change | Kind |
 |---|---|---|
 | 2026-10-30 | Split from `2026-10-20-targeted-followups-plan.md`. Backend follow-ups are B1–B4. Settings, keys, and sign-in from the settings spec are B5–B11. | material |
+| 2026-10-30 | Add digests.py, llm.py, composition.py to B2 map | equivalent |
