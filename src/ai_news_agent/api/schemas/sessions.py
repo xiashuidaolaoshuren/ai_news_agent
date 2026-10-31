@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ai_news_agent.api.schemas.digests import DigestView
+from ai_news_agent.collection_outcomes import CollectionOutcome
 from ai_news_agent.models import ConnectorWarning
 
 
@@ -79,6 +80,8 @@ class MessageOut(BaseModel):
     request: ResolvedRequestOut | None = None
     followup_target: FollowupTarget | None = None
     followup_action: FollowupAction | None = None
+    #: How the assistant message's digest run ended, when it saved one.
+    collection_outcome: CollectionOutcome | None = None
 
 
 class MessageListPage(BaseModel):
@@ -96,6 +99,10 @@ class PostMessageBody(BaseModel):
     juya_item_mode: Literal["issue", "stories"] = "issue"
     followup_target: FollowupTarget | None = None
     followup_action: FollowupAction | None = None
+    #: Start a fresh run from the resolution stored for this earlier user message.
+    repeat_of_user_message_id: int | None = None
+    #: With a repeat id: use this catalog source instead of the stored sources.
+    replace_source: str | None = None
 
     @model_validator(mode="after")
     def _followup_target_and_action_paired(self) -> PostMessageBody:
@@ -104,6 +111,14 @@ class PostMessageBody(BaseModel):
         if has_target != has_action:
             raise ValueError(
                 "followup_target and followup_action must both be present or both absent"
+            )
+        if self.replace_source is not None and self.repeat_of_user_message_id is None:
+            raise ValueError(
+                "replace_source requires repeat_of_user_message_id"
+            )
+        if self.repeat_of_user_message_id is not None and (has_target or has_action):
+            raise ValueError(
+                "repeat_of_user_message_id and followup fields are mutually exclusive"
             )
         return self
 

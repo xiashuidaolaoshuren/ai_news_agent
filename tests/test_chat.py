@@ -337,6 +337,243 @@ def _save_session_digest_ids(
     return run_id, digest_id
 
 
+def _seed_repeatable_digest_request(
+    store: DigestStore,
+    session_store: SessionStore,
+    session_service: SessionService,
+    *,
+    session_id: str,
+    topics: list[str],
+    request_id: str,
+) -> tuple[int, int, DigestRequest]:
+    """Seed a succeeded digest whose request row keeps its resolved request."""
+
+    from ai_news_agent.services.conversation import request_metadata, request_payload
+
+    stored_request = DigestRequest(
+        topics=topics,
+        timeframe="today",
+        connector_names=["github"],
+        items_per_source=2,
+        output_language="en",
+        audience="engineer",
+    )
+    run_id = _save_session_digest(
+        store,
+        session_store,
+        session_id=session_id,
+        topics=topics,
+        request_id=request_id,
+        ensure_session=False,
+    )
+    original = session_store.get_request(session_id, request_id)
+    assert original is not None
+    session_service.set_request_interpretation(
+        session_id,
+        request_id,
+        {
+            "intent": "digest",
+            "request": request_payload(stored_request),
+            "public": request_metadata(stored_request),
+        },
+    )
+    return run_id, original.user_message_id, stored_request
+
+
+def _repeat_streaming_runner(store: DigestStore, db_path: Path, seen: list[DigestRequest]):
+    """Streaming runner double that saves a fresh run and records the request."""
+
+    async def runner(
+        req: DigestRequest,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ):
+        del request_id
+        seen.append(req)
+        collected = datetime(2026, 5, 18, 9, 0, tzinfo=UTC)
+        run_id = store.save_run(
+            requested_at=collected,
+            timeframe=req.timeframe,
+            topics=list(req.topics or []),
+            connector_names=list(req.connector_names or ["github"]),
+        )
+        if session_id is not None:
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    "UPDATE runs SET session_id = ? WHERE id = ?",
+                    (session_id, run_id),
+                )
+                conn.commit()
+        item = NewsItem(
+            source=SourceKind.GITHUB,
+            source_id=f"repo-fresh-{run_id}",
+            url=f"https://example.com/fresh-{run_id}",
+            title="Repo fresh",
+            collected_at=collected,
+        )
+        digest = Digest(
+            generated_at=collected,
+            entries=[
+                DigestEntry(
+                    source_kind=SourceKind.GITHUB,
+                    source_id=item.source_id,
+                    title=item.title,
+                    source_name="GitHub",
+                    source_url=item.url,
+                    summary="summary",
+                    why_it_matters="why",
+                    background_knowledge="bg",
+                    follow_up_action=FollowUpAction.READ,
+                )
+            ],
+            topics=list(req.topics or []),
+            timeframe=req.timeframe,
+        )
+        store.save_connector_result(run_id, ConnectorResult(items=[item], warnings=[]))
+        store.save_ranked_items(run_id, [])
+        store.save_digest(run_id, digest)
+        yield "", True, DigestResult(
+            request=req,
+            digest=digest,
+            run_id=run_id,
+            markdown="# Repeated digest\n",
+            text="# Repeated digest\n",
+            ranked_items=[],
+            warnings=[],
+            errors=[],
+            started_at=collected,
+            finished_at=collected,
+        )
+
+    return runner
+
+
+def test_stream_events_repeat_reuses_stored_resolution_and_starts_fresh_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_news_agent.services import chat as chat_module
+    from ai_news_agent.services.conversation import request_metadata
+
+    db_path = tmp_path / "stream-repeat.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    first_run_id, user_message_id, stored_request = _seed_repeatable_digest_request(
+        store,
+        session_store,
+        session_service,
+        session_id=created.id,
+        topics=["agents"],
+        request_id="req-original",
+    )
+
+    def fail_interpret(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("repeat must not re-interpret the message")
+
+    monkeypatch.setattr(chat_module, "interpret_message", fail_interpret)
+
+    seen: list[DigestRequest] = []
+    svc = ChatService(
+        store=store,
+        workflow_runner=_repeat_streaming_runner(store, db_path, seen),
+        streaming_workflow_runner=_repeat_streaming_runner(store, db_path, seen),
+        session_service=session_service,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Run again",
+            session_id=created.id,
+            request_id="req-repeat",
+            repeat_of_user_message_id=user_message_id,
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    assert len(seen) == 1
+    repeated = seen[0]
+    assert repeated.topics == ["agents"]
+    assert repeated.timeframe == "today"
+    assert repeated.connector_names == ["github"]
+    assert repeated.items_per_source == 2
+    assert repeated.output_language == "en"
+    assert repeated.audience == "engineer"
+
+    started = next(event for event in events if isinstance(event, StartedEvent))
+    assert started.intent == "digest"
+    assert started.request == request_metadata(stored_request)
+
+    done = next(event for event in events if isinstance(event, DoneEvent))
+    assert done.run_id is not None
+    assert done.run_id != first_run_id
+
+
+def test_stream_events_repeat_replaces_only_the_source_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_news_agent.services import chat as chat_module
+    from ai_news_agent.services.conversation import request_metadata
+
+    db_path = tmp_path / "stream-repeat-source.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _run_id, user_message_id, stored_request = _seed_repeatable_digest_request(
+        store,
+        session_store,
+        session_service,
+        session_id=created.id,
+        topics=["agents"],
+        request_id="req-original",
+    )
+
+    def fail_interpret(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("repeat must not re-interpret the message")
+
+    monkeypatch.setattr(chat_module, "interpret_message", fail_interpret)
+
+    seen: list[DigestRequest] = []
+    svc = ChatService(
+        store=store,
+        workflow_runner=_repeat_streaming_runner(store, db_path, seen),
+        streaming_workflow_runner=_repeat_streaming_runner(store, db_path, seen),
+        session_service=session_service,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Same digest from Hugging Face",
+            session_id=created.id,
+            request_id="req-repeat-source",
+            repeat_of_user_message_id=user_message_id,
+            replace_source="huggingface",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    assert len(seen) == 1
+    repeated = seen[0]
+    assert repeated.connector_names == ["huggingface"]
+    assert repeated.topics == ["agents"]
+    assert repeated.timeframe == "today"
+
+    started = next(event for event in events if isinstance(event, StartedEvent))
+    expected = request_metadata(stored_request)
+    expected["sources"] = ["huggingface"]
+    assert started.request == expected
+
+
 def test_stream_events_targeted_followup_uses_named_digest_skips_interpreter(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

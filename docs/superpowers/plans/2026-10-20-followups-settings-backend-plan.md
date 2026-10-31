@@ -38,6 +38,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 | `src/ai_news_agent/services/session_service.py` | modify | Submission comparison before replay | `begin_request` | verified |
 | `src/ai_news_agent/services/chat.py` | modify | Targeted follow-up and repeat dispatch | `ChatService.stream_events` | verified |
 | `src/ai_news_agent/services/conversation.py` | modify | Untargeted routing | `interpret_message` | verified |
+| `src/ai_news_agent/collection_outcomes.py` | create | Classify a digest run from entries and warnings | `SOURCE_FAILURE_CODES`, `collection_outcome` | provisional |
 | `src/ai_news_agent/followup_structured.py` | modify | Card for the targeted entry | existing formatters | verified |
 | `src/ai_news_agent/followup_enrich.py` | modify | README reload uses the targeted digest | `enrich_huggingface_for_rank` | verified |
 | `src/ai_news_agent/huggingface_followup.py` | modify | `Not saved` and snippet labels | `format_huggingface_family_card` | verified |
@@ -46,6 +47,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 | `src/ai_news_agent/llm.py` | modify | Entry-only Ask follow-up | `OpenAIChatModel.generate_followup_reply` | verified |
 | `src/ai_news_agent/services/composition.py` | modify | HF connector factory for targeted fetch | `ChatService` wiring in `build_application` | verified |
 | `tests/test_api_sessions.py`, `tests/test_chat.py`, `tests/test_conversation.py`, `tests/test_huggingface_followup.py`, `tests/test_digest_views.py`, `tests/test_followup_context.py`, `tests/test_llm.py`, `tests/test_session_service.py` | modify | Follow-up acceptance | pytest | verified |
+| `tests/test_collection_outcomes.py` | create | Outcome classification and repeat acceptance | pytest | provisional |
 
 ### Goal: Settings, keys, and sign-in
 
@@ -136,7 +138,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 - **Blocked by:** B1
 - **Plan mode:** medium (named unknown: which existing `ConnectorWarning` codes already separate a finished empty collect from a source that did not complete)
 - **TDD suitable:** yes
-- **Verification:** `uv run pytest tests/test_api_sessions.py tests/test_chat.py tests/test_digest_views.py -q`
+- **Verification:** `uv run pytest tests/test_api_sessions.py tests/test_chat.py tests/test_digest_views.py tests/test_collection_outcomes.py -q`
 
 ### B5 — Settings schema
 
@@ -252,3 +254,4 @@ Per subtask, obey `TDD suitable`. `yes` means strict test-first. **B9** without 
 |---|---|---|
 | 2026-10-30 | Split from `2026-10-20-targeted-followups-plan.md`. Backend follow-ups are B1–B4. Settings, keys, and sign-in from the settings spec are B5–B11. | material |
 | 2026-10-30 | Add digests.py, llm.py, composition.py to B2 map | equivalent |
+| 2026-10-31 | Add collection_outcomes.py and its test file to B4 map | equivalent |

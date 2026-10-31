@@ -488,6 +488,56 @@ def test_begin_request_rejects_changed_submission_on_terminal_replay(
         )
 
 
+def test_begin_request_repeat_fields_join_the_submission_comparison(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import (
+        RequestConflictError,
+        SessionService,
+    )
+
+    db_path = tmp_path / "svc-repeat-submission.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(
+        created.id,
+        content="Run again",
+        request_id="req-repeat",
+        repeat_of_user_message_id=4,
+        replace_source="huggingface",
+    )
+    store.mark_terminal(created.id, "req-repeat", status="succeeded")
+
+    replay = service.begin_request(
+        created.id,
+        content="Run again",
+        request_id="req-repeat",
+        repeat_of_user_message_id=4,
+        replace_source="huggingface",
+    )
+    assert replay.status == "succeeded"
+    assert len(store.list_messages(created.id)) == 1
+
+    with pytest.raises(RequestConflictError):
+        service.begin_request(
+            created.id,
+            content="Run again",
+            request_id="req-repeat",
+            repeat_of_user_message_id=4,
+            replace_source="github",
+        )
+    with pytest.raises(RequestConflictError):
+        service.begin_request(
+            created.id,
+            content="Run again",
+            request_id="req-repeat",
+            repeat_of_user_message_id=5,
+            replace_source="huggingface",
+        )
+
+
 def test_begin_request_replays_when_submission_matches(tmp_path: Path) -> None:
     from ai_news_agent.services.session_service import SessionService
 

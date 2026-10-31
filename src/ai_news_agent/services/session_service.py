@@ -111,6 +111,17 @@ class SessionService:
             return stored if isinstance(stored, dict) else None
         return None
 
+    def stored_digest_request(
+        self, session_id: str, user_message_id: int
+    ) -> dict[str, object] | None:
+        """The resolved digest request stored for one user message, if any."""
+        for request in self._store.list_requests(session_id):
+            if request.user_message_id != user_message_id:
+                continue
+            stored = (request.interpretation or {}).get("request")
+            return stored if isinstance(stored, dict) else None
+        return None
+
     def request_interpretations(self, session_id: str) -> dict[int, dict[str, object]]:
         """Public resolved-request metadata keyed by the user message it answers."""
         out: dict[int, dict[str, object]] = {}
@@ -218,19 +229,31 @@ class SessionService:
         juya_item_mode: str | None,
         followup_target: dict[str, object] | None,
         followup_action: str | None,
+        repeat_of_user_message_id: int | None = None,
+        replace_source: str | None = None,
     ) -> dict[str, object]:
         return {
             "content": content,
             "juya_item_mode": juya_item_mode if juya_item_mode is not None else "issue",
             "followup_target": followup_target,
             "followup_action": followup_action,
+            "repeat_of_user_message_id": repeat_of_user_message_id,
+            "replace_source": replace_source,
         }
 
     def _stored_submission(self, record: SessionRequestRecord) -> dict[str, object]:
         interpretation = record.interpretation or {}
         stored = interpretation.get("submission")
         if isinstance(stored, dict):
-            return stored
+            # Rows written before repeat shipped carry no repeat keys; fill them
+            # so an identical replay still matches.
+            return {
+                **stored,
+                "repeat_of_user_message_id": stored.get(
+                    "repeat_of_user_message_id"
+                ),
+                "replace_source": stored.get("replace_source"),
+            }
         for message in self._store.list_messages(record.session_id):
             if message.id == record.user_message_id:
                 return self._normalize_submission(
@@ -255,6 +278,8 @@ class SessionService:
         juya_item_mode: str | None = None,
         followup_target: dict[str, object] | None = None,
         followup_action: str | None = None,
+        repeat_of_user_message_id: int | None = None,
+        replace_source: str | None = None,
     ) -> SessionRequestRecord:
         if self._store.get_session(session_id) is None:
             raise KeyError(f"session not found: {session_id}")
@@ -264,6 +289,8 @@ class SessionService:
             juya_item_mode=juya_item_mode,
             followup_target=followup_target,
             followup_action=followup_action,
+            repeat_of_user_message_id=repeat_of_user_message_id,
+            replace_source=replace_source,
         )
 
         if request_id is not None:

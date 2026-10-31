@@ -220,6 +220,33 @@ def test_post_message_body_followup_target_and_action_must_be_paired() -> None:
         PostMessageBody(content="x", followup_action="ask")
 
 
+def test_post_message_body_repeat_fields_require_the_repeat_id_and_exclude_followups() -> None:
+    from pydantic import ValidationError
+
+    from ai_news_agent.api.schemas.sessions import PostMessageBody
+
+    body = PostMessageBody(
+        content="Run again",
+        repeat_of_user_message_id=7,
+        replace_source="huggingface",
+    )
+    assert body.repeat_of_user_message_id == 7
+    assert body.replace_source == "huggingface"
+
+    plain = PostMessageBody(content="Run again", repeat_of_user_message_id=7)
+    assert plain.replace_source is None
+
+    with pytest.raises(ValidationError):
+        PostMessageBody(content="x", replace_source="huggingface")
+    with pytest.raises(ValidationError):
+        PostMessageBody(
+            content="x",
+            repeat_of_user_message_id=7,
+            followup_target={"digest_id": 1, "display_rank": 1},
+            followup_action="deep_dive",
+        )
+
+
 def _seed_session_owned_digest(
     tmp_path: Path,
     *,
@@ -364,6 +391,88 @@ def test_post_message_rejects_followup_target_from_other_session(
         },
     )
     assert response.status_code == 400
+
+
+def test_post_message_repeat_streams_from_stored_resolution_and_rejects_unknown(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.request import DigestRequest
+    from ai_news_agent.services.conversation import request_metadata, request_payload
+    from ai_news_agent.services.session_service import SessionService
+
+    client, session_id, _digest_id = _seed_session_owned_digest(tmp_path)
+    db_path = tmp_path / "target-digest.db"
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    original = session_store.get_request(session_id, "req-digest")
+    assert original is not None
+    stored_request = DigestRequest(
+        topics=["ai"],
+        timeframe="today",
+        connector_names=["juya"],
+        items_per_source=1,
+    )
+    session_service.set_request_interpretation(
+        session_id,
+        "req-digest",
+        {
+            "intent": "digest",
+            "request": request_payload(stored_request),
+            "public": request_metadata(stored_request),
+        },
+    )
+
+    missing = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Run again",
+            "client_request_id": "repeat-missing",
+            "repeat_of_user_message_id": 9999,
+        },
+    )
+    assert missing.status_code == 400
+    assert missing.json()["detail"]["code"] == "repeat_resolution_missing"
+
+    bad_source = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Run again",
+            "client_request_id": "repeat-bad-source",
+            "repeat_of_user_message_id": original.user_message_id,
+            "replace_source": "openrouter",
+        },
+    )
+    assert bad_source.status_code == 400
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Run again from Juya",
+            "client_request_id": "repeat-1",
+            "repeat_of_user_message_id": original.user_message_id,
+            "replace_source": "juya",
+        },
+    ) as response:
+        assert response.status_code == 200
+        body = response.read().decode()
+    events = _parse_sse_events(body)
+    started = next(payload for name, payload in events if name == "started")
+    assert started["intent"] == "digest"
+    assert started["request"]["sources"] == ["juya"]
+    assert any(name == "digest" for name, _ in events)
+
+    conflict = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Run again from Juya",
+            "client_request_id": "repeat-1",
+            "repeat_of_user_message_id": original.user_message_id,
+            "replace_source": "github",
+        },
+    )
+    assert conflict.status_code == 409
 
 
 def test_post_message_unknown_field_returns_400(tmp_path: Path) -> None:
@@ -945,6 +1054,105 @@ def test_list_messages_digest_without_warnings_returns_empty_list(tmp_path: Path
 
     assert assistant["digest_id"] is not None
     assert assistant["warnings"] == []
+
+
+def test_list_messages_reports_collection_outcome_per_digest_run(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from ai_news_agent.api.app import create_app
+    from ai_news_agent.models import (
+        ConnectorWarning,
+        Digest,
+        DigestEntry,
+        FollowUpAction,
+        SourceKind,
+    )
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.composition import build_application
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "collection-outcomes.db"
+    application = build_application(fake=True, db_path=db_path)
+    client = TestClient(create_app(application))
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    store = DigestStore(db_path)
+    session_store = SessionStore(db_path)
+    collected = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
+
+    def seed_run(entry_count: int, warning_codes: tuple[str, ...]) -> int:
+        run_id = store.save_run(
+            requested_at=collected,
+            timeframe="today",
+            topics=["ai"],
+            connector_names=["juya"],
+            session_id=session_id,
+        )
+        store.save_digest(
+            run_id,
+            Digest(
+                generated_at=collected,
+                entries=[
+                    DigestEntry(
+                        source_kind=SourceKind.JUYA,
+                        source_id=f"story-{index}",
+                        title=f"Story {index}",
+                        source_name="Juya",
+                        source_url=f"https://example.com/story-{index}",
+                        summary="summary",
+                        why_it_matters="why",
+                        background_knowledge="bg",
+                        follow_up_action=FollowUpAction.READ,
+                    )
+                    for index in range(entry_count)
+                ],
+                topics=["ai"],
+                timeframe="today",
+            ),
+        )
+        store.save_connector_warnings(
+            run_id,
+            [
+                ConnectorWarning(
+                    connector="juya", code=code, message=f"{code} happened"
+                )
+                for code in warning_codes
+            ],
+        )
+        session_store.insert_message(
+            session_id, role="user", content="Give me a digest"
+        )
+        session_store.insert_message(
+            session_id, role="assistant", content="Digest text", run_id=run_id
+        )
+        return run_id
+
+    results_run = seed_run(2, ())
+    no_eligible_run = seed_run(0, ("juya_no_topic_matches",))
+    failed_run = seed_run(0, ("juya_rss_unavailable",))
+    partial_run = seed_run(1, ("juya_rss_unavailable",))
+    session_store.insert_message(
+        session_id, role="assistant", content="Plain answer without a digest"
+    )
+
+    response = client.get(f"/api/v1/sessions/{session_id}/messages")
+    assert response.status_code == 200
+    messages = response.json()["messages"]
+
+    outcomes = {message["run_id"]: message["collection_outcome"] for message in messages}
+    assert outcomes[results_run] == "results"
+    assert outcomes[no_eligible_run] == "no_eligible"
+    assert outcomes[failed_run] == "failed"
+    assert outcomes[partial_run] == "partial"
+
+    plain = next(
+        message
+        for message in messages
+        if message["role"] == "assistant" and message["run_id"] is None
+    )
+    assert plain["collection_outcome"] is None
+    user = next(message for message in messages if message["role"] == "user")
+    assert user["collection_outcome"] is None
 
 
 def test_post_message_progress_structured_fields_on_sse(tmp_path: Path) -> None:

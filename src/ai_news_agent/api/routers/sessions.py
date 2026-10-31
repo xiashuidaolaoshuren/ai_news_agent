@@ -40,6 +40,10 @@ from ai_news_agent.api.schemas.streaming import (
     session_message_stream_openapi_schema,
 )
 from ai_news_agent.api.sse import encode_sse
+from ai_news_agent.collection_outcomes import (
+    CollectionOutcome,
+    collection_outcome as classify_collection_outcome,
+)
 from ai_news_agent.graph.nodes.collect import parse_connector_progress
 from ai_news_agent.models import ConnectorWarning
 from ai_news_agent.services.chat import (
@@ -52,6 +56,7 @@ from ai_news_agent.services.chat import (
     StartedEvent,
 )
 from ai_news_agent.services.composition import Application
+from ai_news_agent.services.conversation import request_from_payload
 from ai_news_agent.services.session_search import SessionSearchHit, search_sessions
 from ai_news_agent.services.session_records import (
     MessageRecord,
@@ -295,6 +300,30 @@ def _validate_followup_target(
         )
 
 
+def _validate_repeat(
+    application: Application,
+    session_id: str,
+    body: PostMessageBody,
+) -> None:
+    """Reject a repeat that names no stored resolution or an unknown source."""
+
+    if body.repeat_of_user_message_id is None:
+        return
+    if body.replace_source is not None and body.replace_source not in ALLOWED_SOURCES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"code": "repeat_source_unknown"},
+        )
+    stored = application.session_service.stored_digest_request(
+        session_id, body.repeat_of_user_message_id
+    )
+    if request_from_payload(stored) is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"code": "repeat_resolution_missing"},
+        )
+
+
 def _message_out(
     message: MessageRecord,
     digest_store: DigestStore,
@@ -304,11 +333,15 @@ def _message_out(
     digest = None
     digest_id = None
     warnings: list[ConnectorWarning] = []
+    collection_outcome: CollectionOutcome | None = None
     if message.role == "assistant" and message.run_id is not None:
         stored = digest_store.get_digest_by_run_id(message.run_id)
         if stored is not None:
             digest_id = digest_store.get_digest_id_for_run(message.run_id)
             warnings = digest_store.get_connector_warnings_for_run(message.run_id)
+            collection_outcome = classify_collection_outcome(
+                entry_count=len(stored.entries), warnings=warnings
+            )
             digest = build_digest_view(
                 stored,
                 news_items=digest_store.get_news_items_for_run(message.run_id),
@@ -337,6 +370,7 @@ def _message_out(
         request=ResolvedRequestOut(**request) if request else None,
         followup_target=followup_target,
         followup_action=followup_action,
+        collection_outcome=collection_outcome,
     )
 
 
@@ -599,6 +633,8 @@ async def post_message(
     if body.followup_target is not None:
         _validate_followup_target(application, session_id, body.followup_target)
 
+    _validate_repeat(application, session_id, body)
+
     stream = application.chat_service.stream_events(
         body.content,
         session_id=session_id,
@@ -606,6 +642,8 @@ async def post_message(
         juya_item_mode=body.juya_item_mode,
         followup_target=body.followup_target,
         followup_action=body.followup_action,
+        repeat_of_user_message_id=body.repeat_of_user_message_id,
+        replace_source=body.replace_source,
     )
 
     try:

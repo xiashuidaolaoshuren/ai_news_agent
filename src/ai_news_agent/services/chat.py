@@ -31,6 +31,7 @@ from ai_news_agent.services.conversation import (
     ConversationContext,
     ConversationDecision,
     interpret_message,
+    request_from_payload,
     request_metadata,
     request_payload,
 )
@@ -205,6 +206,8 @@ class ChatService:
         juya_item_mode: str | None = None,
         followup_target: Any | None = None,
         followup_action: str | None = None,
+        repeat_of_user_message_id: int | None = None,
+        replace_source: str | None = None,
         chunk_size: int = 80,
         chunk_delay_s: float = 0.02,
     ) -> AsyncIterator[ChatEvent]:
@@ -226,6 +229,8 @@ class ChatService:
             juya_item_mode=juya_item_mode,
             followup_target=followup_target_payload,
             followup_action=followup_action,
+            repeat_of_user_message_id=repeat_of_user_message_id,
+            replace_source=replace_source,
         )
         if record.status in _TERMINAL_REPLAY_STATUSES:
             async for event in self._replay_terminal_events(
@@ -271,6 +276,44 @@ class ChatService:
 
         history_cmd = parse_history_chat_message(message)
         try:
+            if repeat_of_user_message_id is not None:
+                stored = self._session_service.stored_digest_request(
+                    session_id, repeat_of_user_message_id
+                )
+                repeat_request = request_from_payload(stored)
+                if repeat_request is not None:
+                    if replace_source is not None:
+                        repeat_request = replace(
+                            repeat_request,
+                            connector_names=[replace_source],
+                            primary_source=replace_source,
+                        )
+                    repeat_interpretation: dict[str, Any] = {
+                        "intent": "digest",
+                        "request": request_payload(repeat_request),
+                        "public": request_metadata(repeat_request),
+                    }
+                    self._session_service.set_request_interpretation(
+                        session_id,
+                        record.id,
+                        repeat_interpretation,
+                    )
+                    yield StartedEvent(
+                        request_id=record.id,
+                        user_message_id=record.user_message_id,
+                        request=repeat_interpretation.get("public") or None,
+                        intent="digest",
+                    )
+                    async for event in self._stream_session_digest_events(
+                        session_id=session_id,
+                        record=record,
+                        request=repeat_request,
+                        chunk_size=chunk_size,
+                        chunk_delay_s=chunk_delay_s,
+                    ):
+                        yield event
+                    return
+
             if history_cmd is not None:
                 yield StartedEvent(
                     request_id=record.id,
