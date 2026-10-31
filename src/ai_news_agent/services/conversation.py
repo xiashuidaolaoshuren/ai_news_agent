@@ -45,6 +45,10 @@ _TOPIC_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"\u5173\u4e8e\s*(.+?)\s*\u7684(?:\u6700\u65b0|\u65b0\u95fb|\u8fdb\u5c55)"
         r"\s*[\uff1f?]?$"
     ),
+    re.compile(
+        r"\b(?:recent|latest|newest)\s+(.+?)\s+updates?\b",
+        re.I,
+    ),
 )
 
 _PER_SOURCE_COUNT = re.compile(
@@ -109,7 +113,10 @@ _REFERENCES_DIGEST = re.compile(
     r"|\b(?:that|those|this\s+digest|the\s+digest|the\s+results?)\b"
     r"|\bmore\s+detail\b|\bgo\s+deeper\b"
     r"|\bbeginner[- ]friendly\b|\bsimpler\b|\brephrase\b"
-    r"|\b(?:explain|summarize)\s+(?:it|that|this)\b",
+    r"|\b(?:explain|summarize)\s+(?:it|that|this)\b"
+    r"|\bentry\s+(?:above|below|here)\b"
+    r"|\b(?:that|this|the)\s+\S+\s+entry\b"
+    r"|\btop\s+item\b|\b(?:that|the)\s+item\b",
     re.I,
 )
 
@@ -119,8 +126,9 @@ _GENERAL_QUESTION = re.compile(
     r"|\u4ec0\u4e48\u662f|\u5982\u4f55|\u4e3a\u4ec0\u4e48)",
     re.I,
 )
+_TELL_ME_ABOUT = re.compile(r"^tell\s+me\s+about\s+.+?\s*\??$", re.I)
 _VAGUE_TOPIC = re.compile(
-    r"^(?:tell\s+me\s+about|what\s+about|any\s+(?:info|information|news)\s+(?:on|about)"
+    r"^(?:what\s+about|any\s+(?:info|information|news)\s+(?:on|about)"
     r"|\u8bf4\u8bf4|\u4ecb\u7ecd\u4e00\u4e0b)\s*(.+?)\s*\??$",
     re.I,
 )
@@ -403,6 +411,21 @@ def request_from_payload(payload: object) -> DigestRequest | None:
         return None
 
 
+def _is_self_contained_request(text: str) -> bool:
+    """True when the message is a new request, not a short clarification reply."""
+    if _REFERENCES_DIGEST.search(text):
+        return True
+    if _RELEASE_PURPOSE.search(text):
+        return True
+    if _topic_from_text(text) is not None:
+        return True
+    if _GENERAL_QUESTION.search(text):
+        return True
+    if _TELL_ME_ABOUT.match(text):
+        return True
+    return False
+
+
 def _resume_decision(
     answer: str,
     pending: dict[str, Any],
@@ -444,7 +467,7 @@ def interpret_message(
     ctx = context or ConversationContext()
     if is_structured_followup(text):
         return ConversationDecision(intent="followup")
-    if ctx.pending:
+    if ctx.pending and not _is_self_contained_request(text):
         resumed = _resume_decision(text, ctx.pending, context=ctx)
         if resumed is not None:
             return resumed
@@ -457,7 +480,9 @@ def interpret_message(
         return ConversationDecision(intent="followup")
     if _RELEASE_PURPOSE.search(text) or _topic_from_text(text) is not None:
         return _digest_decision(text, context=ctx)
-    if _GENERAL_QUESTION.search(text) and not ctx.has_digest:
+    if _TELL_ME_ABOUT.match(text):
+        return ConversationDecision(intent="general", question=text)
+    if _GENERAL_QUESTION.search(text):
         return ConversationDecision(intent="general", question=text)
     vague = _VAGUE_TOPIC.search(text)
     if vague is not None:

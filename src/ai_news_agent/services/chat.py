@@ -66,7 +66,9 @@ _REQUEST_FAILED_MESSAGE = "Request failed."
 _CLARIFY_FALLBACK = (
     "Tell me whether you want recent signals on that topic or a general explanation."
 )
+_GENERAL_KNOWLEDGE_LABEL = "*General knowledge.*"
 _GENERAL_FALLBACK = (
+    f"{_GENERAL_KNOWLEDGE_LABEL}\n\n"
     "I can answer general questions once a language model is configured. "
     "For collected signals, ask for a digest, for example: “Give me today's AI digest”."
 )
@@ -286,6 +288,11 @@ class ChatService:
                 return
 
             decision = await self._resolve_conversation_decision(session_id, message)
+            logger.info(
+                "conversation branch=%s session_id=%s",
+                decision.intent,
+                session_id,
+            )
             request = decision.request
             if decision.intent == "digest" and request is not None:
                 request = _apply_session_defaults(
@@ -386,7 +393,7 @@ class ChatService:
         answer = getattr(self._conversation_model, "generate_general_answer", None)
         if answer is not None and callable(answer):
             try:
-                return str(await asyncio.to_thread(answer, question=question))
+                return _format_general_answer(str(await asyncio.to_thread(answer, question=question)))
             except Exception:  # noqa: BLE001 - a model failure gets guidance
                 logger.exception("general answer failed")
         return _GENERAL_FALLBACK
@@ -894,6 +901,11 @@ class ChatService:
         raise NotImplementedError
 
 
+def _format_general_answer(text: str) -> str:
+    body = text.strip()
+    if "general knowledge" in body.lower():
+        return body
+    return f"{_GENERAL_KNOWLEDGE_LABEL}\n\n{body}"
 
 
 def _tool_agent_result_to_text(result: Any, *, store: DigestStore | None = None) -> str:

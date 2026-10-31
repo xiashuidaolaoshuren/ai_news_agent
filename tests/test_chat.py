@@ -432,7 +432,7 @@ def test_stream_events_targeted_followup_replaces_pending_clarification(
     asyncio.run(
         _collect_stream_events(
             svc,
-            "Tell me about Qwen",
+            "What about Qwen",
             session_id=created.id,
             request_id="req-clarify",
             chunk_size=1000,
@@ -454,6 +454,132 @@ def test_stream_events_targeted_followup_replaces_pending_clarification(
         )
     )
     assert session_service.pending_clarification(created.id) is None
+
+
+def test_stream_events_tell_me_about_streams_general_without_digest_runner(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "stream-general-qwen.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+    _save_session_digest(
+        store,
+        SessionStore(db_path),
+        session_id=created.id,
+        topics=["existing-topic"],
+        request_id="req-existing-digest",
+        ensure_session=False,
+    )
+
+    async def forbid_runner(_: DigestRequest) -> DigestResult:
+        raise AssertionError("digest runner must not run for general explanation")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=forbid_runner,
+        session_service=session_service,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Tell me about Qwen",
+            session_id=created.id,
+            request_id="req-general-qwen",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    started = next(e for e in events if isinstance(e, StartedEvent))
+    assert started.intent == "general"
+    deltas = "".join(e.text for e in events if isinstance(e, DeltaEvent))
+    assert "general knowledge" in deltas.lower()
+
+
+def test_stream_events_self_contained_digest_replaces_pending_clarification(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "stream-replace-clarify.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+
+    async def fake_streaming_runner(
+        req: DigestRequest,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ):
+        del request_id
+        collected = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
+        run_id = store.save_run(
+            requested_at=collected,
+            timeframe=req.timeframe,
+            topics=list(req.topics),
+            connector_names=list(req.connector_names or ["juya"]),
+        )
+        if session_id is not None:
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    "UPDATE runs SET session_id = ? WHERE id = ?",
+                    (session_id, run_id),
+                )
+                conn.commit()
+        digest = Digest(
+            generated_at=collected,
+            entries=[],
+            topics=list(req.topics),
+            timeframe=req.timeframe,
+        )
+        store.save_digest(run_id, digest)
+        yield "", True, DigestResult(
+            request=req,
+            digest=digest,
+            run_id=run_id,
+            markdown="digest",
+            text="digest",
+            ranked_items=[],
+            warnings=[],
+            errors=[],
+            started_at=collected,
+            finished_at=collected,
+        )
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=fake_streaming_runner,
+        streaming_workflow_runner=fake_streaming_runner,
+        session_service=session_service,
+    )
+
+    asyncio.run(
+        _collect_stream_events(
+            svc,
+            "What about agents",
+            session_id=created.id,
+            request_id="req-clarify-agents",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    assert session_service.pending_clarification(created.id) is not None
+    assert session_service.pending_clarification(created.id)["topic"] == "agents"
+
+    asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Recent Llama updates",
+            session_id=created.id,
+            request_id="req-replace-digest",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    pending = session_service.pending_clarification(created.id)
+    assert pending is None
 
 
 def _save_session_hf_digest(

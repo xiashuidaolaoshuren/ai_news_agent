@@ -1620,7 +1620,7 @@ def test_clarification_report_carries_no_source_chips(tmp_path: Path) -> None:
     started = next(
         payload for name, payload in _parse_sse_events(body) if name == "started"
     )
-    assert started["intent"] == "clarify"
+    assert started["intent"] == "general"
     assert started["request"] is None
 
     transcript = client.get(f"/api/v1/sessions/{session_id}/messages").json()
@@ -1642,7 +1642,7 @@ def test_clarification_reply_after_reload_completes_the_original_request(
     with client.stream(
         "POST",
         f"/api/v1/sessions/{session_id}/messages",
-        json={"content": "Tell me about agents"},
+        json={"content": "What about agents"},
     ) as response:
         first_body = response.read().decode()
     assert any(name == "delta" for name, _ in _parse_sse_events(first_body))
