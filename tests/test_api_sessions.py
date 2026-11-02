@@ -1878,3 +1878,38 @@ def test_clarification_reply_after_reload_completes_the_original_request(
     user_messages = [m for m in transcript["messages"] if m["role"] == "user"]
     assert user_messages[0]["request"] is None
     assert user_messages[1]["request"]["topics"] == ["agents"]
+
+
+def test_post_juya_confirmation_cancel_cancels_active_request(tmp_path: Path) -> None:
+    from ai_news_agent.services.composition import build_application
+
+    db_path = tmp_path / "juya-cancel-api.db"
+    application = build_application(fake=True, db_path=db_path)
+    client = _build_test_client(fake=True, db_path=db_path)
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    application.session_service.begin_request(
+        session_id,
+        content="Digest juya all",
+        request_id="req-juya-cancel",
+    )
+    application.session_service.set_request_interpretation(
+        session_id,
+        "req-juya-cancel",
+        {
+            "juya_confirmation": {
+                "story_count": 25,
+                "issue": "2026-06-16",
+                "issue_number": "juya-rss-1",
+            },
+        },
+    )
+
+    response = client.post(
+        f"/api/v1/sessions/{session_id}/requests/req-juya-cancel/juya-confirmation",
+        json={"action": "cancel"},
+    )
+    assert response.status_code == 202
+
+    status = client.get(f"/api/v1/sessions/{session_id}/requests/req-juya-cancel")
+    assert status.json()["status"] == "cancelled"

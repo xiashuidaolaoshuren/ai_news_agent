@@ -26,6 +26,7 @@ from ai_news_agent.graph.state import (
 )
 from ai_news_agent.models import utcnow
 from ai_news_agent.request import DigestRequest
+from ai_news_agent.source_settings import juya_all_confirmation
 from ai_news_agent.storage import DigestStore
 
 _STAGE_LABELS: dict[str, str] = {
@@ -46,6 +47,14 @@ def _make_finalize_run_node(*, now_provider: Callable[[], datetime] | None = Non
         return {"finished_at": ts}
 
     return finalize_run_node
+
+
+def _route_after_rank(state: DigestGraphState) -> str:
+    req = state.get("request")
+    items = state.get("collected_items") or []
+    if req is not None and juya_all_confirmation(req, items):
+        return "finalize_run"
+    return "summarize_items"
 
 
 def build_digest_graph(
@@ -72,7 +81,14 @@ def build_digest_graph(
     builder.add_edge(START, "parse_request")
     builder.add_edge("parse_request", "collect_sources")
     builder.add_edge("collect_sources", "rank_items")
-    builder.add_edge("rank_items", "summarize_items")
+    builder.add_conditional_edges(
+        "rank_items",
+        _route_after_rank,
+        {
+            "summarize_items": "summarize_items",
+            "finalize_run": "finalize_run",
+        },
+    )
     builder.add_edge("summarize_items", "persist_results")
     builder.add_edge("persist_results", "render_digest")
     builder.add_edge("render_digest", "finalize_run")

@@ -16,8 +16,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 import re
 
+from ai_news_agent.models import NewsItem, SourceKind
 from ai_news_agent.request import DigestRequest
 from ai_news_agent.topics import DEFAULT_TOPICS
+
+JUYA_ALL_CONFIRMATION_THRESHOLD = 20
 
 _COUNT_SOURCE_NAMES: tuple[str, ...] = (
     "juya",
@@ -392,10 +395,15 @@ class SourceSettingsService:
         ):
             hf_pipeline = profiles["huggingface"].pipeline_tag
 
+        juya_item_mode = request.juya_item_mode
+        if juya_all:
+            juya_item_mode = "stories"
+
         return replace(
             request,
             source_item_counts=counts,
             juya_item_count_all=juya_all,
+            juya_item_mode=juya_item_mode,
             max_items_per_source=max_cap,
             github_keywords=github_keywords,
             github_min_stars=github_min_stars,
@@ -447,6 +455,51 @@ def finalize_public_counts(
     return labels
 
 
+def juya_all_confirmation(
+    request: DigestRequest,
+    items: list[NewsItem],
+) -> dict[str, object] | None:
+    """Return confirmation payload when Juya-all exceeds the story threshold."""
+    if not request.juya_item_count_all or request.juya_all_confirmed:
+        return None
+    stories = [
+        item
+        for item in items
+        if item.source is SourceKind.JUYA
+        and (item.source_evidence or {}).get("story_number") is not None
+    ]
+    if len(stories) <= JUYA_ALL_CONFIRMATION_THRESHOLD:
+        return None
+
+    issues: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in stories:
+        evidence = item.source_evidence or {}
+        issue_id = str(evidence.get("issue_id") or "")
+        if not issue_id or issue_id in seen:
+            continue
+        seen.add(issue_id)
+        title = str(
+            evidence.get("issue_lead_title")
+            or evidence.get("issue_date")
+            or item.title
+            or issue_id
+        )
+        issues.append({"issue": title, "issue_number": issue_id})
+
+    if not issues:
+        return None
+
+    payload: dict[str, object] = {
+        "story_count": len(stories),
+        "issue": issues[0]["issue"],
+        "issue_number": issues[0]["issue_number"],
+    }
+    if len(issues) > 1:
+        payload["issues"] = issues
+    return payload
+
+
 def _message_has_no_topic(request: DigestRequest) -> bool:
     if request.topics_are_filters:
         return False
@@ -465,6 +518,8 @@ __all__ = [
     "SourceSettingsValidationError",
     "UnknownSourceError",
     "parse_message_item_counts",
+    "JUYA_ALL_CONFIRMATION_THRESHOLD",
+    "juya_all_confirmation",
     "build_public_counts",
     "finalize_public_counts",
     "public_per_source",

@@ -629,3 +629,50 @@ def test_saved_language_loses_to_message_and_cli(tmp_path: Path) -> None:
     )
     cli_req = build_digest_request(ns, source_settings_service=settings)
     assert cli_req.output_language == "en"
+
+
+def _juya_story_items(count: int) -> list:
+    from ai_news_agent.models import NewsItem
+
+    now = datetime(2026, 6, 16, 12, 0, tzinfo=UTC)
+    return [
+        NewsItem(
+            source=SourceKind.JUYA,
+            source_id=f"juya-story-issue-1-{i}",
+            url=f"https://daily.juya.uk/2026/06/16/#story-{i}",
+            title=f"story {i}",
+            collected_at=now,
+            source_evidence={
+                "juya_item_type": "story",
+                "story_number": i,
+                "issue_id": "juya-rss-issue-1",
+                "issue_lead_title": "2026-06-16",
+            },
+        )
+        for i in range(1, count + 1)
+    ]
+
+
+def test_juya_all_confirmation_requires_more_than_twenty_stories() -> None:
+    from ai_news_agent.request import DigestRequest
+    from ai_news_agent.source_settings import juya_all_confirmation
+
+    request = DigestRequest(connector_names=["juya"], juya_item_count_all=True)
+    assert juya_all_confirmation(request, _juya_story_items(20)) is None
+    payload = juya_all_confirmation(request, _juya_story_items(21))
+    assert payload is not None
+    assert payload["story_count"] == 21
+    assert payload["issue_number"] == "juya-rss-issue-1"
+
+
+def test_apply_forces_juya_stories_mode_when_profile_is_all(tmp_path: Path) -> None:
+    from ai_news_agent.request import DigestRequest
+    from ai_news_agent.source_settings import SourceSettingsService
+
+    db_path = tmp_path / "juya-all-apply.db"
+    DigestStore(db_path).init_schema()
+    service = SourceSettingsService(db_path)
+    service.save_profile("juya", {"item_count": "all"})
+    applied = service.apply(DigestRequest(connector_names=["juya"]))
+    assert applied.juya_item_count_all is True
+    assert applied.juya_item_mode == "stories"

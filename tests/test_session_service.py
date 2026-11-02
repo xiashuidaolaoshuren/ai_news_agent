@@ -659,6 +659,43 @@ def test_idempotent_duplicate_active_request_raises_request_in_progress(
     assert len(SessionStore(db_path).list_messages(created.id)) == 1
 
 
+def test_begin_request_replaces_pending_juya_confirmation(tmp_path: Path) -> None:
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "pending-juya.db"
+    DigestStore(db_path).init_schema()
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    pending = service.begin_request(
+        created.id,
+        content="Digest juya all",
+        request_id="req-pending",
+    )
+    service.set_request_interpretation(
+        created.id,
+        pending.id,
+        {
+            "juya_confirmation": {
+                "story_count": 25,
+                "issue": "2026-06-16",
+                "issue_number": "juya-rss-1",
+            },
+        },
+    )
+    replacement = service.begin_request(
+        created.id,
+        content="Digest github only",
+        request_id="req-new",
+    )
+    assert replacement.id == "req-new"
+    old = service.get_request(created.id, "req-pending")
+    assert old is not None
+    assert old.status == "cancelled"
+
+
 def test_begin_request_raises_session_busy_for_different_active_id(
     tmp_path: Path,
 ) -> None:

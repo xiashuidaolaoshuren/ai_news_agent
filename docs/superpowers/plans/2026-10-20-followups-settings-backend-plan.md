@@ -69,8 +69,15 @@ Settings then replace the session item-count. Profiles and output language ship 
 | `src/ai_news_agent/services/conversation.py` | modify | Count phrase parsing | `_digest_decision` | verified |
 | `src/ai_news_agent/services/chat.py` | modify | Apply profiles; drop session count default | `_apply_session_defaults`, `apply` | verified |
 | `src/ai_news_agent/services/session_service.py` | modify | Apply profiles in `build_request` | stop copying `items_per_source` | verified |
-| `src/ai_news_agent/ranking.py`, `graph/nodes/rank.py` | modify | Per-source display caps | `rank_items` | verified |
+| `src/ai_news_agent/ranking.py`, `graph/nodes/rank.py` | modify | Per-source display caps; Juya all selects every story row | `rank_items`, `juya_item_count_all` | verified |
 | `src/ai_news_agent/graph/nodes/parse.py`, `connectors/base.py`, `connectors/github.py` | modify | Profile fields on connector request | `ConnectorRequest`, GitHub query | verified |
+| `src/ai_news_agent/connectors/juya.py` | modify | Unbounded story collect when `juya_collect_all_stories` | `fetch_juya_daily_items`, `enrich_juya_items_with_markdown` | verified |
+| `src/ai_news_agent/graph/workflow.py` | modify | Gate summarize when Juya all unconfirmed | digest graph edge | verified path |
+| `src/ai_news_agent/services/chat.py` | modify | Juya all confirmation gate and continue | `continue_juya_all`, `_stream_session_digest_events` | verified |
+| `src/ai_news_agent/services/session_service.py` | modify | Pending Juya confirmation vs session busy | `begin_request`, `is_pending_juya_confirmation` | verified |
+| `src/ai_news_agent/api/routers/sessions.py`, `api/schemas/sessions.py` | modify | Continue/cancel route and `MessageOut.juya_confirmation` | `POST .../juya-confirmation` | verified |
+| `src/ai_news_agent/request.py` | modify | Confirm flag for second digest pass | `juya_all_confirmed`, `juya_item_count_all` | verified |
+| `src/ai_news_agent/source_settings.py` | modify | Juya all apply and confirmation payload helper | `juya_all_confirmation`, `apply` | verified |
 | `src/ai_news_agent/api/schemas/sessions.py` | modify | Resolved counts on public request | `ResolvedRequestOut.counts` | verified path |
 | `src/ai_news_agent/cli.py` | modify | Same profiles; explicit CLI flags win | digest command | verified |
 | `src/ai_news_agent/services/composition.py` | modify | Inject settings and credentials | `build_application` | verified |
@@ -192,7 +199,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ### B8 — Juya all confirmation
 
-- [ ] **Do:** When a request would summarize more than 20 Juya stories, wait for confirmation before writing the digest.
+- [x] **Do:** When a request would summarize more than 20 Juya stories, wait for confirmation before writing the digest.
 
 - **Consumes:** B6 Juya `item_count: "all"`. The selected issues after topic and timeframe filtering.
 - **Produces:** A pending confirmation on the session request with the story count, issue, and issue number. Confirm continues that same request into the digest. Cancel stores the cancellation and does not collect. `all` is rejected for every source except Juya.
@@ -269,3 +276,4 @@ Per subtask, obey `TDD suitable`. `yes` means strict test-first. **B9** without 
 | 2026-11-02 | Assign `digest_entries.language` column to B5 v4 DDL; B7 consumes it | equivalent |
 | 2026-11-02 | B6 file map includes request, ranking, conversation, session_service, parse, github, ResolvedRequestOut | equivalent |
 | 2026-11-02 | B7 file map includes models, summarizer, digest_views, digests DTO; source_settings language API; digest_store entry language | equivalent |
+| 2026-11-02 | B8 file map includes juya connector, parse/workflow, ranking, chat, session_service, sessions API, request confirm flag | equivalent |

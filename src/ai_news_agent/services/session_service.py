@@ -39,6 +39,13 @@ class _CancelRaceLost(Exception):
 CANCELLED_ASSISTANT_MESSAGE = "The request was cancelled."
 
 
+def is_pending_juya_confirmation(record: SessionRequestRecord) -> bool:
+    if record.status != "active" or record.run_id is not None:
+        return False
+    payload = (record.interpretation or {}).get("juya_confirmation")
+    return isinstance(payload, dict)
+
+
 class SessionService:
     """Session lifecycle use cases over :class:`SessionStore`."""
 
@@ -136,6 +143,19 @@ class SessionService:
             public = (request.interpretation or {}).get("public")
             if isinstance(public, dict) and public:
                 out[request.user_message_id] = public
+        return out
+
+    def juya_confirmation_projection(
+        self, session_id: str
+    ) -> dict[int, dict[str, object]]:
+        out: dict[int, dict[str, object]] = {}
+        for request in self._store.list_requests(session_id):
+            payload = (request.interpretation or {}).get("juya_confirmation")
+            if not isinstance(payload, dict):
+                continue
+            out[request.user_message_id] = payload
+            if request.assistant_message_id is not None:
+                out[request.assistant_message_id] = payload
         return out
 
     def followup_projection(self, session_id: str) -> dict[int, dict[str, object]]:
@@ -313,8 +333,20 @@ class SessionService:
             for request in self._store.list_requests(session_id)
             if request.status == "active"
         ]
-        if active_requests:
+        pending_juya = [
+            request
+            for request in active_requests
+            if is_pending_juya_confirmation(request)
+        ]
+        blocking = [
+            request
+            for request in active_requests
+            if request not in pending_juya
+        ]
+        if blocking:
             raise SessionBusyError(f"session {session_id} has an active request")
+        for pending in pending_juya:
+            self.cancel_request(session_id, pending.id)
 
         resolved_id = request_id if request_id is not None else str(uuid.uuid4())
         message = self.record_user_message(session_id, content=content)
@@ -338,6 +370,34 @@ class SessionService:
     def interrupt_active_requests(self) -> int:
         """Mark leftover active requests interrupted after startup or crash."""
         return self._store.interrupt_active_requests()
+
+    def attach_interim_assistant(
+        self,
+        session_id: str,
+        request_id: str,
+        *,
+        content: str,
+    ) -> int:
+        request = self._store.get_request(session_id, request_id)
+        if request is None or request.status != "active":
+            raise KeyError(
+                f"active request not found: session={session_id!r} request={request_id!r}"
+            )
+        with SqliteUnitOfWork(self._store.db_path) as uow:
+            assistant_message_id = uow.session_store.insert_message(
+                session_id,
+                role="assistant",
+                content=content,
+            )
+            if not uow.session_store.set_assistant_message_if_active(
+                session_id,
+                request_id,
+                assistant_message_id=assistant_message_id,
+            ):
+                raise KeyError(
+                    f"active request not found: session={session_id!r} request={request_id!r}"
+                )
+        return assistant_message_id
 
     def cancel_request(self, session_id: str, request_id: str) -> bool:
         request = self._store.get_request(session_id, request_id)

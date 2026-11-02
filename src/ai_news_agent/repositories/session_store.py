@@ -397,6 +397,27 @@ class SessionStore:
             )
             return int(cur.rowcount) == 1
 
+    def set_assistant_message_if_active(
+        self,
+        session_id: str,
+        request_id: str,
+        *,
+        assistant_message_id: int,
+    ) -> bool:
+        """Link an assistant message to an active request without completing it."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """
+                UPDATE session_requests
+                SET assistant_message_id = ?
+                WHERE session_id = ?
+                  AND id = ?
+                  AND status = 'active'
+                """,
+                (assistant_message_id, session_id, request_id),
+            )
+            return int(cur.rowcount) == 1
+
     def mark_cancelled_if_active(
         self,
         session_id: str,

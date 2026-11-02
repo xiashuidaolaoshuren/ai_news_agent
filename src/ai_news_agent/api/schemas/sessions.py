@@ -50,6 +50,15 @@ class FollowupTarget(BaseModel):
     display_rank: int
 
 
+class JuyaConfirmationOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    story_count: int
+    issue: str
+    issue_number: str
+    issues: list[dict[str, str]] | None = None
+
+
 class ResolvedRequestOut(BaseModel):
     """Public, user-relevant options of one resolved digest request."""
 
@@ -81,6 +90,7 @@ class MessageOut(BaseModel):
     request: ResolvedRequestOut | None = None
     followup_target: FollowupTarget | None = None
     followup_action: FollowupAction | None = None
+    juya_confirmation: JuyaConfirmationOut | None = None
     #: How the assistant message's digest run ended, when it saved one.
     collection_outcome: CollectionOutcome | None = None
 
@@ -90,6 +100,12 @@ class MessageListPage(BaseModel):
 
     messages: list[MessageOut]
     next_cursor: str | None
+
+
+class JuyaConfirmationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["continue", "cancel"]
 
 
 class PostMessageBody(BaseModel):

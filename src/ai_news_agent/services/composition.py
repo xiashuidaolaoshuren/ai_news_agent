@@ -182,6 +182,7 @@ def _build_chat_service(
         )
 
     hf_factory = None if fake else build_connector_factory(fake=fake, name="huggingface")
+    juya_factory = build_connector_factory(fake=fake, name="juya")
 
     return ChatService(
         store=store,
@@ -194,4 +195,5 @@ def _build_chat_service(
         source_settings_service=source_settings_service,
         conversation_model=None if fake else model,
         huggingface_connector_factory=hf_factory,
+        juya_connector_factory=juya_factory,
     )

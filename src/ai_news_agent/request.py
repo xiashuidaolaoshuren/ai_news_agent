@@ -32,6 +32,8 @@ class DigestRequest:
     source_count_overrides: dict[str, int] = field(default_factory=dict)
     #: Juya profile or message requested unbounded eligible stories (B6/B8).
     juya_item_count_all: bool = False
+    #: User confirmed a large Juya-all collection on this request (B8).
+    juya_all_confirmed: bool = False
     github_keywords: list[str] | None = None
     github_min_stars: int | None = None
     github_language: str | None = None

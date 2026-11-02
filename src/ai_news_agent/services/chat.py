@@ -39,8 +39,14 @@ from ai_news_agent.services.session_records import SessionRequestRecord
 from ai_news_agent.services.session_service import (
     CANCELLED_ASSISTANT_MESSAGE,
     SessionService,
+    is_pending_juya_confirmation,
 )
-from ai_news_agent.source_settings import SourceSettingsService, finalize_public_counts
+from ai_news_agent.connectors.base import ConnectorRequest
+from ai_news_agent.source_settings import (
+    SourceSettingsService,
+    finalize_public_counts,
+    juya_all_confirmation,
+)
 from ai_news_agent.storage import DigestStore, FollowupContext
 from ai_news_agent.streaming import iter_text_chunks
 from ai_news_agent.tools.schemas import (
@@ -73,6 +79,11 @@ _GENERAL_FALLBACK = (
     f"{_GENERAL_KNOWLEDGE_LABEL}\n\n"
     "I can answer general questions once a language model is configured. "
     "For collected signals, ask for a digest, for example: “Give me today's AI digest”."
+)
+
+_JUYA_ALL_CONFIRM_PROMPT = (
+    "This digest would summarize {story_count} Juya stories from {issue}. "
+    "Continue or cancel when you are ready."
 )
 
 
@@ -180,6 +191,7 @@ class ChatService:
         source_settings_service: SourceSettingsService | None = None,
         conversation_model: Any | None = None,
         huggingface_connector_factory: Callable[[], Any] | None = None,
+        juya_connector_factory: Callable[[], Any] | None = None,
     ) -> None:
         self._store = store
         self._workflow_runner = workflow_runner
@@ -191,6 +203,7 @@ class ChatService:
         self._source_settings_service = source_settings_service
         self._conversation_model = conversation_model
         self._huggingface_connector_factory = huggingface_connector_factory
+        self._juya_connector_factory = juya_connector_factory
 
     async def stream_events(
         self,
@@ -355,6 +368,20 @@ class ChatService:
             )
 
             if decision.intent == "digest" and request is not None:
+                if request.juya_item_count_all and not request.juya_all_confirmed:
+                    preview_items = await self._preview_juya_items(request)
+                    confirm_payload = juya_all_confirmation(request, preview_items)
+                    if confirm_payload is not None:
+                        async for event in self._stream_juya_confirmation_events(
+                            session_id=session_id,
+                            record=record,
+                            request=request,
+                            confirm_payload=confirm_payload,
+                            chunk_size=chunk_size,
+                            chunk_delay_s=chunk_delay_s,
+                        ):
+                            yield event
+                        return
                 async for event in self._stream_session_digest_events(
                     session_id=session_id,
                     record=record,
@@ -437,6 +464,126 @@ class ChatService:
             except Exception:  # noqa: BLE001 - a model failure gets guidance
                 logger.exception("general answer failed")
         return _GENERAL_FALLBACK
+
+    async def _preview_juya_items(self, request: DigestRequest) -> list[Any]:
+        if self._juya_connector_factory is None:
+            return []
+        connector = self._juya_connector_factory()
+        try:
+            result = await connector.collect(
+                ConnectorRequest(
+                    topics=list(request.topics or []),
+                    timeframe=request.timeframe,
+                    max_items=request.max_items_per_source,
+                    juya_manual_urls=list(request.juya_manual_urls),
+                    juya_item_mode="stories",
+                    juya_collect_all_stories=True,
+                    topics_are_filters=request.topics_are_filters,
+                    strict_timeframe=request.strict_timeframe,
+                )
+            )
+            return list(result.items)
+        finally:
+            if hasattr(connector, "aclose"):
+                await connector.aclose()
+
+    async def _stream_juya_confirmation_events(
+        self,
+        *,
+        session_id: str,
+        record: SessionRequestRecord,
+        request: DigestRequest,
+        confirm_payload: dict[str, object],
+        chunk_size: int,
+        chunk_delay_s: float,
+    ) -> AsyncIterator[ChatEvent]:
+        assert self._session_service is not None
+        text = _JUYA_ALL_CONFIRM_PROMPT.format(
+            story_count=confirm_payload["story_count"],
+            issue=confirm_payload["issue"],
+        )
+        async for chunk in iter_text_chunks(
+            text,
+            chunk_size=chunk_size,
+            delay_s=chunk_delay_s,
+        ):
+            cancelled = self._cancelled_error_event(session_id, record)
+            if cancelled is not None:
+                yield cancelled
+                return
+            yield DeltaEvent(text=chunk)
+        cancelled = self._cancelled_error_event(session_id, record)
+        if cancelled is not None:
+            yield cancelled
+            return
+        try:
+            message_id = self._session_service.attach_interim_assistant(
+                session_id,
+                record.id,
+                content=text,
+            )
+        except KeyError:
+            cancelled = self._cancelled_error_event(session_id, record)
+            if cancelled is not None:
+                yield cancelled
+                return
+            raise
+        self._session_service.set_request_interpretation(
+            session_id,
+            record.id,
+            {
+                "juya_confirmation": {
+                    **confirm_payload,
+                    "request": request_payload(request),
+                },
+            },
+        )
+        yield DoneEvent(
+            request_id=record.id,
+            message_id=message_id,
+            run_id=None,
+            path="juya_confirmation",
+        )
+
+    async def continue_juya_all(
+        self,
+        session_id: str,
+        request_id: str,
+        *,
+        chunk_size: int = 80,
+        chunk_delay_s: float = 0.02,
+    ) -> AsyncIterator[ChatEvent]:
+        assert self._session_service is not None
+        record = self._session_service.get_request(session_id, request_id)
+        if record is None or not is_pending_juya_confirmation(record):
+            raise KeyError(
+                f"pending Juya confirmation not found: session={session_id!r} "
+                f"request={request_id!r}"
+            )
+        stored = (record.interpretation or {}).get("juya_confirmation")
+        if not isinstance(stored, dict):
+            raise KeyError(
+                f"pending Juya confirmation not found: session={session_id!r} "
+                f"request={request_id!r}"
+            )
+        req = request_from_payload(stored.get("request"))
+        if req is None:
+            raise KeyError("stored Juya confirmation request payload missing")
+        req = replace(req, juya_all_confirmed=True)
+        yield StartedEvent(
+            request_id=record.id,
+            user_message_id=record.user_message_id,
+            request=request_metadata(req),
+            intent="digest",
+        )
+        async for event in self._stream_session_digest_events(
+            session_id=session_id,
+            record=record,
+            request=req,
+            chunk_size=chunk_size,
+            chunk_delay_s=chunk_delay_s,
+        ):
+            yield event
 
     async def _stream_session_digest_events(
         self,

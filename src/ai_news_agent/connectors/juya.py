@@ -181,6 +181,7 @@ class JuyaConnector:
             collected_at=now,
             connector_name=self.name(),
             juya_item_mode=request.juya_item_mode or "issue",
+            juya_collect_all_stories=request.juya_collect_all_stories,
             timeframe=request.timeframe,
             topics=list(request.topics or []),
             topics_are_filters=request.topics_are_filters,
@@ -196,6 +197,7 @@ async def fetch_juya_daily_items(
     collected_at: datetime,
     connector_name: str = "juya",
     juya_item_mode: str = "issue",
+    juya_collect_all_stories: bool = False,
     timeframe: str | None = None,
     topics: list[str] | None = None,
     topics_are_filters: bool = False,
@@ -280,6 +282,7 @@ async def fetch_juya_daily_items(
         rows,
         connector_name=connector_name,
         juya_item_mode=juya_item_mode,
+        juya_collect_all_stories=juya_collect_all_stories,
         max_items=max_items,
         topics=topics,
         topics_are_filters=topics_are_filters,
@@ -348,6 +351,7 @@ async def enrich_juya_items_with_markdown(
     *,
     connector_name: str = "juya",
     juya_item_mode: str = "issue",
+    juya_collect_all_stories: bool = False,
     max_items: int | None = None,
     topics: list[str] | None = None,
     topics_are_filters: bool = False,
@@ -355,7 +359,12 @@ async def enrich_juya_items_with_markdown(
     """Prefer per-issue markdown; fall back to RSS content:encoded."""
     warnings: list[ConnectorWarning] = []
     enriched: list[NewsItem] = []
-    story_cap = max_items if juya_item_mode == "stories" and max_items is not None else None
+    if juya_collect_all_stories:
+        story_cap = None
+    elif juya_item_mode == "stories" and max_items is not None:
+        story_cap = max_items
+    else:
+        story_cap = None
 
     for row in rows:
         if juya_item_mode == "stories" and story_cap is not None and story_cap == 0:

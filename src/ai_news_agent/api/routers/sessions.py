@@ -18,6 +18,8 @@ from ai_news_agent.api.schemas.digests import build_digest_view
 from ai_news_agent.api.schemas.sessions import (
     FollowupAction,
     FollowupTarget,
+    JuyaConfirmationBody,
+    JuyaConfirmationOut,
     MessageListPage,
     MessageOut,
     PostMessageBody,
@@ -329,6 +331,7 @@ def _message_out(
     digest_store: DigestStore,
     request: dict[str, Any] | None = None,
     followup: dict[str, Any] | None = None,
+    juya_confirmation: dict[str, Any] | None = None,
 ) -> MessageOut:
     digest = None
     digest_id = None
@@ -356,6 +359,23 @@ def _message_out(
         if raw_action in ("deep_dive", "ask"):
             followup_action = raw_action
 
+    juya_out = None
+    if juya_confirmation is not None:
+        confirm_view = {
+            key: value
+            for key, value in juya_confirmation.items()
+            if key != "request"
+        }
+        try:
+            juya_out = JuyaConfirmationOut(
+                story_count=int(confirm_view["story_count"]),
+                issue=str(confirm_view["issue"]),
+                issue_number=str(confirm_view["issue_number"]),
+                issues=confirm_view.get("issues"),
+            )
+        except (KeyError, TypeError, ValueError):
+            juya_out = None
+
     return MessageOut(
         id=message.id,
         session_id=message.session_id,
@@ -370,6 +390,7 @@ def _message_out(
         request=ResolvedRequestOut(**request) if request else None,
         followup_target=followup_target,
         followup_action=followup_action,
+        juya_confirmation=juya_out,
         collection_outcome=collection_outcome,
     )
 
@@ -382,6 +403,7 @@ def _page_messages(
     digest_store: DigestStore,
     requests: dict[int, dict[str, Any]] | None = None,
     followups: dict[int, dict[str, Any]] | None = None,
+    juya_confirmations: dict[int, dict[str, Any]] | None = None,
 ) -> MessageListPage:
     ordered = sorted(messages, key=lambda message: message.sequence, reverse=True)
     if cursor is not None:
@@ -401,6 +423,7 @@ def _page_messages(
                 digest_store,
                 (requests or {}).get(message.id),
                 (followups or {}).get(message.id),
+                (juya_confirmations or {}).get(message.id),
             )
             for message in page
         ],
@@ -567,6 +590,61 @@ def get_request_status(
 
 
 @router.post(
+    "/{session_id}/requests/{request_id}/juya-confirmation",
+    response_model=None,
+    responses={
+        status.HTTP_200_OK: {
+            "description": "Continue streams digest events; cancel returns empty body",
+            "content": {
+                "text/event-stream": {
+                    "schema": session_message_stream_openapi_schema(),
+                },
+            },
+        },
+    },
+)
+async def post_juya_confirmation(
+    session_id: str,
+    request_id: str,
+    body: JuyaConfirmationBody,
+    application: Application = Depends(get_application),
+):
+    if application.session_service.get_session(session_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
+    if body.action == "cancel":
+        accepted = application.session_service.cancel_request(session_id, request_id)
+        if accepted:
+            return Response(status_code=status.HTTP_202_ACCEPTED)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    try:
+        stream = application.chat_service.continue_juya_all(
+            session_id,
+            request_id,
+        )
+        first_event = await anext(stream)
+    except StopAsyncIteration as exc:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="stream ended before first event",
+        ) from exc
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="request not found") from exc
+
+    async def all_events() -> AsyncIterator[ChatEvent]:
+        yield first_event
+        async for event in stream:
+            yield event
+
+    async def sse_body() -> AsyncIterator[str]:
+        async for event in shielded_event_stream(all_events()):
+            event_name, payload = _chat_event_payload(event, application.digest_store)
+            yield encode_sse(event_name, payload)
+
+    return StreamingResponse(sse_body(), media_type="text/event-stream")
+
+
+@router.post(
     "/{session_id}/requests/{request_id}/cancel",
     status_code=status.HTTP_202_ACCEPTED,
     response_class=Response,
@@ -602,6 +680,9 @@ def list_messages(
         digest_store=application.digest_store,
         requests=application.session_service.request_interpretations(session_id),
         followups=application.session_service.followup_projection(session_id),
+        juya_confirmations=application.session_service.juya_confirmation_projection(
+            session_id
+        ),
     )
 
 
