@@ -854,3 +854,62 @@ def test_explicit_language_survives_a_beginner_juya_story() -> None:
 
     assert model.calls[0]["output_language"] == "en"
     assert model.calls[0]["juya_story"] is True
+
+
+def test_digest_entry_records_generated_language() -> None:
+    from ai_news_agent.summarizer import summarize_ranked_items
+
+    github = NewsItem(
+        source=SourceKind.GITHUB,
+        source_id="g1",
+        url="https://github.com/o/r",
+        title="repo",
+        collected_at=_fixed_now(),
+        raw_snippet="snippet",
+        content_confidence=ConfidenceLevel.MEDIUM,
+    )
+    juya_story = NewsItem(
+        source=SourceKind.JUYA,
+        source_id="story-1",
+        url="https://daily.juya.uk/x#story-1",
+        title="Story",
+        collected_at=_fixed_now(),
+        raw_snippet="evidence",
+        source_evidence={"story_number": 1},
+        content_confidence=ConfidenceLevel.HIGH,
+    )
+    hf = NewsItem(
+        source=SourceKind.HUGGINGFACE,
+        source_id="org/model",
+        url="https://huggingface.co/org/model",
+        title="model",
+        collected_at=_fixed_now(),
+        raw_snippet="hub",
+    )
+    model = FakeChatModel()
+    ranked = [
+        RankedItem(item=github, score_total=1.0, selected=True),
+        RankedItem(item=juya_story, score_total=2.0, selected=True),
+        RankedItem(item=hf, score_total=3.0, selected=True),
+    ]
+
+    explicit = summarize_ranked_items(
+        ranked,
+        generated_at=_fixed_now(),
+        topics=["AI"],
+        model=model,
+        output_language="zh-CN",
+    )
+    assert all(entry.language == "zh-CN" for entry in explicit.entries)
+
+    source_default = summarize_ranked_items(
+        ranked,
+        generated_at=_fixed_now(),
+        topics=["AI"],
+        model=model,
+        output_language=None,
+    )
+    by_kind = {entry.source_kind: entry.language for entry in source_default.entries}
+    assert by_kind[SourceKind.GITHUB] == "en"
+    assert by_kind[SourceKind.JUYA] == "zh-CN"
+    assert by_kind[SourceKind.HUGGINGFACE] == "en"

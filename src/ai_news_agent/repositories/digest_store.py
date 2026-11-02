@@ -523,6 +523,67 @@ class DigestStore:
                     ),
                 )
 
+    @staticmethod
+    def _digest_entries_supports_language(conn: sqlite3.Connection) -> bool:
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(digest_entries)").fetchall()
+        }
+        return "language" in columns
+
+    def _insert_digest_entry(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        digest_id: int,
+        entry: DigestEntry,
+    ) -> None:
+        if self._digest_entries_supports_language(conn):
+            conn.execute(
+                """
+                INSERT INTO digest_entries (
+                  digest_id, source_kind, source_id, title, source_name, source_url,
+                  summary, why_it_matters, background_knowledge, follow_up_action,
+                  confidence_caveat, language
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    digest_id,
+                    entry.source_kind.value,
+                    entry.source_id,
+                    entry.title,
+                    entry.source_name,
+                    entry.source_url,
+                    entry.summary,
+                    entry.why_it_matters,
+                    entry.background_knowledge,
+                    entry.follow_up_action.value,
+                    entry.confidence_caveat,
+                    entry.language,
+                ),
+            )
+            return
+        conn.execute(
+            """
+            INSERT INTO digest_entries (
+              digest_id, source_kind, source_id, title, source_name, source_url,
+              summary, why_it_matters, background_knowledge, follow_up_action, confidence_caveat
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                digest_id,
+                entry.source_kind.value,
+                entry.source_id,
+                entry.title,
+                entry.source_name,
+                entry.source_url,
+                entry.summary,
+                entry.why_it_matters,
+                entry.background_knowledge,
+                entry.follow_up_action.value,
+                entry.confidence_caveat,
+            ),
+        )
+
     def save_digest(self, run_id: int, digest: Digest) -> int:
         with self._conn() as conn:
             cur = conn.execute(
@@ -539,27 +600,7 @@ class DigestStore:
             )
             digest_id = int(cur.lastrowid)
             for entry in digest.entries:
-                conn.execute(
-                    """
-                    INSERT INTO digest_entries (
-                      digest_id, source_kind, source_id, title, source_name, source_url,
-                      summary, why_it_matters, background_knowledge, follow_up_action, confidence_caveat
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        digest_id,
-                        entry.source_kind.value,
-                        entry.source_id,
-                        entry.title,
-                        entry.source_name,
-                        entry.source_url,
-                        entry.summary,
-                        entry.why_it_matters,
-                        entry.background_knowledge,
-                        entry.follow_up_action.value,
-                        entry.confidence_caveat,
-                    ),
-                )
+                self._insert_digest_entry(conn, digest_id=digest_id, entry=entry)
             return digest_id
 
     def save_digest_bundle(
@@ -651,6 +692,7 @@ class DigestStore:
                     background_knowledge=er["background_knowledge"],
                     follow_up_action=FollowUpAction(er["follow_up_action"]),
                     confidence_caveat=er["confidence_caveat"],
+                    language=er["language"] if "language" in er.keys() else None,
                 )
             )
         return Digest(

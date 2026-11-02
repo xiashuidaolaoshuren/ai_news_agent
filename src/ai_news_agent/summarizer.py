@@ -56,8 +56,9 @@ def summarize_ranked_items(
     global_topics_payload = topics_list
 
     for r in selected:
+        entry_language = _resolved_entry_language(r.item, output_language)
         if r.item.source is SourceKind.HUGGINGFACE:
-            entries.append(_build_huggingface_stub_entry(r.item))
+            entries.append(_build_huggingface_stub_entry(r.item, language=entry_language))
             continue
         ctx = _context_payload(
             r,
@@ -68,9 +69,17 @@ def summarize_ranked_items(
             audience=audience,
         )
         raw = model.generate_entry_fields(ctx)
-        entries.append(_build_digest_entry(r.item, raw))
+        entries.append(_build_digest_entry(r.item, raw, language=entry_language))
 
     return Digest(generated_at=ts, entries=entries, topics=topics_list, timeframe=timeframe)
+
+
+def _resolved_entry_language(item: NewsItem, output_language: str | None) -> str:
+    if output_language:
+        return output_language
+    evidence = item.source_evidence or {}
+    juya_story = item.source is SourceKind.JUYA and bool(evidence.get("story_number"))
+    return "zh-CN" if juya_story else "en"
 
 
 def _context_payload(
@@ -153,7 +162,11 @@ def _normalize_text_field(val: Any, fallback: str) -> str:
     return s if s else fallback
 
 
-def _build_huggingface_stub_entry(item: NewsItem) -> DigestEntry:
+def _build_huggingface_stub_entry(
+    item: NewsItem,
+    *,
+    language: str | None = None,
+) -> DigestEntry:
     summary = (
         item.raw_snippet.strip()
         if item.raw_snippet and item.raw_snippet.strip()
@@ -167,10 +180,16 @@ def _build_huggingface_stub_entry(item: NewsItem) -> DigestEntry:
             "background_knowledge": "",
             "follow_up_action": "try",
         },
+        language=language,
     )
 
 
-def _build_digest_entry(item: NewsItem, raw: dict[str, Any]) -> DigestEntry:
+def _build_digest_entry(
+    item: NewsItem,
+    raw: dict[str, Any],
+    *,
+    language: str | None = None,
+) -> DigestEntry:
     fu = _normalize_follow_action(raw.get("follow_up_action"))
     caveat: str | None = None
 
@@ -218,6 +237,7 @@ def _build_digest_entry(item: NewsItem, raw: dict[str, Any]) -> DigestEntry:
         background_knowledge=_normalize_text_field(raw.get("background_knowledge"), ""),
         follow_up_action=fu,
         confidence_caveat=caveat,
+        language=language,
     )
 
 

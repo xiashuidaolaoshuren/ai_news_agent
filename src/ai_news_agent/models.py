@@ -107,6 +107,8 @@ class DigestEntry(BaseModel):
     background_knowledge: str
     follow_up_action: FollowUpAction
     confidence_caveat: str | None = None
+    #: BCP-47 tag for generated summary fields on this entry (B7).
+    language: str | None = None
 
 
 class Digest(BaseModel):

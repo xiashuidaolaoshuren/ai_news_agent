@@ -169,6 +169,7 @@ def _entry_common_fields(entry: DigestEntry, *, display_rank: int) -> dict[str, 
         "follow_up_action": entry.follow_up_action,
         "confidence_caveat": entry.confidence_caveat,
         "display_rank": display_rank,
+        "output_language": entry.language,
     }
 
 

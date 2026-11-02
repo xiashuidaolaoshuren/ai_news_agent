@@ -62,3 +62,20 @@ def test_put_settings_sources_invalid_item_count_is_400(tmp_path: Path) -> None:
     client = _client(tmp_path / "settings-400.db")
     response = client.put("/api/v1/settings/sources/juya", json={"item_count": 0})
     assert response.status_code == 400
+
+
+def test_get_settings_language_defaults_to_source_default(tmp_path: Path) -> None:
+    client = _client(tmp_path / "language-get.db")
+    response = client.get("/api/v1/settings/language")
+    assert response.status_code == 200
+    assert response.json() == {"language": "source_default"}
+
+
+def test_put_settings_language_round_trips_and_rejects_invalid(tmp_path: Path) -> None:
+    client = _client(tmp_path / "language-put.db")
+    assert client.put("/api/v1/settings/language", json={"language": "zh-CN"}).status_code == 200
+    assert client.get("/api/v1/settings/language").json() == {"language": "zh-CN"}
+    assert client.put("/api/v1/settings/language", json={"language": "en"}).status_code == 200
+    assert client.get("/api/v1/settings/language").json() == {"language": "en"}
+    bad = client.put("/api/v1/settings/language", json={"language": "fr"})
+    assert bad.status_code == 400

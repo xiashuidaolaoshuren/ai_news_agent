@@ -154,6 +154,22 @@ def test_save_digest_bundle_persists_complete_bundle(tmp_path: Path) -> None:
     assert ctx.warnings == bundle["warnings"]
 
 
+def test_save_digest_bundle_persists_entry_language(tmp_path: Path) -> None:
+    db_path = tmp_path / "entry-language.db"
+    _init_db(db_path)
+    store = DigestStore(db_path)
+    bundle = _sample_bundle()
+    digest = bundle["digest"]
+    assert isinstance(digest, Digest)
+    digest.entries[0].language = "zh-CN"
+
+    store.save_digest_bundle(**bundle)
+
+    reloaded = store.get_latest_followup_context().digest
+    assert reloaded is not None
+    assert reloaded.entries[0].language == "zh-CN"
+
+
 def test_get_digest_id_for_run_returns_saved_digest_id(tmp_path: Path) -> None:
     db_path = tmp_path / "digest-id.db"
     _init_db(db_path)

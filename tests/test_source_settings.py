@@ -549,3 +549,83 @@ def test_finalize_public_counts_reports_shortfall() -> None:
     assert finalize_public_counts(request, entry_counts={"github": 3}) == {
         "github": "3 of 5"
     }
+
+
+def test_output_language_preference_defaults_and_round_trip(tmp_path: Path) -> None:
+    from ai_news_agent.source_settings import SourceSettingsService, SourceSettingsValidationError
+
+    db_path = tmp_path / "language-pref.db"
+    DigestStore(db_path).init_schema()
+    service = SourceSettingsService(db_path)
+
+    assert service.get_language() == "source_default"
+
+    service.save_language("en")
+    assert service.get_language() == "en"
+    service.save_language("zh-CN")
+    assert service.get_language() == "zh-CN"
+    service.save_language("source_default")
+    assert service.get_language() == "source_default"
+
+    with pytest.raises(SourceSettingsValidationError):
+        service.save_language("fr")
+
+
+def test_apply_merges_saved_output_language_when_request_unset(tmp_path: Path) -> None:
+    from ai_news_agent.request import DigestRequest
+    from ai_news_agent.source_settings import SourceSettingsService
+
+    db_path = tmp_path / "apply-language.db"
+    DigestStore(db_path).init_schema()
+    service = SourceSettingsService(db_path)
+    service.save_language("zh-CN")
+
+    applied = service.apply(DigestRequest(connector_names=["github"]))
+    assert applied.output_language == "zh-CN"
+
+    explicit = service.apply(
+        DigestRequest(connector_names=["github"], output_language="en")
+    )
+    assert explicit.output_language == "en"
+
+    service.save_language("source_default")
+    default_applied = service.apply(DigestRequest(connector_names=["github"]))
+    assert default_applied.output_language is None
+
+
+def test_saved_language_loses_to_message_and_cli(tmp_path: Path) -> None:
+    import argparse
+
+    from ai_news_agent.cli import build_digest_request
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.source_settings import SourceSettingsService
+
+    db_path = tmp_path / "language-precedence.db"
+    DigestStore(db_path).init_schema()
+    settings = SourceSettingsService(db_path)
+    settings.save_language("zh-CN")
+
+    session_service = SessionService(SessionStore(db_path), source_settings_service=settings)
+    created = session_service.create_session()
+    session_service.update_preferences(
+        created.id,
+        connector_names=["github"],
+        items_per_source=None,
+    )
+    web_req = session_service.build_request(created.id, "Give me today's digest in English")
+    assert web_req.output_language == "en"
+
+    ns = argparse.Namespace(
+        timeframe=None,
+        topics=None,
+        sources="github",
+        top_n=None,
+        max_items=None,
+        output_style=None,
+        output_language="en",
+        fake=False,
+        db_path=db_path,
+    )
+    cli_req = build_digest_request(ns, source_settings_service=settings)
+    assert cli_req.output_language == "en"

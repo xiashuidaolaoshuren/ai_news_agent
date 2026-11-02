@@ -53,8 +53,12 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 | Path | Create/Modify | Responsibility | Public surface | Verified/Provisional |
 |---|---|---|---|---|
-| `src/ai_news_agent/repositories/digest_store.py` | modify | v3 to v4 tables | `source_settings`, `secrets`, language preference, credential-health rows | verified path; DDL provisional |
-| `src/ai_news_agent/source_settings.py` | create | Per-source profile models and defaults | `SourceSettingsService` | provisional |
+| `src/ai_news_agent/repositories/digest_store.py` | modify | v3 to v4 tables; persist `digest_entries.language` | `source_settings`, `secrets`, language preference, credential-health rows; entry language write/read | verified path; DDL provisional |
+| `src/ai_news_agent/source_settings.py` | create | Per-source profile models and global output language | `SourceSettingsService`, `get_language`, `save_language` | provisional |
+| `src/ai_news_agent/models.py` | modify | Per-entry generated language on `DigestEntry` | `DigestEntry.language` | verified |
+| `src/ai_news_agent/summarizer.py` | modify | Resolve and attach entry language at summarize time | `summarize_ranked_items` | verified |
+| `src/ai_news_agent/services/digest_views.py` | modify | Expose stored entry language on view payload | `_entry_common_fields` | verified |
+| `src/ai_news_agent/api/schemas/digests.py` | modify | Entry DTO carries generated language | `DigestEntryView.output_language` | verified |
 | `src/ai_news_agent/api/routers/settings.py` | create | Profiles, language, credentials | `/api/v1/settings/sources`, `/settings/language`, `/settings/credentials` | provisional |
 | `src/ai_news_agent/api/schemas/settings.py` | create | Profile, language, and credential DTOs | Pydantic models | provisional |
 | `src/ai_news_agent/credentials.py` | create | Encrypt, resolve, and version credentials | `CredentialsProvider` | provisional |
@@ -175,7 +179,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ### B7 — Output language
 
-- [ ] **Do:** Save a global output language and record the language each digest entry was generated in.
+- [x] **Do:** Save a global output language and record the language each digest entry was generated in.
 
 - **Consumes:** B5 tables and `digest_entries.language`. B6's precedence rule (explicit message or CLI wins).
 - **Produces:** `GET /api/v1/settings/language` and `PUT /api/v1/settings/language`. Values `source_default`, `en`, and `zh-CN`. Initial value `source_default`. Each digest entry stores the language it was generated in.
@@ -264,3 +268,4 @@ Per subtask, obey `TDD suitable`. `yes` means strict test-first. **B9** without 
 | 2026-10-31 | Add collection_outcomes.py and its test file to B4 map | equivalent |
 | 2026-11-02 | Assign `digest_entries.language` column to B5 v4 DDL; B7 consumes it | equivalent |
 | 2026-11-02 | B6 file map includes request, ranking, conversation, session_service, parse, github, ResolvedRequestOut | equivalent |
+| 2026-11-02 | B7 file map includes models, summarizer, digest_views, digests DTO; source_settings language API; digest_store entry language | equivalent |

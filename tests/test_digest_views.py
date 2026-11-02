@@ -703,3 +703,20 @@ def test_build_digest_view_related_display_ranks_same_hf_family() -> None:
     assert view.entries[2].related_display_ranks == []
     assert isinstance(view.entries[3], GitHubDigestEntryView)
     assert "related_display_ranks" not in view.entries[3].model_dump()
+
+
+def test_build_digest_view_payload_exposes_entry_output_language() -> None:
+    from ai_news_agent.services.digest_views import build_digest_view_payload
+
+    entry = _github_entry().model_copy(update={"language": "zh-CN"})
+    digest = Digest(
+        generated_at=_fixture_dt(),
+        entries=[entry],
+    )
+    payload = build_digest_view_payload(digest)
+    assert payload["entries"][0]["output_language"] == "zh-CN"
+
+    legacy = _github_entry()
+    legacy_digest = Digest(generated_at=_fixture_dt(), entries=[legacy])
+    legacy_payload = build_digest_view_payload(legacy_digest)
+    assert legacy_payload["entries"][0]["output_language"] is None

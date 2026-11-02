@@ -55,6 +55,7 @@ class DigestEntryView(BaseModel):
     follow_up_action: FollowUpAction
     confidence_caveat: str | None = None
     display_rank: int
+    output_language: str | None = None
 
 
 class FamilyVariant(BaseModel):

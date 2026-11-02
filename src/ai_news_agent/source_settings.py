@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+OutputLanguagePreference = Literal["source_default", "en", "zh-CN"]
+_OUTPUT_LANGUAGE_KEY = "output_language"
+_VALID_OUTPUT_LANGUAGES: frozenset[str] = frozenset({"source_default", "en", "zh-CN"})
+
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 import re
@@ -243,6 +247,37 @@ class SourceSettingsService:
 
     db_path: Path
 
+    def get_language(self) -> OutputLanguagePreference:
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT value FROM app_settings WHERE key = ?",
+                (_OUTPUT_LANGUAGE_KEY,),
+            ).fetchone()
+        if row is None:
+            return "source_default"
+        value = str(row[0]).strip()
+        if value in _VALID_OUTPUT_LANGUAGES:
+            return value  # type: ignore[return-value]
+        return "source_default"
+
+    def save_language(self, value: str) -> OutputLanguagePreference:
+        normalized = value.strip()
+        if normalized not in _VALID_OUTPUT_LANGUAGES:
+            raise SourceSettingsValidationError(
+                "language must be source_default, en, or zh-CN"
+            )
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO app_settings (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (_OUTPUT_LANGUAGE_KEY, normalized),
+            )
+            conn.commit()
+        return normalized  # type: ignore[return-value]
+
     def list_profiles(self) -> list[dict[str, Any]]:
         stored = self._load_all()
         return [_profile_to_dict(name, stored[name]) for name in SOURCE_CATALOG_ORDER]
@@ -283,10 +318,18 @@ class SourceSettingsService:
         """Merge saved profiles into a digest request (explicit fields win)."""
         from dataclasses import replace
 
+        output_language = request.output_language
+        if output_language is None:
+            saved_language = self.get_language()
+            if saved_language != "source_default":
+                output_language = saved_language
+
         profiles = self._load_all()
         sources = list(request.connector_names or [])
         if not sources:
-            return request
+            if output_language is request.output_language:
+                return request
+            return replace(request, output_language=output_language)
 
         counts: dict[str, int] = {}
         juya_all = request.juya_item_count_all
@@ -358,6 +401,7 @@ class SourceSettingsService:
             github_min_stars=github_min_stars,
             github_language=github_language,
             huggingface_pipeline_tag=hf_pipeline,
+            output_language=output_language,
         )
 
 
@@ -415,6 +459,7 @@ def _message_has_no_topic(request: DigestRequest) -> bool:
 __all__ = [
     "DEFAULT_ITEM_COUNT",
     "HIDDEN_SOURCES",
+    "OutputLanguagePreference",
     "SOURCE_CATALOG_ORDER",
     "SourceSettingsService",
     "SourceSettingsValidationError",
