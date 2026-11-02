@@ -6,7 +6,9 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from ai_news_agent.connectors.base import ConnectorResult, SourceConnector
+from ai_news_agent.connectors.base import ConnectorRequest, ConnectorResult, SourceConnector
+from ai_news_agent.credentials import CredentialsProvider
+from ai_news_agent.models import ConnectorWarning
 from ai_news_agent.connectors.bilibili import BilibiliConnector
 from ai_news_agent.connectors.github import GitHubConnector
 from ai_news_agent.connectors.huggingface import HuggingFaceConnector
@@ -231,26 +233,120 @@ def normalize_source_names(names: Sequence[str]) -> list[str]:
     return out
 
 
-def build_connectors(*, fake: bool, names: Sequence[str]) -> list[SourceConnector]:
-    """Return ordered connectors matching ``names``."""
-    selected = normalize_source_names(names)
+_BILIBILI_CREDENTIAL_NAMES: tuple[str, ...] = (
+    "BILIBILI_SESSDATA",
+    "BILIBILI_BILI_JCT",
+    "BILIBILI_BUVID3",
+)
+
+
+class _BlockedConnector:
+    """Connector placeholder when a saved credential override is unreadable."""
+
+    def __init__(self, source_name: str) -> None:
+        self._source_name = source_name
+
+    def name(self) -> str:
+        return self._source_name
+
+    async def collect(self, request: ConnectorRequest) -> ConnectorResult:  # noqa: ARG002
+        return ConnectorResult(
+            items=[],
+            warnings=[
+                ConnectorWarning(
+                    connector=self._source_name,
+                    code="credential_unreadable",
+                    message=(
+                        f"{self._source_name} credentials are unreadable; "
+                        "restore AI_NEWS_AGENT_SECRET_KEY or replace the override in Settings."
+                    ),
+                )
+            ],
+            raw_count=0,
+        )
+
+
+def build_bilibili_credential(provider: CredentialsProvider) -> tuple[str | None, object | None]:
+    """Return ``(status, Credential)`` where status is unreadable, ok, or unset."""
+    from bilibili_api import Credential
+
+    parts = [provider.resolve(name) for name in _BILIBILI_CREDENTIAL_NAMES]
+    if any(part.status == "unreadable" for part in parts):
+        return "unreadable", None
+    if all(part.status == "unset" for part in parts):
+        return "unset", None
+    sess = parts[0].value or ""
+    jct = parts[1].value or ""
+    buvid = parts[2].value or ""
+    if not sess and not jct and not buvid:
+        return "unset", None
+    return "ok", Credential(sessdata=sess, bili_jct=jct, buvid3=buvid)
+
+
+def _connector_for_name(
+    name: str,
+    *,
+    fake: bool,
+    credentials: CredentialsProvider | None,
+) -> SourceConnector:
     if fake:
-        factories: dict[str, SourceConnector] = {
+        fake_map: dict[str, SourceConnector] = {
             "juya": FakeJuyaConnector(),
             "github": FakeGitHubConnector(),
             "bilibili": FakeBilibiliConnector(),
             "huggingface": FakeHuggingFaceConnector(),
             "zhihu": FakeZhihuConnector(),
         }
-    else:
-        factories = {
+        return fake_map[name]
+
+    if credentials is None:
+        live_map: dict[str, SourceConnector] = {
             "juya": JuyaConnector(),
             "github": GitHubConnector(preview_enrichment=True, trending_enrichment=True),
             "bilibili": BilibiliConnector(),
             "huggingface": HuggingFaceConnector(owner_enrichment=True),
             "zhihu": ZhihuConnector(),
         }
-    return [factories[name] for name in selected]
+        return live_map[name]
+
+    if name == "github":
+        resolved = credentials.resolve("GITHUB_TOKEN")
+        if resolved.status == "unreadable":
+            return _BlockedConnector("github")
+        return GitHubConnector(
+            preview_enrichment=True,
+            trending_enrichment=True,
+            token=resolved.value,
+        )
+    if name == "huggingface":
+        resolved = credentials.resolve("HUGGINGFACE_TOKEN")
+        if resolved.status == "unreadable":
+            return _BlockedConnector("huggingface")
+        return HuggingFaceConnector(owner_enrichment=True, token=resolved.value)
+    if name == "zhihu":
+        resolved = credentials.resolve("ZHIHU_ACCESS_SECRET")
+        if resolved.status == "unreadable":
+            return _BlockedConnector("zhihu")
+        return ZhihuConnector(token=resolved.value)
+    if name == "bilibili":
+        status, cred = build_bilibili_credential(credentials)
+        if status == "unreadable":
+            return _BlockedConnector("bilibili")
+        if status == "unset" or cred is None:
+            return BilibiliConnector()
+        return BilibiliConnector(credential=cred)
+    return JuyaConnector()
+
+
+def build_connectors(
+    *,
+    fake: bool,
+    names: Sequence[str],
+    credentials: CredentialsProvider | None = None,
+) -> list[SourceConnector]:
+    """Return ordered connectors matching ``names``."""
+    selected = normalize_source_names(names)
+    return [_connector_for_name(name, fake=fake, credentials=credentials) for name in selected]
 
 
 def resolve_connector_names(connector_names: list[str] | None) -> list[str]:
@@ -259,12 +355,21 @@ def resolve_connector_names(connector_names: list[str] | None) -> list[str]:
     return list(connector_names)
 
 
-def build_connector_factory(*, fake: bool, name: str) -> Callable[[], SourceConnector]:
+def build_connector_factory(
+    *,
+    fake: bool,
+    name: str,
+    credentials: CredentialsProvider | None = None,
+) -> Callable[[], SourceConnector]:
     """Return a zero-arg factory that builds a fresh connector per call."""
     validated = normalize_source_names([name])[0]
 
     def _factory() -> SourceConnector:
-        return build_connectors(fake=fake, names=[validated])[0]
+        return build_connectors(
+            fake=fake,
+            names=[validated],
+            credentials=credentials,
+        )[0]
 
     return _factory
 

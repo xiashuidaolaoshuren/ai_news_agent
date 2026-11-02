@@ -341,16 +341,40 @@ def _run_digest_command(ns: argparse.Namespace, *, stdout: TextIO) -> int:
         print(str(e), file=sys.stderr)
         return 2
 
-    connectors = build_connectors(fake=ns.fake, names=names)
+    from ai_news_agent.credentials import CredentialsProvider
 
-    try:
-        if ns.fake:
-            model: Any = FakeDigestModel()
-        else:
-            model = build_chat_model()
-    except ValueError as e:
-        print(str(e), file=sys.stderr)
-        return 2
+    credentials = CredentialsProvider(db_path)
+    connectors = build_connectors(
+        fake=ns.fake,
+        names=names,
+        credentials=None if ns.fake else credentials,
+    )
+
+    if ns.fake:
+        model: Any = FakeDigestModel()
+    else:
+        llm = credentials.resolve_llm()
+        if llm.status == "unreadable":
+            print(
+                "Saved credentials cannot be read; set AI_NEWS_AGENT_SECRET_KEY.",
+                file=sys.stderr,
+            )
+            return 2
+        if llm.status == "unset" or not llm.api_key:
+            print(
+                "Configure an LLM in Settings (API key) to generate digests.",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            model = build_chat_model(
+                api_key=llm.api_key,
+                base_url=llm.base_url,
+                model=llm.model,
+            )
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
 
     async def _go():
         return await _run_digest_async(req, store=store, connectors=connectors, model=model)

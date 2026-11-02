@@ -62,7 +62,10 @@ Settings then replace the session item-count. Profiles and output language ship 
 | `src/ai_news_agent/api/routers/settings.py` | create | Profiles, language, credentials | `/api/v1/settings/sources`, `/settings/language`, `/settings/credentials` | provisional |
 | `src/ai_news_agent/api/schemas/settings.py` | create | Profile, language, and credential DTOs | Pydantic models | provisional |
 | `src/ai_news_agent/credentials.py` | create | Encrypt, resolve, and version credentials | `CredentialsProvider` | provisional |
-| `src/ai_news_agent/llm.py` | modify | Take key, base URL, and model from the provider | `build_chat_model`, `build_tool_chat_model` | verified |
+| `src/ai_news_agent/sources.py` | modify | Pass provider-resolved tokens into `build_connectors` / `build_connector_factory` | `build_connectors(..., credentials=None)` | provisional |
+| `src/ai_news_agent/api/deps.py` | modify | FastAPI dependency for credentials | `get_credentials_provider` | provisional |
+| `pyproject.toml` | modify | Fernet dependency | `cryptography>=42` | provisional |
+| `src/ai_news_agent/llm.py` | modify | Callers pass provider values; env fallback retained for direct use (signatures unchanged) | `build_chat_model`, `build_tool_chat_model` | verified |
 | `src/ai_news_agent/connectors/github.py`, `huggingface.py`, `zhihu.py`, `bilibili.py` | modify | Take tokens from the caller, not `os.environ` | constructors | verified |
 | `src/ai_news_agent/digest_request_builder.py` | modify | Profile, then explicit message option | `build` path already used by chat | verified |
 | `src/ai_news_agent/request.py` | modify | Per-source caps and GitHub profile fields | `source_item_counts`, profile overrides | verified path |
@@ -212,7 +215,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ### B9 — Credential storage
 
-- [ ] **Do:** Store provider overrides encrypted, and resolve them only through `CredentialsProvider`.
+- [x] **Do:** Store provider overrides encrypted, and resolve them only through `CredentialsProvider`.
 
 - **Consumes:** B5 `secrets`. Environment and `.env` values used today by `llm.py` and the connectors.
 - **Produces:** Fernet encryption with `AI_NEWS_AGENT_SECRET_KEY`. `GET /api/v1/settings/credentials` returns per name `status` (`ui`, `env`, `unset`, `unreadable`), `last4` for a readable secret, and the credential version. It never returns the value. `PUT /api/v1/settings/credentials/llm` saves `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` atomically. `PUT /api/v1/settings/credentials/{name}` saves one of `GITHUB_TOKEN`, `HUGGINGFACE_TOKEN`, `ZHIHU_ACCESS_SECRET`, `BILIBILI_SESSDATA`, `BILIBILI_BILI_JCT`, `BILIBILI_BUVID3`. `DELETE` clears the UI override. Names and bodies are redacted in logs. Without `AI_NEWS_AGENT_SECRET_KEY`, writes return 409. A ciphertext that cannot be decrypted is `unreadable`, not `unset`, and blocks that credential's work. Clearing a readable override falls back to the environment. A request keeps the credential version it started with.
@@ -277,3 +280,4 @@ Per subtask, obey `TDD suitable`. `yes` means strict test-first. **B9** without 
 | 2026-11-02 | B6 file map includes request, ranking, conversation, session_service, parse, github, ResolvedRequestOut | equivalent |
 | 2026-11-02 | B7 file map includes models, summarizer, digest_views, digests DTO; source_settings language API; digest_store entry language | equivalent |
 | 2026-11-02 | B8 file map includes juya connector, parse/workflow, ranking, chat, session_service, sessions API, request confirm flag | equivalent |
+| 2026-11-02 | B9 file map adds sources, deps, pyproject cryptography; llm.py unchanged | equivalent |

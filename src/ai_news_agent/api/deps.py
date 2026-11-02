@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import Request
 
+from ai_news_agent.credentials import CredentialsProvider
 from ai_news_agent.services.chat import ChatService
 from ai_news_agent.services.composition import Application
 from ai_news_agent.services.session_service import SessionService
@@ -30,3 +31,7 @@ def get_digest_store(request: Request) -> DigestStore:
 
 def get_source_settings_service(request: Request) -> SourceSettingsService:
     return get_application(request).source_settings_service
+
+
+def get_credentials_provider(request: Request) -> CredentialsProvider:
+    return get_application(request).credentials_service

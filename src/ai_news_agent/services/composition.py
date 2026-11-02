@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from ai_news_agent.connectors.base import SourceConnector
+from ai_news_agent.credentials import CredentialsProvider
 from ai_news_agent.env import configure_bilibili_network_from_env, load_local_env
-from ai_news_agent.graph.state import DigestResult
+from ai_news_agent.graph.state import DigestResult, WorkflowError
+from ai_news_agent.models import utcnow
 from ai_news_agent.graph.workflow import (
     run_digest,
     run_digest_streaming,
@@ -31,6 +33,107 @@ from ai_news_agent.storage import DigestStore
 from ai_news_agent.tools import build_interface_tool_router
 
 logger = get_logger("digest_service")
+
+_LLM_UNCONFIGURED_MESSAGE = (
+    "Configure an LLM in Settings (API key) to generate digests."
+)
+_LLM_UNREADABLE_MESSAGE = (
+    "Saved LLM credentials cannot be read. Restore AI_NEWS_AGENT_SECRET_KEY "
+    "or replace them in Settings."
+)
+
+
+class _LlmConfigHolder:
+    """Build and cache chat/tool models for the current credential version."""
+
+    def __init__(self, credentials: CredentialsProvider) -> None:
+        self._credentials = credentials
+        self._version: str | None = None
+        self._chat_model: Any = None
+        self._tool_model: Any = None
+
+    def get(self) -> tuple[Any | None, Any | None]:
+        llm = self._credentials.resolve_llm()
+        version = llm.version
+        configured = llm.status in ("ui", "env") and bool(llm.api_key)
+        if not configured:
+            if self._version != version:
+                self._version = version
+                self._chat_model = None
+                self._tool_model = None
+            return None, None
+
+        if self._version != version or self._chat_model is None:
+            self._version = version
+            self._chat_model = build_chat_model(
+                api_key=llm.api_key,
+                base_url=llm.base_url,
+                model=llm.model,
+            )
+            try:
+                self._tool_model = build_tool_chat_model(
+                    api_key=llm.api_key,
+                    base_url=llm.base_url,
+                    model=llm.model,
+                )
+            except ValueError:
+                self._tool_model = None
+        return self._chat_model, self._tool_model
+
+
+class _LazyLlmProxy:
+    """Delegates chat-model calls to the holder's current built client."""
+
+    def __init__(self, holder: _LlmConfigHolder) -> None:
+        self._holder = holder
+
+    def _model(self) -> Any | None:
+        return self._holder.get()[0]
+
+    def generate_entry_fields(self, context: dict[str, Any]) -> dict[str, Any]:
+        model = self._model()
+        if model is None:
+            raise ValueError(_LLM_UNCONFIGURED_MESSAGE)
+        return model.generate_entry_fields(context)
+
+    def generate_followup_reply(self, *args: Any, **kwargs: Any) -> str:
+        model = self._model()
+        if model is None:
+            raise ValueError(_LLM_UNCONFIGURED_MESSAGE)
+        return model.generate_followup_reply(*args, **kwargs)
+
+    def interpret_conversation(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        model = self._model()
+        if model is None:
+            raise ValueError(_LLM_UNCONFIGURED_MESSAGE)
+        return model.interpret_conversation(*args, **kwargs)
+
+
+def _digest_result_for_llm_block(
+    req: DigestRequest,
+    *,
+    credentials: CredentialsProvider,
+) -> DigestResult:
+    llm = credentials.resolve_llm()
+    message = (
+        _LLM_UNREADABLE_MESSAGE
+        if llm.status == "unreadable"
+        else _LLM_UNCONFIGURED_MESSAGE
+    )
+    now = utcnow()
+    return DigestResult(
+        request=req,
+        digest=None,
+        run_id=None,
+        markdown="",
+        text=message,
+        ranked_items=[],
+        warnings=[],
+        errors=[WorkflowError(stage="llm", message=message)],
+        started_at=now,
+        finished_at=now,
+    )
+
 
 _FAKE_TOOL_AGENT_REPLY = (
     "Offline fake tool agent: use structured prompts like "
@@ -70,6 +173,7 @@ class Application:
     chat_service: ChatService
     digest_store: DigestStore
     source_settings_service: SourceSettingsService
+    credentials_service: CredentialsProvider
 
 
 def build_application(*, fake: bool, db_path: Path) -> Application:
@@ -77,6 +181,7 @@ def build_application(*, fake: bool, db_path: Path) -> Application:
     store = DigestStore(db_path)
     store.init_schema()
     source_settings_service = SourceSettingsService(db_path)
+    credentials_service = CredentialsProvider(db_path)
     session_service = SessionService(
         SessionStore(db_path),
         source_settings_service=source_settings_service,
@@ -86,6 +191,7 @@ def build_application(*, fake: bool, db_path: Path) -> Application:
         store=store,
         session_service=session_service,
         source_settings_service=source_settings_service,
+        credentials_service=credentials_service,
     )
     return Application(
         fake=fake,
@@ -94,6 +200,7 @@ def build_application(*, fake: bool, db_path: Path) -> Application:
         chat_service=chat_service,
         digest_store=store,
         source_settings_service=source_settings_service,
+        credentials_service=credentials_service,
     )
 
 
@@ -111,16 +218,20 @@ def _build_chat_service(
     store: DigestStore,
     session_service: SessionService,
     source_settings_service: SourceSettingsService,
+    credentials_service: CredentialsProvider,
 ) -> ChatService:
+    llm_holder: _LlmConfigHolder | None = None
     if fake:
         model: Any = FakeDigestModel()
         tool_agent_runner: Any = _FakeToolAgentRunner()
         interface_router: Any = None
     else:
-        model = build_chat_model()
-        tool_model = build_tool_chat_model()
+        llm_holder = _LlmConfigHolder(credentials_service)
+        model = _LazyLlmProxy(llm_holder)
         tool_agent_runner = None
         interface_router = None
+
+    creds = None if fake else credentials_service
 
     async def workflow_runner(
         req: DigestRequest,
@@ -132,12 +243,18 @@ def _build_chat_service(
         if not fake:
             load_local_env(force_reload=True)
             configure_bilibili_network_from_env(None)
-        connectors = build_connectors(fake=fake, names=_names_from(req))
+            assert llm_holder is not None
+            digest_model, _tool_model = llm_holder.get()
+            if digest_model is None:
+                return _digest_result_for_llm_block(req, credentials=credentials_service)
+        else:
+            digest_model = model
+        connectors = build_connectors(fake=fake, names=_names_from(req), credentials=creds)
         try:
             return await run_digest(
                 req,
                 connectors=list(connectors),
-                model=model,
+                model=digest_model,
                 store=store,
                 session_id=session_id,
                 request_id=request_id,
@@ -155,12 +272,20 @@ def _build_chat_service(
         if not fake:
             load_local_env(force_reload=True)
             configure_bilibili_network_from_env(None)
-        connectors = build_connectors(fake=fake, names=_names_from(req))
+            assert llm_holder is not None
+            digest_model, _tool_model = llm_holder.get()
+            if digest_model is None:
+                blocked = _digest_result_for_llm_block(req, credentials=credentials_service)
+                yield ("failed", True, blocked)
+                return
+        else:
+            digest_model = model
+        connectors = build_connectors(fake=fake, names=_names_from(req), credentials=creds)
         try:
             async for event in run_digest_streaming(
                 req,
                 connectors=list(connectors),
-                model=model,
+                model=digest_model,
                 store=store,
                 session_id=session_id,
                 request_id=request_id,
@@ -169,20 +294,36 @@ def _build_chat_service(
         finally:
             await _aclose_connectors(connectors)
 
-    if not fake:
-        interface_router = build_interface_tool_router(
-            store=store,
-            tool_model=tool_model,
-            github_factory=build_connector_factory(fake=fake, name="github"),
-            bilibili_factory=build_connector_factory(fake=fake, name="bilibili"),
-            juya_factory=build_connector_factory(fake=fake, name="juya"),
-            huggingface_factory=build_connector_factory(fake=fake, name="huggingface"),
-            zhihu_factory=build_connector_factory(fake=fake, name="zhihu"),
-            interface_name="api",
-        )
+    if not fake and llm_holder is not None:
+        _chat_model, tool_model = llm_holder.get()
+        if tool_model is not None:
+            interface_router = build_interface_tool_router(
+                store=store,
+                tool_model=tool_model,
+                github_factory=build_connector_factory(
+                    fake=fake, name="github", credentials=credentials_service
+                ),
+                bilibili_factory=build_connector_factory(
+                    fake=fake, name="bilibili", credentials=credentials_service
+                ),
+                juya_factory=build_connector_factory(fake=fake, name="juya", credentials=creds),
+                huggingface_factory=build_connector_factory(
+                    fake=fake, name="huggingface", credentials=credentials_service
+                ),
+                zhihu_factory=build_connector_factory(
+                    fake=fake, name="zhihu", credentials=credentials_service
+                ),
+                interface_name="api",
+            )
 
-    hf_factory = None if fake else build_connector_factory(fake=fake, name="huggingface")
-    juya_factory = build_connector_factory(fake=fake, name="juya")
+    hf_factory = (
+        None
+        if fake
+        else build_connector_factory(
+            fake=fake, name="huggingface", credentials=credentials_service
+        )
+    )
+    juya_factory = build_connector_factory(fake=fake, name="juya", credentials=creds)
 
     return ChatService(
         store=store,

@@ -1713,11 +1713,11 @@ def test_build_application_live_uses_model_factory(
 
     calls: list[str] = []
 
-    def _track_build_chat_model() -> object:
+    def _track_build_chat_model(**_kwargs: object) -> object:
         calls.append("build_chat_model")
         return object()
 
-    def _track_build_tool_chat_model() -> object:
+    def _track_build_tool_chat_model(**_kwargs: object) -> object:
         calls.append("build_tool_chat_model")
         return object()
 
@@ -1743,12 +1743,14 @@ def test_build_application_live_uses_model_factory(
         lambda _: None,
     )
 
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
     application = build_application(fake=False, db_path=tmp_path / "digest.db")
 
     assert application.fake is False
+    assert application.chat_service is not None
+    application.chat_service._chat_model._holder.get()
     assert "build_chat_model" in calls
     assert "build_tool_chat_model" in calls
-    assert application.chat_service is not None
     assert application.chat_service._huggingface_connector_factory is not None
 
 
