@@ -56,5 +56,8 @@ def parse_request_node(state: DigestGraphState) -> dict[str, object]:
             juya_item_mode=req.juya_item_mode,
             topics_are_filters=req.topics_are_filters,
             strict_timeframe=req.strict_timeframe,
+            github_keywords=req.github_keywords,
+            github_min_stars=req.github_min_stars,
+            github_language=req.github_language,
         )
     }

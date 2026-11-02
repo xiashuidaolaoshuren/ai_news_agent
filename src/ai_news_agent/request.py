@@ -26,6 +26,15 @@ class DigestRequest:
     language_hint: str | None = None
     #: When set, ranking selects up to this many items per source kind.
     items_per_source: int | None = None
+    #: Per-source display caps after profile and message resolution (B6).
+    source_item_counts: dict[str, int] = field(default_factory=dict)
+    #: Message-scoped count overrides before profile merge (B6).
+    source_count_overrides: dict[str, int] = field(default_factory=dict)
+    #: Juya profile or message requested unbounded eligible stories (B6/B8).
+    juya_item_count_all: bool = False
+    github_keywords: list[str] | None = None
+    github_min_stars: int | None = None
+    github_language: str | None = None
     #: Legacy Bilibili selectors (prefer bilibili_* fields).
     target_channels: list[str] = field(default_factory=_empty_str_list)
     manual_urls: list[str] = field(default_factory=_empty_str_list)

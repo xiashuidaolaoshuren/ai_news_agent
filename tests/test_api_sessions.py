@@ -1785,14 +1785,14 @@ def test_natural_digest_report_exposes_its_resolved_request(tmp_path: Path) -> N
     assert user["request"]["per_source"] == 5
 
 
-def test_session_default_per_source_resolves_into_the_reported_request(
+def test_saved_profile_count_resolves_not_session_items_per_source(
     tmp_path: Path,
 ) -> None:
     client = _build_test_client(fake=True, db_path=tmp_path / "session-default-count.db")
     session_id = client.post("/api/v1/sessions").json()["id"]
     patched = client.patch(
         f"/api/v1/sessions/{session_id}",
-        json={"items_per_source": 5},
+        json={"items_per_source": 20},
     )
     assert patched.status_code == 200
 
@@ -1808,10 +1808,12 @@ def test_session_default_per_source_resolves_into_the_reported_request(
     started = next(payload for name, payload in events if name == "started")
     assert started["intent"] == "digest"
     assert started["request"]["per_source"] == 5
+    assert started["request"]["counts"] == {"github": "5"}
 
     transcript = client.get(f"/api/v1/sessions/{session_id}/messages").json()
     user = next(m for m in transcript["messages"] if m["role"] == "user")
     assert user["request"]["per_source"] == 5
+    assert user["request"]["counts"]["github"].endswith("5")
 
 
 def test_clarification_report_carries_no_source_chips(tmp_path: Path) -> None:

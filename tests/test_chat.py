@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -569,8 +570,13 @@ def test_stream_events_repeat_replaces_only_the_source_list(
     assert repeated.timeframe == "today"
 
     started = next(event for event in events if isinstance(event, StartedEvent))
-    expected = request_metadata(stored_request)
-    expected["sources"] = ["huggingface"]
+    expected = request_metadata(
+        replace(
+            stored_request,
+            connector_names=["huggingface"],
+            primary_source="huggingface",
+        )
+    )
     assert started.request == expected
 
 

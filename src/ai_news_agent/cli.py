@@ -79,7 +79,11 @@ def build_history_search_query(ns: argparse.Namespace) -> Any:
     return validate_history_search_query(**kwargs)
 
 
-def build_digest_request(ns: argparse.Namespace) -> DigestRequest:
+def build_digest_request(
+    ns: argparse.Namespace,
+    *,
+    source_settings_service: Any | None = None,
+) -> DigestRequest:
     """Build a :class:`~ai_news_agent.request.DigestRequest` from parsed CLI flags."""
     topics_csv = getattr(ns, "topics", None)
     if topics_csv is None:
@@ -96,6 +100,7 @@ def build_digest_request(ns: argparse.Namespace) -> DigestRequest:
     if getattr(ns, "top_n", None) is not None:
         kw["top_n"] = ns.top_n
     if getattr(ns, "max_items", None) is not None:
+        kw["items_per_source"] = ns.max_items
         kw["max_items_per_source"] = ns.max_items
 
     sources = parse_sources_csv(getattr(ns, "sources", "") or "")
@@ -120,7 +125,10 @@ def build_digest_request(ns: argparse.Namespace) -> DigestRequest:
         )
     )
 
-    return DigestRequest(**kw)
+    request = DigestRequest(**kw)
+    if source_settings_service is not None:
+        request = source_settings_service.apply(request)
+    return request
 
 
 def _resolve_db_path(ns: argparse.Namespace) -> Path:
@@ -316,14 +324,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def _run_digest_command(ns: argparse.Namespace, *, stdout: TextIO) -> int:
     try:
-        req = build_digest_request(ns)
+        db_path = _resolve_db_path(ns)
+        store = DigestStore(db_path)
+        store.init_schema()
+        from ai_news_agent.source_settings import SourceSettingsService
+
+        settings = SourceSettingsService(db_path)
+        req = build_digest_request(ns, source_settings_service=settings)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 2
-
-    db_path = _resolve_db_path(ns)
-    store = DigestStore(db_path)
-    store.init_schema()
 
     try:
         names = _pick_connector_names(ns)

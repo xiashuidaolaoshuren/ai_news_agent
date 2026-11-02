@@ -351,3 +351,201 @@ def test_v3_schema_backup_failure_aborts(tmp_path: Path) -> None:
     ctx = plain.get_latest_followup_context()
     assert ctx.digest is not None
     assert ctx.digest.entries[0].title == entry_title
+
+
+def test_source_settings_schema_defaults_and_validation(tmp_path: Path) -> None:
+    from ai_news_agent.source_settings import (
+        SourceSettingsService,
+        SourceSettingsValidationError,
+        UnknownSourceError,
+    )
+
+    db_path = tmp_path / "profiles.db"
+    DigestStore(db_path).init_schema()
+    service = SourceSettingsService(db_path)
+
+    profiles = service.list_profiles()
+    names = [profile["name"] for profile in profiles]
+    assert names == ["juya", "github", "huggingface", "openrouter", "zhihu", "bilibili"]
+    juya = next(p for p in profiles if p["name"] == "juya")
+    assert juya["item_count"] == 5
+    assert juya["hidden"] is False
+    bilibili = next(p for p in profiles if p["name"] == "bilibili")
+    assert bilibili["hidden"] is True
+    openrouter = next(p for p in profiles if p["name"] == "openrouter")
+    assert openrouter["free_only"] is False
+
+    service.save_profile("juya", {"item_count": "all"})
+    assert service.get_profile("juya")["item_count"] == "all"
+
+    with pytest.raises(SourceSettingsValidationError):
+        service.save_profile("juya", {"item_count": 0})
+    with pytest.raises(SourceSettingsValidationError):
+        service.save_profile("juya", {"item_count": 51})
+    with pytest.raises(SourceSettingsValidationError):
+        service.save_profile("github", {"keywords": [f"k{i}" for i in range(11)]})
+    with pytest.raises(SourceSettingsValidationError):
+        service.save_profile("github", {"min_stars": -1})
+    with pytest.raises(SourceSettingsValidationError):
+        service.save_profile("bilibili", {"item_count": 5})
+    with pytest.raises(UnknownSourceError):
+        service.save_profile("nope", {"item_count": 5})
+
+
+def test_apply_uses_profile_defaults_and_explicit_counts(tmp_path: Path) -> None:
+    from ai_news_agent.request import DigestRequest
+    from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.source_settings import SourceSettingsService
+
+    db_path = tmp_path / "apply.db"
+    DigestStore(db_path).init_schema()
+    service = SourceSettingsService(db_path)
+    service.save_profile("github", {"item_count": 9})
+
+    base = DigestRequest(connector_names=["juya", "github"])
+    applied = service.apply(base)
+    assert applied.source_item_counts == {"juya": 5, "github": 9}
+
+    three_items = DigestRequest(connector_names=["juya", "github"], items_per_source=3)
+    applied_three = service.apply(three_items)
+    assert applied_three.source_item_counts == {"juya": 3, "github": 3}
+
+    each = DigestRequest(connector_names=["juya", "github"], items_per_source=5)
+    applied_each = service.apply(each)
+    assert applied_each.source_item_counts["juya"] == 5
+    assert applied_each.source_item_counts["github"] == 5
+
+    scoped = DigestRequest(
+        connector_names=["juya", "github"],
+        source_count_overrides={"github": 3},
+    )
+    applied_scoped = service.apply(scoped)
+    assert applied_scoped.source_item_counts == {"juya": 5, "github": 3}
+
+    each_wins = DigestRequest(
+        connector_names=["juya", "github"],
+        items_per_source=5,
+        source_count_overrides={"github": 3},
+    )
+    applied_wins = service.apply(each_wins)
+    assert applied_wins.source_item_counts == {"juya": 5, "github": 5}
+
+
+def test_apply_ignores_session_items_per_source(tmp_path: Path) -> None:
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.source_settings import SourceSettingsService
+
+    db_path = tmp_path / "session-ignore.db"
+    DigestStore(db_path).init_schema()
+    settings = SourceSettingsService(db_path)
+    session_service = SessionService(SessionStore(db_path), source_settings_service=settings)
+    created = session_service.create_session()
+    session_service.update_preferences(created.id, connector_names=["github"], items_per_source=50)
+
+    req = session_service.build_request(created.id, "Give me today's digest")
+    assert req.items_per_source is None
+    assert req.source_item_counts.get("github") == 5
+
+
+def test_apply_sets_github_keywords_only_without_named_topic(tmp_path: Path) -> None:
+    from ai_news_agent.request import DigestRequest
+    from ai_news_agent.source_settings import SourceSettingsService
+    from ai_news_agent.topics import DEFAULT_TOPICS
+
+    db_path = tmp_path / "github-keywords.db"
+    DigestStore(db_path).init_schema()
+    service = SourceSettingsService(db_path)
+    service.save_profile("github", {"item_count": 5, "keywords": ["agents", "rag"]})
+
+    applied = service.apply(
+        DigestRequest(connector_names=["github"], topics=list(DEFAULT_TOPICS))
+    )
+    assert applied.github_keywords == ["agents", "rag"]
+    assert applied.topics_are_filters is False
+
+    with_topic = service.apply(
+        DigestRequest(
+            connector_names=["github"],
+            topics=["Qwen"],
+            topics_are_filters=True,
+        )
+    )
+    assert with_topic.github_keywords is None
+
+
+def test_github_search_query_uses_keywords_and_profile_filters() -> None:
+    from ai_news_agent.connectors.base import ConnectorRequest
+    from ai_news_agent.connectors.github import _build_search_query
+
+    query = _build_search_query(
+        ConnectorRequest(
+            topics=["AI agents"],
+            github_keywords=["agents", "rag"],
+            github_min_stars=100,
+            github_language="Python",
+        )
+    )
+    assert "agents" in query
+    assert "stars:>=100" in query
+    assert "language:Python" in query
+
+    topic_query = _build_search_query(
+        ConnectorRequest(topics=["Qwen"], timeframe="today")
+    )
+    assert "Qwen" in topic_query
+
+
+def test_cli_and_session_service_share_saved_juya_profile(tmp_path: Path) -> None:
+    import argparse
+
+    from ai_news_agent.cli import build_digest_request
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.source_settings import SourceSettingsService
+
+    db_path = tmp_path / "shared-profile.db"
+    DigestStore(db_path).init_schema()
+    settings = SourceSettingsService(db_path)
+    settings.save_profile("juya", {"item_count": 8})
+
+    ns = argparse.Namespace(
+        timeframe=None,
+        topics=None,
+        sources="juya",
+        top_n=None,
+        max_items=None,
+        output_style=None,
+        output_language=None,
+        fake=False,
+        db_path=db_path,
+    )
+    cli_req = build_digest_request(ns, source_settings_service=settings)
+    assert cli_req.source_item_counts.get("juya") == 8
+
+    session_service = SessionService(SessionStore(db_path), source_settings_service=settings)
+    created = session_service.create_session()
+    session_service.update_preferences(created.id, connector_names=["juya"], items_per_source=None)
+    web_req = session_service.build_request(created.id, "Give me today's digest")
+    assert web_req.source_item_counts.get("juya") == 8
+
+
+def test_openrouter_profile_is_not_a_connector_name() -> None:
+    from ai_news_agent.sources import ALLOWED_SOURCES
+
+    assert "openrouter" not in ALLOWED_SOURCES
+
+
+def test_finalize_public_counts_reports_shortfall() -> None:
+    from ai_news_agent.request import DigestRequest
+    from ai_news_agent.source_settings import build_public_counts, finalize_public_counts
+
+    request = DigestRequest(
+        connector_names=["github"],
+        source_item_counts={"github": 5},
+    )
+    assert build_public_counts(request) == {"github": "5"}
+    assert finalize_public_counts(request, entry_counts={"github": 3}) == {
+        "github": "3 of 5"
+    }

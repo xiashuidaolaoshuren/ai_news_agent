@@ -61,9 +61,16 @@ Settings then replace the session item-count. Profiles and output language ship 
 | `src/ai_news_agent/llm.py` | modify | Take key, base URL, and model from the provider | `build_chat_model`, `build_tool_chat_model` | verified |
 | `src/ai_news_agent/connectors/github.py`, `huggingface.py`, `zhihu.py`, `bilibili.py` | modify | Take tokens from the caller, not `os.environ` | constructors | verified |
 | `src/ai_news_agent/digest_request_builder.py` | modify | Profile, then explicit message option | `build` path already used by chat | verified |
+| `src/ai_news_agent/request.py` | modify | Per-source caps and GitHub profile fields | `source_item_counts`, profile overrides | verified path |
+| `src/ai_news_agent/services/conversation.py` | modify | Count phrase parsing | `_digest_decision` | verified |
+| `src/ai_news_agent/services/chat.py` | modify | Apply profiles; drop session count default | `_apply_session_defaults`, `apply` | verified |
+| `src/ai_news_agent/services/session_service.py` | modify | Apply profiles in `build_request` | stop copying `items_per_source` | verified |
+| `src/ai_news_agent/ranking.py`, `graph/nodes/rank.py` | modify | Per-source display caps | `rank_items` | verified |
+| `src/ai_news_agent/graph/nodes/parse.py`, `connectors/base.py`, `connectors/github.py` | modify | Profile fields on connector request | `ConnectorRequest`, GitHub query | verified |
+| `src/ai_news_agent/api/schemas/sessions.py` | modify | Resolved counts on public request | `ResolvedRequestOut.counts` | verified path |
 | `src/ai_news_agent/cli.py` | modify | Same profiles; explicit CLI flags win | digest command | verified |
 | `src/ai_news_agent/services/composition.py` | modify | Inject settings and credentials | `build_application` | verified |
-| `src/ai_news_agent/api/app.py` | modify | Bearer auth, PUT, Authorization, configurable CORS | `create_app` | verified |
+| `src/ai_news_agent/api/app.py` | modify | Mount settings router; later bearer auth and CORS | `create_app` | verified |
 | `tests/test_source_settings.py`, `tests/test_credentials.py`, `tests/test_api_settings.py`, `tests/test_access_token.py` | create | Settings acceptance | pytest | provisional |
 
 ### Blast radius
@@ -155,7 +162,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ### B6 — Source profiles
 
-- [ ] **Do:** Store one global profile per source and use it for new web and command-line digests.
+- [x] **Do:** Store one global profile per source and use it for new web and command-line digests.
 
 - **Consumes:** B5 tables. `digest_request_builder.py`. `_apply_session_defaults`.
 - **Produces:** `GET /api/v1/settings/sources` and `PUT /api/v1/settings/sources/{name}`. Profiles: Juya `item_count` 1–50 or `all`; GitHub `item_count`, `keywords` (max 10), `min_stars >= 0`, `language`; Hugging Face `item_count`, `pipeline_tag`; OpenRouter `item_count`, `free_only`; Zhihu `item_count`; Bilibili no fields and `hidden: true`. Defaults are count 5, no keywords, `free_only` false. Unknown source is 404. Invalid values are 400. `SourceSettingsService` is what the request builder and the CLI call. Connectors receive resolved values on the request, not the service.
@@ -256,3 +263,4 @@ Per subtask, obey `TDD suitable`. `yes` means strict test-first. **B9** without 
 | 2026-10-30 | Add digests.py, llm.py, composition.py to B2 map | equivalent |
 | 2026-10-31 | Add collection_outcomes.py and its test file to B4 map | equivalent |
 | 2026-11-02 | Assign `digest_entries.language` column to B5 v4 DDL; B7 consumes it | equivalent |
+| 2026-11-02 | B6 file map includes request, ranking, conversation, session_service, parse, github, ResolvedRequestOut | equivalent |

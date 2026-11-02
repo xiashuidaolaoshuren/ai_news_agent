@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from ai_news_agent.models import ConfidenceLevel, NewsItem, RankedItem, SourceKind
 
@@ -971,6 +971,63 @@ def _mixed_juya_huggingface_pool(now: datetime) -> list[NewsItem]:
         for i in range(4)
     ]
     return juya_items + hf_items
+
+
+def test_rank_items_source_item_counts_caps_each_kind_independently() -> None:
+    from ai_news_agent.ranking import rank_items
+
+    now = datetime(2026, 5, 7, 12, 0, 0, tzinfo=UTC)
+    items = [
+        NewsItem(
+            source=SourceKind.GITHUB,
+            source_id=f"g{i}",
+            url=f"https://github.com/a/g{i}",
+            title=f"g{i}",
+            collected_at=now,
+        )
+        for i in range(3)
+    ]
+    ranked = rank_items(
+        items,
+        top_n=5,
+        source_item_counts={"github": 5},
+        now=now,
+    )
+    selected = [row for row in ranked if row.selected]
+    assert len(selected) == 3
+
+
+def test_rank_items_source_item_counts_respects_strict_timeframe() -> None:
+    from ai_news_agent.ranking import rank_items
+
+    now = datetime(2026, 5, 7, 12, 0, 0, tzinfo=UTC)
+    old = NewsItem(
+        source=SourceKind.GITHUB,
+        source_id="old",
+        url="https://github.com/a/old",
+        title="old",
+        published_at=now - timedelta(days=30),
+        collected_at=now,
+    )
+    fresh = NewsItem(
+        source=SourceKind.GITHUB,
+        source_id="fresh",
+        url="https://github.com/a/fresh",
+        title="fresh",
+        published_at=now,
+        collected_at=now,
+    )
+    ranked = rank_items(
+        [old, fresh],
+        top_n=5,
+        timeframe="today",
+        strict_timeframe=True,
+        source_item_counts={"github": 5},
+        now=now,
+    )
+    selected = [row for row in ranked if row.selected]
+    assert len(selected) == 1
+    assert selected[0].item.source_id == "fresh"
 
 
 def test_rank_items_items_per_source_selects_huggingface_families_not_variants() -> None:

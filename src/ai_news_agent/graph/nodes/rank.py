@@ -48,6 +48,7 @@ def make_rank_items_node(*, now_provider: Callable[[], datetime] | None = None):
             "top_n": req.top_n,
             "timeframe": req.timeframe,
             "items_per_source": req.items_per_source,
+            "source_item_counts": req.source_item_counts or None,
             "strict_timeframe": req.strict_timeframe,
         }
         if now_provider is not None:

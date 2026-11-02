@@ -9,6 +9,7 @@ from ai_news_agent.digest_request_builder import resolve_digest_request
 from ai_news_agent.repositories.session_store import SessionStore
 from ai_news_agent.repositories.unit_of_work import SqliteUnitOfWork
 from ai_news_agent.request import DigestRequest
+from ai_news_agent.source_settings import SourceSettingsService
 from ai_news_agent.telemetry import new_correlation_id
 from ai_news_agent.services.session_records import (
     MessageRecord,
@@ -41,8 +42,14 @@ CANCELLED_ASSISTANT_MESSAGE = "The request was cancelled."
 class SessionService:
     """Session lifecycle use cases over :class:`SessionStore`."""
 
-    def __init__(self, store: SessionStore) -> None:
+    def __init__(
+        self,
+        store: SessionStore,
+        *,
+        source_settings_service: SourceSettingsService | None = None,
+    ) -> None:
         self._store = store
+        self._source_settings = source_settings_service
 
     def create_session(self) -> SessionRecord:
         session_id = str(uuid.uuid4())
@@ -200,15 +207,10 @@ class SessionService:
             message,
             session_connector_names=session.connector_names,
         )
-        if session.items_per_source is not None:
-            value = int(session.items_per_source)
-            req = replace(
-                req,
-                items_per_source=value,
-                max_items_per_source=max(req.max_items_per_source, value),
-            )
         if juya_item_mode is not None:
             req = replace(req, juya_item_mode=juya_item_mode)
+        if self._source_settings is not None:
+            req = self._source_settings.apply(req)
         return req
 
     def delete_session(self, session_id: str) -> None:

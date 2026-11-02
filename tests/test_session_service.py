@@ -230,17 +230,19 @@ def test_update_preferences_round_trip_and_empty_list_rejected(tmp_path: Path) -
 
 def test_build_request_applies_preferences_as_one_request_defaults(tmp_path: Path) -> None:
     from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.source_settings import SourceSettingsService
 
     db_path = tmp_path / "svc-build-req.db"
     _init_db(db_path)
-    service = SessionService(SessionStore(db_path))
+    settings = SourceSettingsService(db_path)
+    service = SessionService(SessionStore(db_path), source_settings_service=settings)
     created = service.create_session()
     service.update_preferences(created.id, connector_names=["github"], items_per_source=5)
 
     default_req = service.build_request(created.id, "Give me today's digest")
     assert default_req.connector_names == ["github"]
-    assert default_req.items_per_source == 5
-    assert default_req.max_items_per_source == 20
+    assert default_req.source_item_counts.get("github") == 5
+    assert default_req.items_per_source is None
 
     overridden = service.build_request(created.id, "zhihu only: give me a digest")
     assert overridden.connector_names == ["zhihu"]
@@ -251,28 +253,23 @@ def test_build_request_applies_preferences_as_one_request_defaults(tmp_path: Pat
     assert stored.items_per_source == 5
 
 
-def test_build_request_maps_preference_to_ranking_quota_not_collection_cap(
-    tmp_path: Path,
-) -> None:
+def test_build_request_uses_global_profile_not_session_stepper(tmp_path: Path) -> None:
     from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.source_settings import SourceSettingsService
 
     db_path = tmp_path / "svc-build-quota.db"
     _init_db(db_path)
-    service = SessionService(SessionStore(db_path))
+    settings = SourceSettingsService(db_path)
+    settings.save_profile("juya", {"item_count": 8})
+    service = SessionService(SessionStore(db_path), source_settings_service=settings)
     created = service.create_session()
-    service.update_preferences(created.id, connector_names=None, items_per_source=5)
+    service.update_preferences(created.id, connector_names=["juya"], items_per_source=50)
 
     req = service.build_request(created.id, "Give me today's digest")
 
-    assert req.items_per_source == 5
-    assert req.max_items_per_source == 20
-
-    service.update_preferences(created.id, connector_names=None, items_per_source=50)
-    raised = service.build_request(created.id, "Give me today's digest")
-
-    assert raised.items_per_source == 50
-    assert raised.max_items_per_source == 50
-    assert raised.top_n == req.top_n
+    assert req.source_item_counts.get("juya") == 8
+    assert req.items_per_source is None
+    assert req.max_items_per_source >= 8
 
 
 def test_build_request_forwards_juya_item_mode_per_message(tmp_path: Path) -> None:

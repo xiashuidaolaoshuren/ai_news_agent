@@ -57,6 +57,7 @@ class ResolvedRequestOut(BaseModel):
 
     sources: list[str] = Field(default_factory=list)
     per_source: int | None = None
+    counts: dict[str, str] = Field(default_factory=dict)
     timeframe: str | None = None
     topics: list[str] = Field(default_factory=list)
     language: str | None = None

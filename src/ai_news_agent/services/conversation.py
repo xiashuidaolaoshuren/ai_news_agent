@@ -10,6 +10,11 @@ from ai_news_agent.digest_request_builder import resolve_digest_request
 from ai_news_agent.followup_structured import is_structured_followup
 from ai_news_agent.intent import parse_digest_intent
 from ai_news_agent.request import DigestRequest
+from ai_news_agent.source_settings import (
+    build_public_counts,
+    parse_message_item_counts,
+    public_per_source,
+)
 from ai_news_agent.sources import ALLOWED_SOURCES, normalize_source_names
 
 _TIMEFRAME_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -239,17 +244,14 @@ def _digest_decision(text: str, *, context: ConversationContext) -> Conversation
     if topic is not None:
         cleaned = _clean_topic(topic)
         topics = [cleaned] if cleaned else []
-    count_match = _PER_SOURCE_COUNT.search(text)
-    per_source = None
-    if count_match is not None:
-        raw_count = count_match.group(1) or count_match.group(2)
-        per_source = max(1, min(20, int(raw_count)))
+    per_source, count_overrides = parse_message_item_counts(text)
     request = DigestRequest(
         topics=topics or parsed.topics,
         topics_are_filters=bool(topics),
         strict_timeframe=timeframe in _STRICT_TIMEFRAMES,
         timeframe=timeframe,
         items_per_source=per_source,
+        source_count_overrides=count_overrides,
         output_language=parsed.output_language,
         audience="beginner" if _AUDIENCE.search(text) else None,
         github_manual_urls=list(parsed.github_manual_urls),
@@ -308,7 +310,7 @@ def _validated_language(value: object) -> str | None:
 def _validated_count(value: object) -> int | None:
     if not isinstance(value, int) or isinstance(value, bool):
         return None
-    return max(1, min(20, value))
+    return max(1, min(50, value))
 
 
 def _model_decision(
@@ -386,7 +388,8 @@ def request_metadata(request: DigestRequest) -> dict[str, Any]:
     """Public, user-relevant options of one resolved digest request."""
     return {
         "sources": list(request.connector_names or []),
-        "per_source": request.items_per_source,
+        "per_source": public_per_source(request),
+        "counts": build_public_counts(request),
         "timeframe": request.timeframe,
         "topics": list(request.topics or []),
         "language": request.output_language,

@@ -40,6 +40,7 @@ from ai_news_agent.services.session_service import (
     CANCELLED_ASSISTANT_MESSAGE,
     SessionService,
 )
+from ai_news_agent.source_settings import SourceSettingsService, finalize_public_counts
 from ai_news_agent.storage import DigestStore, FollowupContext
 from ai_news_agent.streaming import iter_text_chunks
 from ai_news_agent.tools.schemas import (
@@ -92,20 +93,12 @@ def _apply_session_defaults(
     juya_item_mode: str | None,
 ) -> DigestRequest:
     updates: dict[str, Any] = {}
-    if request.items_per_source is None and session is not None:
-        stored_count = getattr(session, "items_per_source", None)
-        if stored_count is not None:
-            updates["items_per_source"] = int(stored_count)
     sources = list(request.connector_names or [])
     if request.juya_item_mode is None:
         if juya_item_mode is not None:
             updates["juya_item_mode"] = juya_item_mode
         if "juya" in sources and request.topics_are_filters:
             updates["juya_item_mode"] = "stories"
-    if "items_per_source" in updates:
-        updates["max_items_per_source"] = max(
-            request.max_items_per_source, int(updates["items_per_source"])
-        )
     return replace(request, **updates) if updates else request
 
 
@@ -184,6 +177,7 @@ class ChatService:
         tool_agent_runner: Any | None = None,
         interface_router: Any | None = None,
         session_service: SessionService | None = None,
+        source_settings_service: SourceSettingsService | None = None,
         conversation_model: Any | None = None,
         huggingface_connector_factory: Callable[[], Any] | None = None,
     ) -> None:
@@ -194,6 +188,7 @@ class ChatService:
         self._tool_agent_runner = tool_agent_runner
         self._interface_router = interface_router
         self._session_service = session_service
+        self._source_settings_service = source_settings_service
         self._conversation_model = conversation_model
         self._huggingface_connector_factory = huggingface_connector_factory
 
@@ -343,6 +338,8 @@ class ChatService:
                     session=self._session_service.get_session(session_id),
                     juya_item_mode=juya_item_mode,
                 )
+                if self._source_settings_service is not None:
+                    request = self._source_settings_service.apply(request)
                 decision = replace(decision, request=request)
             interpretation = _interpretation_payload(decision)
             self._session_service.set_request_interpretation(
@@ -566,6 +563,27 @@ class ChatService:
                     yield cancelled
                     return
                 raise
+            if result.digest is not None:
+                from collections import Counter
+
+                entry_counts = Counter(
+                    entry.source_kind.value for entry in result.digest.entries
+                )
+                self._session_service.set_request_interpretation(
+                    session_id,
+                    record.id,
+                    {
+                        "public": {
+                            **(
+                                request_metadata(req)
+                            ),
+                            "counts": finalize_public_counts(
+                                req,
+                                entry_counts=dict(entry_counts),
+                            ),
+                        }
+                    },
+                )
             yield DoneEvent(
                 request_id=record.id,
                 message_id=message_id,

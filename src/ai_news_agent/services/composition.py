@@ -26,6 +26,7 @@ from ai_news_agent.sources import (
     build_connector_factory,
     build_connectors,
 )
+from ai_news_agent.source_settings import SourceSettingsService
 from ai_news_agent.storage import DigestStore
 from ai_news_agent.tools import build_interface_tool_router
 
@@ -68,17 +69,23 @@ class Application:
     session_service: SessionService
     chat_service: ChatService
     digest_store: DigestStore
+    source_settings_service: SourceSettingsService
 
 
 def build_application(*, fake: bool, db_path: Path) -> Application:
     """Construct the application composition root."""
     store = DigestStore(db_path)
     store.init_schema()
-    session_service = SessionService(SessionStore(db_path))
+    source_settings_service = SourceSettingsService(db_path)
+    session_service = SessionService(
+        SessionStore(db_path),
+        source_settings_service=source_settings_service,
+    )
     chat_service = _build_chat_service(
         fake=fake,
         store=store,
         session_service=session_service,
+        source_settings_service=source_settings_service,
     )
     return Application(
         fake=fake,
@@ -86,6 +93,7 @@ def build_application(*, fake: bool, db_path: Path) -> Application:
         session_service=session_service,
         chat_service=chat_service,
         digest_store=store,
+        source_settings_service=source_settings_service,
     )
 
 
@@ -102,6 +110,7 @@ def _build_chat_service(
     fake: bool,
     store: DigestStore,
     session_service: SessionService,
+    source_settings_service: SourceSettingsService,
 ) -> ChatService:
     if fake:
         model: Any = FakeDigestModel()
@@ -182,6 +191,7 @@ def _build_chat_service(
         tool_agent_runner=tool_agent_runner,
         interface_router=interface_router,
         session_service=session_service,
+        source_settings_service=source_settings_service,
         conversation_model=None if fake else model,
         huggingface_connector_factory=hf_factory,
     )

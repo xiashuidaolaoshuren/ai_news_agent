@@ -41,6 +41,9 @@ class ConnectorRequest:
     topics_are_filters: bool = False
     #: Browser dated request: items outside ``timeframe`` are ineligible.
     strict_timeframe: bool = False
+    github_keywords: list[str] | None = None
+    github_min_stars: int | None = None
+    github_language: str | None = None
 
 
 @dataclass

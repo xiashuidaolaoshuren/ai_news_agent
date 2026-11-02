@@ -7,6 +7,7 @@ from fastapi import Request
 from ai_news_agent.services.chat import ChatService
 from ai_news_agent.services.composition import Application
 from ai_news_agent.services.session_service import SessionService
+from ai_news_agent.source_settings import SourceSettingsService
 from ai_news_agent.storage import DigestStore
 
 
@@ -25,3 +26,7 @@ def get_chat_service(request: Request) -> ChatService:
 
 def get_digest_store(request: Request) -> DigestStore:
     return get_application(request).digest_store
+
+
+def get_source_settings_service(request: Request) -> SourceSettingsService:
+    return get_application(request).source_settings_service

@@ -143,7 +143,7 @@ def test_model_interprets_unmatched_message_and_clamps_invalid_options() -> None
     assert request.connector_names == ["huggingface"]
     assert request.topics == ["Qwen"]
     assert request.topics_are_filters is True
-    assert request.items_per_source == 20
+    assert request.items_per_source == 50
     assert request.output_language is None
     assert request.audience is None
     assert request.timeframe == "last_7_days"
@@ -257,6 +257,7 @@ def test_request_metadata_describes_what_the_run_will_use() -> None:
     assert request_metadata(request) == {
         "sources": ["juya"],
         "per_source": 5,
+        "counts": {"juya": "5"},
         "timeframe": "latest",
         "topics": ["AI"],
         "language": "zh-CN",
