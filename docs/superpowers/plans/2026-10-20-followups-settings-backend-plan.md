@@ -103,7 +103,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ### B2 — Deep dive and Ask about this
 
-- [ ] **Do:** Answer the targeted entry from its saved card, with the existing latest-digest Hugging Face README exception.
+- [x] **Do:** Answer the targeted entry from its saved card, with the existing latest-digest Hugging Face README exception.
 
 - **Consumes:** B1's resolved context. `followup_structured`, `enrich_huggingface_for_rank`, `format_huggingface_family_card`, `build_digest_view_payload`.
 - **Produces:** Deep-dive text is the deterministic card. Ask-about-this text uses that entry only and says when evidence is insufficient, without fetching and without a research offer. `related_display_ranks: list[int]` for other entries in the same digest that share the saved model identity.
@@ -116,7 +116,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ### B3 — Untargeted routing
 
-- [ ] **Do:** Make the same untargeted sentence take the same branch with or without a digest, a model, or a session source list.
+- [x] **Do:** Make the same untargeted sentence take the same branch with or without a digest, a model, or a session source list.
 
 - **Consumes:** `interpret_message`. B1 already replaces a pending clarification when the body is targeted.
 - **Produces:** No new intent.
@@ -129,7 +129,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ### B4 — Collection outcomes and repeat
 
-- [ ] **Do:** Distinguish a finished empty collect, a source failure, and a partial digest, and start a new digest from the stored resolution.
+- [x] **Do:** Distinguish a finished empty collect, a source failure, and a partial digest, and start a new digest from the stored resolution.
 
 - **Consumes:** B1's submission comparison. `MessageOut.request`. Stored connector warnings and entry counts.
 - **Produces:** `MessageOut.collection_outcome: "results" | "no_eligible" | "failed" | "partial" | None`. `PostMessageBody.repeat_of_user_message_id: int | None` and `replace_source: str | None`. A repeat loads the stored resolution, skips the interpreter, and starts a new request. `replace_source` is valid only with the repeat id and replaces the source list with that one catalog source. Both fields join the submission comparison.
@@ -142,10 +142,10 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ### B5 — Settings schema
 
-- [ ] **Do:** Migrate schema 3 to schema 4 with the settings tables, and leave existing rows in place.
+- [x] **Do:** Migrate schema 3 to schema 4 with the settings tables, and leave existing rows in place.
 
 - **Consumes:** `DigestStore.init_schema`, `SCHEMA_VERSION = "3"`, the v1 backup path.
-- **Produces:** `SCHEMA_VERSION = "4"`. Tables for `source_settings`, `secrets` (name, ciphertext, updated_at), the global language preference, and credential-health observations. A failed backup aborts the migration and leaves the v3 file usable.
+- **Produces:** `SCHEMA_VERSION = "4"`. Tables for `source_settings`, `secrets` (name, ciphertext, updated_at), the global language preference (`app_settings`), and credential-health observations. Nullable `digest_entries.language` column (NULL on pre-v4 entries). A failed backup aborts the migration and leaves the v3 file usable.
 - **Acceptance:** A v3 database gains the new tables and keeps digests, sessions, messages, and requests. A fresh database is created at version 4. A backup failure does not write version 4. Version 1 and 2 still migrate forward through the existing steps. Research-record tables are not created here.
 - **Compatibility:** Current session and digest reads keep working.
 - **Blocked by:** —
@@ -170,7 +170,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 - [ ] **Do:** Save a global output language and record the language each digest entry was generated in.
 
-- **Consumes:** B5. B6's precedence rule (explicit message or CLI wins).
+- **Consumes:** B5 tables and `digest_entries.language`. B6's precedence rule (explicit message or CLI wins).
 - **Produces:** `GET /api/v1/settings/language` and `PUT /api/v1/settings/language`. Values `source_default`, `en`, and `zh-CN`. Initial value `source_default`. Each digest entry stores the language it was generated in.
 - **Acceptance:** `source_default` keeps each source's current presentation language. `en` or `zh-CN` applies to generated text and entry labels. Original titles, quotations, model names, and identifiers stay as collected. A language named in the message or on the CLI overrides the saved preference for that run. Reopening an entry shows the labels from the language stored on it.
 - **Compatibility:** Existing digests without a stored language still render.
@@ -255,3 +255,4 @@ Per subtask, obey `TDD suitable`. `yes` means strict test-first. **B9** without 
 | 2026-10-30 | Split from `2026-10-20-targeted-followups-plan.md`. Backend follow-ups are B1–B4. Settings, keys, and sign-in from the settings spec are B5–B11. | material |
 | 2026-10-30 | Add digests.py, llm.py, composition.py to B2 map | equivalent |
 | 2026-10-31 | Add collection_outcomes.py and its test file to B4 map | equivalent |
+| 2026-11-02 | Assign `digest_entries.language` column to B5 v4 DDL; B7 consumes it | equivalent |
