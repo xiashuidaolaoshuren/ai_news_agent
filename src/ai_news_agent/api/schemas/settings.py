@@ -65,3 +65,20 @@ class LlmCredentialUpdateIn(BaseModel):
     api_key: str
     base_url: str | None = None
     model: str | None = None
+
+
+CredentialTestResultValue = Literal[
+    "ok",
+    "auth_error",
+    "unavailable",
+    "rate_limited",
+    "timeout",
+]
+
+
+class CredentialTestOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    result: CredentialTestResultValue
+    reason: str

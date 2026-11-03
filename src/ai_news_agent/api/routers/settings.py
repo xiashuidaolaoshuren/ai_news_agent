@@ -6,8 +6,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from ai_news_agent.api.deps import get_credentials_provider, get_source_settings_service
+from ai_news_agent.api.deps import (
+    get_application,
+    get_credentials_provider,
+    get_source_settings_service,
+)
 from ai_news_agent.api.schemas.settings import (
+    CredentialTestOut,
     CredentialUpdateIn,
     CredentialsOut,
     LanguageOut,
@@ -15,6 +20,14 @@ from ai_news_agent.api.schemas.settings import (
     LlmCredentialUpdateIn,
     SourceProfileListOut,
 )
+from ai_news_agent.credential_health import credential_name_to_source, health_version_for_source
+from ai_news_agent.credential_tests import (
+    TESTABLE_CREDENTIAL_NAMES,
+    UnconfiguredCredentialError,
+    UnreadableCredentialError,
+    run_credential_test,
+)
+from ai_news_agent.services.composition import Application
 from ai_news_agent.credentials import (
     CREDENTIAL_ENV_NAMES,
     CredentialsProvider,
@@ -112,6 +125,41 @@ def delete_llm_credentials(
     provider: CredentialsProvider = Depends(get_credentials_provider),
 ) -> None:
     provider.delete_llm()
+
+
+@router.post("/credentials/{name}/test", response_model=CredentialTestOut)
+async def test_credential(
+    name: str,
+    application: Application = Depends(get_application),
+) -> dict[str, str]:
+    if name.startswith("BILIBILI_"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Bilibili credential test is not supported",
+        )
+    if name not in TESTABLE_CREDENTIAL_NAMES:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Unknown credential")
+    provider = application.credentials_service
+    health_store = application.credential_health_store
+    try:
+        outcome = await run_credential_test(name, provider)
+    except UnconfiguredCredentialError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except UnreadableCredentialError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    source = credential_name_to_source(name)
+    if source is not None:
+        version = health_version_for_source(provider, source)
+        health_store.record(
+            source=source,
+            credential_version=version,
+            kind="test",
+            result=outcome.result,
+        )
+    return {"name": name, "result": outcome.result, "reason": outcome.reason}
 
 
 @router.put("/credentials/{name}", response_model=CredentialsOut)

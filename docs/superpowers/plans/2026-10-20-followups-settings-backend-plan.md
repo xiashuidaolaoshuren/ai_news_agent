@@ -62,6 +62,9 @@ Settings then replace the session item-count. Profiles and output language ship 
 | `src/ai_news_agent/api/routers/settings.py` | create | Profiles, language, credentials | `/api/v1/settings/sources`, `/settings/language`, `/settings/credentials` | provisional |
 | `src/ai_news_agent/api/schemas/settings.py` | create | Profile, language, and credential DTOs | Pydantic models | provisional |
 | `src/ai_news_agent/credentials.py` | create | Encrypt, resolve, and version credentials | `CredentialsProvider` | provisional |
+| `src/ai_news_agent/credential_health.py` | create | Versioned health observations in `credential_health` | `CredentialHealthStore` | provisional |
+| `src/ai_news_agent/credential_tests.py` | create | Bounded provider probes and outcome classification | `classify_probe_outcome`, probe runners | provisional |
+| `src/ai_news_agent/api/routers/meta.py` | modify | Composer catalog includes credential health summary | `GET /api/v1/sources` health field | provisional |
 | `src/ai_news_agent/sources.py` | modify | Pass provider-resolved tokens into `build_connectors` / `build_connector_factory` | `build_connectors(..., credentials=None)` | provisional |
 | `src/ai_news_agent/api/deps.py` | modify | FastAPI dependency for credentials | `get_credentials_provider` | provisional |
 | `pyproject.toml` | modify | Fernet dependency | `cryptography>=42` | provisional |
@@ -228,7 +231,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ### B10 — Credential tests and health
 
-- [ ] **Do:** Test a configured credential with a real provider call, and record health against the credential version.
+- [x] **Do:** Test a configured credential with a real provider call, and record health against the credential version.
 
 - **Consumes:** B9 `CredentialsProvider` and version.
 - **Produces:** `POST /api/v1/settings/credentials/{name}/test`. GitHub uses an authenticated rate-limit call. Hugging Face uses `whoami`. The LLM sends one minimal request to the configured model. Zhihu uses a minimal authenticated call. The result is `ok` or a short sanitized reason, with no key and no raw provider body. Health observations store source, time, credential version, kind (`connector` or `test`), and result (`ok`, `auth_error`, `unavailable`, `rate_limited`, `timeout`, or another distinct failure). `GET /api/v1/sources` includes the current-version summary. Replacing a credential marks older observations stale.
@@ -281,3 +284,4 @@ Per subtask, obey `TDD suitable`. `yes` means strict test-first. **B9** without 
 | 2026-11-02 | B7 file map includes models, summarizer, digest_views, digests DTO; source_settings language API; digest_store entry language | equivalent |
 | 2026-11-02 | B8 file map includes juya connector, parse/workflow, ranking, chat, session_service, sessions API, request confirm flag | equivalent |
 | 2026-11-02 | B9 file map adds sources, deps, pyproject cryptography; llm.py unchanged | equivalent |
+| 2026-11-02 | B10 file map adds credential health store, probes, and sources summary | equivalent |

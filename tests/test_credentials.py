@@ -1,19 +1,29 @@
-"""Tests for CredentialsProvider (B9)."""
+"""Tests for CredentialsProvider (B9) and credential health (B10)."""
 
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
 
+import httpx
 import pytest
 from cryptography.fernet import Fernet
 
+from ai_news_agent.credential_health import (
+    CredentialHealthStore,
+    health_version_for_source,
+    record_connector_health_from_digest,
+    summary_for_catalog_source,
+)
+from ai_news_agent.credential_tests import classify_probe_outcome, probe_github
 from ai_news_agent.credentials import (
     CREDENTIAL_ENV_NAMES,
     LLM_ENV_NAMES,
     CredentialsProvider,
     MissingSecretKeyError,
 )
+from ai_news_agent.models import ConnectorWarning
 from ai_news_agent.storage import DigestStore
 
 
@@ -313,3 +323,151 @@ def test_cli_digest_uses_saved_llm_override(
     code = _run_digest_command(ns, stdout=out)
     assert code == 0
     assert build_calls[0]["api_key"] == "sk-cli-override"
+
+
+def _health_db(path: Path) -> CredentialHealthStore:
+    DigestStore(path).init_schema()
+    return CredentialHealthStore(path)
+
+
+def test_health_store_newest_wins_and_ok_supersedes_auth_error(tmp_path: Path) -> None:
+    store = _health_db(tmp_path / "health.db")
+    version = "abc123"
+    store.record(source="github", credential_version=version, kind="test", result="auth_error")
+    store.record(
+        source="github",
+        credential_version=version,
+        kind="test",
+        result="ok",
+        observed_at="2026-11-03T00:00:01+00:00",
+    )
+    summary = store.summary_for_source("github", version)
+    assert summary.current == "ok"
+    assert summary.stale is False
+
+
+def test_health_store_stale_when_version_changes(tmp_path: Path) -> None:
+    store = _health_db(tmp_path / "stale.db")
+    store.record(source="github", credential_version="oldver", kind="test", result="ok")
+    summary = store.summary_for_source("github", "newver")
+    assert summary.current is None
+    assert summary.stale is True
+
+
+def test_classify_probe_outcome_distinct_results() -> None:
+    assert classify_probe_outcome(status_code=200).result == "ok"
+    assert classify_probe_outcome(status_code=401).result == "auth_error"
+    assert classify_probe_outcome(status_code=429).result == "rate_limited"
+    assert classify_probe_outcome(status_code=None, timed_out=True).result == "timeout"
+    assert classify_probe_outcome(status_code=503).result == "unavailable"
+
+
+def test_probe_github_uses_rate_limit_url() -> None:
+    import asyncio
+
+    seen: list[str] = []
+
+    async def _run() -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            return httpx.Response(200)
+
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            outcome = await probe_github("secret-token", client=client)
+        assert outcome.result == "ok"
+        assert "secret-token" not in outcome.reason
+
+    asyncio.run(_run())
+    assert seen == ["https://api.github.com/rate_limit"]
+
+
+def test_record_connector_health_from_digest(tmp_path: Path) -> None:
+    db = tmp_path / "conn-health.db"
+    store = _health_db(db)
+    provider = CredentialsProvider(db, environ={"GITHUB_TOKEN": "ghp_env"})
+    record_connector_health_from_digest(
+        store=store,
+        provider=provider,
+        warnings=[
+            ConnectorWarning(connector="github", code="rate_limited", message="slow"),
+        ],
+        connector_names={"github"},
+    )
+    summary = summary_for_catalog_source(store, provider, "github")
+    assert summary.current == "rate_limited"
+    assert summary.kind == "connector"
+
+
+def _secrets_count(db: Path) -> int:
+    with sqlite3.connect(db) as conn:
+        return conn.execute("SELECT COUNT(*) FROM secrets").fetchone()[0]
+
+
+def test_post_credential_test_stores_result_without_changing_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from ai_news_agent.api.app import create_app
+    from ai_news_agent.services.composition import build_application
+
+    key = Fernet.generate_key().decode()
+    monkeypatch.setenv("AI_NEWS_AGENT_SECRET_KEY", key)
+    db = tmp_path / "post-test.db"
+    application = build_application(fake=True, db_path=db)
+    client = TestClient(create_app(application))
+    provider = application.credentials_service
+    provider.save("GITHUB_TOKEN", "ghp_test_secret1234")
+    before = _secrets_count(db)
+
+    async def _fake_test(name, prov, **kw):  # noqa: ANN001
+        from ai_news_agent.credential_tests import ProbeOutcome
+
+        return ProbeOutcome(result="auth_error", reason="Authentication failed.")
+
+    monkeypatch.setattr(
+        "ai_news_agent.api.routers.settings.run_credential_test",
+        _fake_test,
+    )
+    response = client.post("/api/v1/settings/credentials/GITHUB_TOKEN/test")
+    assert response.status_code == 200
+    assert "ghp_test" not in str(response.json())
+    assert _secrets_count(db) == before
+
+
+def test_post_credential_test_unset_is_400(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from ai_news_agent.api.app import create_app
+    from ai_news_agent.services.composition import build_application
+
+    client = TestClient(create_app(build_application(fake=True, db_path=tmp_path / "unset.db")))
+    assert client.post("/api/v1/settings/credentials/GITHUB_TOKEN/test").status_code == 400
+
+
+def test_get_sources_health_stale_after_credential_replace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from ai_news_agent.api.app import create_app
+    from ai_news_agent.services.composition import build_application
+
+    key = Fernet.generate_key().decode()
+    monkeypatch.setenv("AI_NEWS_AGENT_SECRET_KEY", key)
+    db = tmp_path / "sources-health.db"
+    application = build_application(fake=True, db_path=db)
+    client = TestClient(create_app(application))
+    provider = application.credentials_service
+    store = application.credential_health_store
+    provider.save("GITHUB_TOKEN", "ghp_one")
+    v1 = health_version_for_source(provider, "github")
+    store.record(source="github", credential_version=v1, kind="test", result="ok")
+    provider.save("GITHUB_TOKEN", "ghp_two")
+    assert health_version_for_source(provider, "github") != v1
+    github = next(
+        s for s in client.get("/api/v1/sources").json()["sources"] if s["name"] == "github"
+    )
+    assert github["health"]["stale"] is True
+    assert github["health"]["current"] is None

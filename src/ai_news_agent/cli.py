@@ -399,6 +399,20 @@ def _run_digest_command(ns: argparse.Namespace, *, stdout: TextIO) -> int:
         len(result.errors),
     )
 
+    if not ns.fake:
+        from ai_news_agent.credential_health import (
+            CredentialHealthStore,
+            record_connector_health_from_digest,
+        )
+
+        health_store = CredentialHealthStore(db_path)
+        record_connector_health_from_digest(
+            store=health_store,
+            provider=credentials,
+            warnings=list(result.warnings),
+            connector_names=set(names),
+        )
+
     text = result.text
     if not text.endswith("\n"):
         text += "\n"

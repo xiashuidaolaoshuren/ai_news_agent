@@ -573,8 +573,25 @@ def test_api_v1_sources_lists_defaults_and_opt_in_metadata(tmp_path: Path) -> No
         "bilibili",
     ]
     by_name = {item["name"]: item for item in payload["sources"]}
-    assert by_name["juya"] == {"name": "juya", "default": True, "opt_in": False}
-    assert by_name["github"] == {"name": "github", "default": False, "opt_in": True}
+    _unchecked = {
+        "current": None,
+        "stale": False,
+        "credential_version": "unset",
+        "observed_at": None,
+        "kind": None,
+    }
+    assert by_name["juya"] == {
+        "name": "juya",
+        "default": True,
+        "opt_in": False,
+        "health": _unchecked,
+    }
+    assert by_name["github"] == {
+        "name": "github",
+        "default": False,
+        "opt_in": True,
+        "health": _unchecked,
+    }
 
 
 def test_api_v1_allows_loopback_cors_origins_only(tmp_path: Path) -> None:

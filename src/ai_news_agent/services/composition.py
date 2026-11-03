@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from ai_news_agent.connectors.base import SourceConnector
+from ai_news_agent.credential_health import (
+    CredentialHealthStore,
+    record_connector_health_from_digest,
+)
 from ai_news_agent.credentials import CredentialsProvider
 from ai_news_agent.env import configure_bilibili_network_from_env, load_local_env
 from ai_news_agent.graph.state import DigestResult, WorkflowError
@@ -174,6 +178,25 @@ class Application:
     digest_store: DigestStore
     source_settings_service: SourceSettingsService
     credentials_service: CredentialsProvider
+    credential_health_store: CredentialHealthStore
+
+
+def _record_digest_connector_health(
+    *,
+    result: DigestResult,
+    req: DigestRequest,
+    fake: bool,
+    credentials_service: CredentialsProvider,
+    health_store: CredentialHealthStore,
+) -> None:
+    if fake:
+        return
+    record_connector_health_from_digest(
+        store=health_store,
+        provider=credentials_service,
+        warnings=list(result.warnings),
+        connector_names=set(_names_from(req)),
+    )
 
 
 def build_application(*, fake: bool, db_path: Path) -> Application:
@@ -182,6 +205,7 @@ def build_application(*, fake: bool, db_path: Path) -> Application:
     store.init_schema()
     source_settings_service = SourceSettingsService(db_path)
     credentials_service = CredentialsProvider(db_path)
+    credential_health_store = CredentialHealthStore(db_path)
     session_service = SessionService(
         SessionStore(db_path),
         source_settings_service=source_settings_service,
@@ -192,6 +216,7 @@ def build_application(*, fake: bool, db_path: Path) -> Application:
         session_service=session_service,
         source_settings_service=source_settings_service,
         credentials_service=credentials_service,
+        credential_health_store=credential_health_store,
     )
     return Application(
         fake=fake,
@@ -201,6 +226,7 @@ def build_application(*, fake: bool, db_path: Path) -> Application:
         digest_store=store,
         source_settings_service=source_settings_service,
         credentials_service=credentials_service,
+        credential_health_store=credential_health_store,
     )
 
 
@@ -219,6 +245,7 @@ def _build_chat_service(
     session_service: SessionService,
     source_settings_service: SourceSettingsService,
     credentials_service: CredentialsProvider,
+    credential_health_store: CredentialHealthStore,
 ) -> ChatService:
     llm_holder: _LlmConfigHolder | None = None
     if fake:
@@ -251,7 +278,7 @@ def _build_chat_service(
             digest_model = model
         connectors = build_connectors(fake=fake, names=_names_from(req), credentials=creds)
         try:
-            return await run_digest(
+            result = await run_digest(
                 req,
                 connectors=list(connectors),
                 model=digest_model,
@@ -259,6 +286,14 @@ def _build_chat_service(
                 session_id=session_id,
                 request_id=request_id,
             )
+            _record_digest_connector_health(
+                result=result,
+                req=req,
+                fake=fake,
+                credentials_service=credentials_service,
+                health_store=credential_health_store,
+            )
+            return result
         finally:
             await _aclose_connectors(connectors)
 
@@ -282,6 +317,7 @@ def _build_chat_service(
             digest_model = model
         connectors = build_connectors(fake=fake, names=_names_from(req), credentials=creds)
         try:
+            final_result: DigestResult | None = None
             async for event in run_digest_streaming(
                 req,
                 connectors=list(connectors),
@@ -290,7 +326,17 @@ def _build_chat_service(
                 session_id=session_id,
                 request_id=request_id,
             ):
+                if len(event) >= 3 and event[2] is not None:
+                    final_result = event[2]
                 yield event
+            if final_result is not None:
+                _record_digest_connector_health(
+                    result=final_result,
+                    req=req,
+                    fake=fake,
+                    credentials_service=credentials_service,
+                    health_store=credential_health_store,
+                )
         finally:
             await _aclose_connectors(connectors)
 
