@@ -307,6 +307,11 @@ def _add_service_parser(sub: Any) -> argparse.ArgumentParser:
         action="store_true",
         help="Offline deterministic mode",
     )
+    p.add_argument(
+        "--remote",
+        action="store_true",
+        help="Remote mode: require AI_NEWS_AGENT_ACCESS_TOKEN",
+    )
     p.set_defaults(_handler=service_main)
     return p
 

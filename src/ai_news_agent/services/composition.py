@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ai_news_agent.access import AccessConfig, llm_url_guard
 from ai_news_agent.connectors.base import SourceConnector
 from ai_news_agent.credential_health import (
     CredentialHealthStore,
@@ -50,8 +51,14 @@ _LLM_UNREADABLE_MESSAGE = (
 class _LlmConfigHolder:
     """Build and cache chat/tool models for the current credential version."""
 
-    def __init__(self, credentials: CredentialsProvider) -> None:
+    def __init__(
+        self,
+        credentials: CredentialsProvider,
+        *,
+        guard: Any | None = None,
+    ) -> None:
         self._credentials = credentials
+        self._guard = guard
         self._version: str | None = None
         self._chat_model: Any = None
         self._tool_model: Any = None
@@ -73,12 +80,14 @@ class _LlmConfigHolder:
                 api_key=llm.api_key,
                 base_url=llm.base_url,
                 model=llm.model,
+                guard=self._guard,
             )
             try:
                 self._tool_model = build_tool_chat_model(
                     api_key=llm.api_key,
                     base_url=llm.base_url,
                     model=llm.model,
+                    guard=self._guard,
                 )
             except ValueError:
                 self._tool_model = None
@@ -173,6 +182,7 @@ class Application:
 
     fake: bool
     db_path: Path
+    access: AccessConfig
     session_service: SessionService
     chat_service: ChatService
     digest_store: DigestStore
@@ -199,8 +209,14 @@ def _record_digest_connector_health(
     )
 
 
-def build_application(*, fake: bool, db_path: Path) -> Application:
+def build_application(
+    *,
+    fake: bool,
+    db_path: Path,
+    access: AccessConfig | None = None,
+) -> Application:
     """Construct the application composition root."""
+    resolved_access = access if access is not None else AccessConfig.from_environ()
     store = DigestStore(db_path)
     store.init_schema()
     source_settings_service = SourceSettingsService(db_path)
@@ -217,10 +233,12 @@ def build_application(*, fake: bool, db_path: Path) -> Application:
         source_settings_service=source_settings_service,
         credentials_service=credentials_service,
         credential_health_store=credential_health_store,
+        guard=None if fake else llm_url_guard(resolved_access),
     )
     return Application(
         fake=fake,
         db_path=db_path,
+        access=resolved_access,
         session_service=session_service,
         chat_service=chat_service,
         digest_store=store,
@@ -246,6 +264,7 @@ def _build_chat_service(
     source_settings_service: SourceSettingsService,
     credentials_service: CredentialsProvider,
     credential_health_store: CredentialHealthStore,
+    guard: Any | None = None,
 ) -> ChatService:
     llm_holder: _LlmConfigHolder | None = None
     if fake:
@@ -253,7 +272,7 @@ def _build_chat_service(
         tool_agent_runner: Any = _FakeToolAgentRunner()
         interface_router: Any = None
     else:
-        llm_holder = _LlmConfigHolder(credentials_service)
+        llm_holder = _LlmConfigHolder(credentials_service, guard=guard)
         model = _LazyLlmProxy(llm_holder)
         tool_agent_runner = None
         interface_router = None

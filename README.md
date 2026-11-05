@@ -55,6 +55,11 @@ Copy [`.env.example`](.env.example) to `.env` and fill values as needed (never c
 | `BILIBILI_PROXY_URL` | Optional | HTTP proxy for bilibili-api requests |
 | `BILIBILI_IMPERSONATE` | Optional | Browser TLS fingerprint for `curl_cffi` (e.g. `chrome131`) |
 | `BILIBILI_TIMEOUT_SECONDS` | Optional | Request timeout override for bilibili-api |
+| `AI_NEWS_AGENT_SECRET_KEY` | Saved credentials | Fernet key used to encrypt credentials saved in Settings. Copy the value printed once by `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. |
+| `AI_NEWS_AGENT_ACCESS_TOKEN` | Remote mode | Owner bearer token required on every `/api/v1` route except `/health`. The service refuses to start in remote mode without it. |
+| `AI_NEWS_AGENT_REMOTE` | Optional | `1`/`true`/`yes`/`on` enables remote mode without the `--remote` flag |
+| `AI_NEWS_AGENT_CORS_ORIGINS` | Deployed frontend | Comma-separated browser origins for CORS. Wildcards are rejected; unset keeps the loopback dev origins. |
+| `AI_NEWS_AGENT_ALLOW_LOCAL_LLM` | Optional | `1`/`true`/`yes`/`on` lets remote mode use a local/private/plain-HTTP LLM base URL |
 
 SQLite defaults to `./digest.sqlite` in the current working directory unless you pass `--db-path`. Database files matching `*.db` are gitignored.
 
@@ -251,9 +256,9 @@ On failures, the web UI shows a short user-friendly message; full stack traces a
 
 ## Local web API (Milestone 8A.1)
 
-**8A.1 is local-only.** There is no authentication, visitor isolation, quota, or public deployment. Browser CORS allows only `http://127.0.0.1:5173` and `http://localhost:5173`. Do not expose this process beyond loopback.
+**Local mode (default) is loopback-only.** Without an owner token, reads are open on loopback and credential writes accept loopback clients (`127.0.0.1`, `::1`) only. Browser CORS allows `http://127.0.0.1:5173` and `http://localhost:5173` unless `AI_NEWS_AGENT_CORS_ORIGINS` overrides them. Do not expose local mode beyond loopback or put it behind a reverse proxy: the proxy would present remote clients as loopback. Use remote mode for any deployed or proxied access.
 
-`ai-news-agent service` starts one FastAPI app. It serves the browser API under `/api/v1` on loopback.
+`ai-news-agent service` starts one FastAPI app. It serves the browser API under `/api/v1`.
 
 Offline (no network, no API key):
 
@@ -267,9 +272,28 @@ Live (requires `OPENAI_API_KEY`, same as the CLI):
 uv run ai-news-agent service --port 8765 --db-path ./digest.sqlite
 ```
 
-Flags: `--host` (default `127.0.0.1`), `--port` (default `8765`), `--db-path` (default `./digest.sqlite`), `--fake`.
+Flags: `--host` (default `127.0.0.1`), `--port` (default `8765`), `--db-path` (default `./digest.sqlite`), `--fake`, `--remote`.
 
 OpenAPI is the generated FastAPI document at `http://127.0.0.1:8765/docs`.
+
+### Remote deployment (owner access)
+
+Remote mode is an explicit server setting: pass `--remote` or set `AI_NEWS_AGENT_REMOTE=1`. Startup fails without `AI_NEWS_AGENT_ACCESS_TOKEN`. Every `/api/v1` route except `/health` then requires `Authorization: Bearer <token>`, compared in constant time; a missing or rejected token returns `401`. The browser keeps the token in `sessionStorage` and sends it on API and SSE requests (there is no Remember-me control).
+
+```bash
+AI_NEWS_AGENT_ACCESS_TOKEN=… AI_NEWS_AGENT_CORS_ORIGINS=https://app.example \
+  uv run ai-news-agent service --remote --host 0.0.0.0 --port 8765
+```
+
+In remote mode an LLM base URL saved in Settings must be HTTPS on a public address; a redirect is held to the same rule. Private-network or plain-HTTP endpoints are rejected (`400`, not saved) unless `AI_NEWS_AGENT_ALLOW_LOCAL_LLM=1` explicitly allows them.
+
+Supported remote deployment **requires HTTPS termination and the following reverse-proxy duties** (the backend does not enforce them):
+
+- **Bounded request body size** — cap request bodies at the proxy (for example, nginx `client_max_body_size`).
+- **Bound on concurrent operations that can spend provider money** — limit in-flight digest/follow-up work at the proxy or an upstream queue.
+- **Throttling of failed authentication attempts** — rate-limit `401` responses so the owner token cannot be brute-forced.
+
+CORS is a browser policy, not authentication. Public visitor isolation and multi-user accounts remain out of scope.
 
 Browser routes:
 
@@ -387,9 +411,10 @@ Set `BILIBILI_SESSDATA`, `BILIBILI_BILI_JCT`, and `BILIBILI_BUVID3` in `.env` if
 
 **Milestone 8A.1 web API:**
 
-- Local loopback only. No accounts, quotas, or public fake backend.
+- Local mode is loopback-only; remote mode is a single-owner deployment guarded by an access token. No multi-user accounts, visitor isolation, or public fake backend.
+- Remote deployment depends on a reverse proxy for bounded request bodies, concurrent-spend limits, failed-auth throttling, and HTTPS.
 - Session search is lexical. Embeddings and memory RAG are later work.
-- The CLI remains available for one-shot digests and history search.
+- The CLI remains available for one-shot digests and history search; it does not require the owner access token.
 
 ## Documentation
 

@@ -182,12 +182,14 @@ async def probe_llm(
     base_url: str | None,
     model: str | None,
     chat_model: Any | None = None,
+    guard: Any | None = None,
 ) -> ProbeOutcome:
     try:
         model_obj = chat_model or build_chat_model(
             api_key=api_key,
             base_url=base_url,
             model=model,
+            guard=guard,
         )
         client = model_obj._client  # noqa: SLF001
         model_name = model_obj._model  # noqa: SLF001
@@ -217,6 +219,7 @@ async def run_credential_test(
     *,
     http_client: httpx.AsyncClient | None = None,
     chat_model: Any | None = None,
+    guard: Any | None = None,
 ) -> ProbeOutcome:
     if name.startswith(_BILIBILI_PREFIX):
         raise ValueError("Bilibili credential test is not supported")
@@ -234,6 +237,7 @@ async def run_credential_test(
             base_url=llm.base_url,
             model=llm.model,
             chat_model=chat_model,
+            guard=guard,
         )
 
     resolved = provider.resolve(name)

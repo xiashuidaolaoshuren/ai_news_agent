@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from ai_news_agent.access import llm_url_guard, validate_llm_base_url
 from ai_news_agent.api.deps import (
     get_application,
     get_credentials_provider,
@@ -106,7 +107,15 @@ def list_credentials(
 def save_llm_credentials(
     body: LlmCredentialUpdateIn,
     provider: CredentialsProvider = Depends(get_credentials_provider),
+    application: Application = Depends(get_application),
 ) -> dict[str, Any]:
+    if body.base_url and application.access.remote:
+        try:
+            validate_llm_base_url(
+                body.base_url, allow_local=application.access.allow_local_llm
+            )
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     try:
         provider.save_llm(
             api_key=body.api_key,
@@ -142,7 +151,9 @@ async def test_credential(
     provider = application.credentials_service
     health_store = application.credential_health_store
     try:
-        outcome = await run_credential_test(name, provider)
+        outcome = await run_credential_test(
+            name, provider, guard=llm_url_guard(application.access)
+        )
     except UnconfiguredCredentialError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except UnreadableCredentialError as exc:

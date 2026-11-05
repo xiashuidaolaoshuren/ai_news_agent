@@ -15,7 +15,7 @@ from ai_news_agent.services.composition import build_application
 
 def _client(db_path: Path) -> TestClient:
     application = build_application(fake=True, db_path=db_path)
-    return TestClient(create_app(application))
+    return TestClient(create_app(application), client=("127.0.0.1", 50000))
 
 
 def test_get_settings_sources_lists_hidden_bilibili_and_openrouter_defaults(

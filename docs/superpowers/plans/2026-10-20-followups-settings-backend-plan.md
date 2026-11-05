@@ -244,7 +244,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ### B11 — Owner access token
 
-- [ ] **Do:** Require a bearer token in remote mode, and limit unauthenticated credential writes to loopback in local mode.
+- [x] **Do:** Require a bearer token in remote mode, and limit unauthenticated credential writes to loopback in local mode.
 
 - **Consumes:** B9 credential routes. `create_app` CORS middleware.
 - **Produces:** Remote mode is an explicit server setting. Startup fails in remote mode when `AI_NEWS_AGENT_ACCESS_TOKEN` is missing. Every `/api/v1` route except `/health` requires `Authorization: Bearer`, compared in constant time. A missing or wrong token is 401. Local mode may run without a token. Credential writes in local mode accept only `127.0.0.1` and `::1`. CORS origins come from `AI_NEWS_AGENT_CORS_ORIGINS` when set, with no wildcards. Allowed methods include PUT. Allowed headers include Authorization. A remote-mode LLM base URL must be HTTPS on a public address, including after a redirect, unless a server-side switch allows a local endpoint. The browser contract is `sessionStorage`; this task does not add a Remember-me flag.
@@ -285,3 +285,4 @@ Per subtask, obey `TDD suitable`. `yes` means strict test-first. **B9** without 
 | 2026-11-02 | B8 file map includes juya connector, parse/workflow, ranking, chat, session_service, sessions API, request confirm flag | equivalent |
 | 2026-11-02 | B9 file map adds sources, deps, pyproject cryptography; llm.py unchanged | equivalent |
 | 2026-11-02 | B10 file map adds credential health store, probes, and sources summary | equivalent |
+| 2026-11-05 | B11 file map adds `access.py`, `api/auth.py`, `test_access_token.py`; service gains `--remote`; env vars `AI_NEWS_AGENT_REMOTE`, `AI_NEWS_AGENT_ACCESS_TOKEN`, `AI_NEWS_AGENT_CORS_ORIGINS`, `AI_NEWS_AGENT_ALLOW_LOCAL_LLM`; reverse-proxy duties documented in README | equivalent |
