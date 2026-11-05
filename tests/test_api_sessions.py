@@ -524,6 +524,56 @@ def test_openapi_lists_milestone_8b_contract_fields(tmp_path: Path) -> None:
     assert "topics" in properties("HistorySearchMatchOut")
 
 
+def _schema_enum(schema: dict, name: str) -> set[str]:
+    """Collect string enum values for one property, including nullable anyOf."""
+    prop = schema["properties"][name]
+    values: set[str] = set()
+    candidates = [prop, *prop.get("anyOf", []), *prop.get("allOf", [])]
+    for candidate in candidates:
+        if "$ref" in candidate:
+            continue
+        values.update(candidate.get("enum", []))
+    return values
+
+
+def test_openapi_lists_followup_and_settings_contracts(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "openapi-b12.db")
+    document = client.get("/openapi.json").json()
+    schemas = document["components"]["schemas"]
+    paths = document["paths"]
+
+    message = schemas["MessageOut"]
+    body = schemas["PostMessageBody"]
+    assert {"followup_target", "followup_action", "collection_outcome"} <= set(
+        message["properties"]
+    )
+    assert {
+        "followup_target",
+        "followup_action",
+        "repeat_of_user_message_id",
+        "replace_source",
+    } <= set(body["properties"])
+    assert _schema_enum(message, "followup_action") == {"deep_dive", "ask"}
+    assert _schema_enum(body, "followup_action") == {"deep_dive", "ask"}
+    assert _schema_enum(message, "collection_outcome") == {
+        "results",
+        "no_eligible",
+        "failed",
+        "partial",
+    }
+
+    for path, methods in {
+        "/api/v1/settings/sources": {"get"},
+        "/api/v1/settings/sources/{name}": {"put"},
+        "/api/v1/settings/language": {"get", "put"},
+        "/api/v1/settings/credentials": {"get"},
+        "/api/v1/settings/credentials/llm": {"put", "delete"},
+        "/api/v1/settings/credentials/{name}": {"put", "delete"},
+        "/api/v1/settings/credentials/{name}/test": {"post"},
+    }.items():
+        assert methods <= set(paths[path])
+
+
 def test_fastapi_shell_surface_importable() -> None:
     from ai_news_agent.api.app import create_app
     from ai_news_agent.services.composition import Application, build_application

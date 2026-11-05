@@ -778,15 +778,20 @@ _ARCHIVED_ROWS: dict[str, list[dict[str, object]]] = {
 
 
 def _set_updated_at(db_path: Path, session_id: str, stamp: str) -> None:
-    with sqlite3.connect(db_path) as conn:
+    conn = sqlite3.connect(db_path)
+    try:
         conn.execute(
             "UPDATE sessions SET updated_at = ? WHERE id = ?",
             (_iso(stamp), session_id),
         )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _set_message_times(db_path: Path, session_id: str, stamps: list[str]) -> None:
-    with sqlite3.connect(db_path) as conn:
+    conn = sqlite3.connect(db_path)
+    try:
         rows = conn.execute(
             """
             SELECT id FROM session_messages
@@ -802,3 +807,6 @@ def _set_message_times(db_path: Path, session_id: str, stamps: list[str]) -> Non
                 "UPDATE session_messages SET created_at = ? WHERE id = ?",
                 (_iso(stamp), row[0]),
             )
+        conn.commit()
+    finally:
+        conn.close()

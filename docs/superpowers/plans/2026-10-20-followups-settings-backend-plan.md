@@ -257,7 +257,7 @@ Settings then replace the session item-count. Profiles and output language ship 
 
 ### B12 — Backend contract check
 
-- [ ] **Do:** Prove the follow-up fields, the settings routes, and the v4 migration in one offline run.
+- [x] **Do:** Prove the follow-up fields, the settings routes, and the v4 migration in one offline run.
 
 - **Consumes:** B1–B11.
 - **Produces:** OpenAPI lists the follow-up fields, the settings routes, and `followup_action` limited to `deep_dive` and `ask`.

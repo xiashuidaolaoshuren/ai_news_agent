@@ -223,10 +223,15 @@ def test_build_application_uses_saved_llm_override(
     assert build_calls[0]["api_key"] == "sk-saved"
 
 
-def test_cli_digest_exits_when_llm_unconfigured(tmp_path: Path, capsys) -> None:
+def test_cli_digest_exits_when_llm_unconfigured(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from argparse import Namespace
 
     from ai_news_agent.cli import _run_digest_command
+
+    for name in LLM_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
 
     db = tmp_path / "cli-no-llm.db"
     ns = Namespace(
@@ -436,12 +441,15 @@ def test_post_credential_test_stores_result_without_changing_secrets(
     assert _secrets_count(db) == before
 
 
-def test_post_credential_test_unset_is_400(tmp_path: Path) -> None:
+def test_post_credential_test_unset_is_400(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from fastapi.testclient import TestClient
 
     from ai_news_agent.api.app import create_app
     from ai_news_agent.services.composition import build_application
 
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     client = TestClient(create_app(build_application(fake=True, db_path=tmp_path / "unset.db")))
     assert client.post("/api/v1/settings/credentials/GITHUB_TOKEN/test").status_code == 400
 
