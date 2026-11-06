@@ -7,15 +7,37 @@ import EntryParagraphs from '@/components/thread/EntryParagraphs.vue'
 import SourceTag from '@/components/thread/SourceTag.vue'
 import { riseStyle } from '@/lib/motion'
 import { hostOf } from '@/vm'
-import type { EntryVm } from '@/vm'
+import type { EntryVm, RefVm } from '@/vm'
 
 const props = defineProps<{
   entry: EntryVm
+  /** Digest id for follow-up targets (not the display ref string). */
+  digestId: number
   /** Stagger position when this row arrived live; null keeps it still. */
   rise?: number | null
 }>()
 
-const emit = defineEmits<{ followup: [title: string] }>()
+const emit = defineEmits<{
+  deepdive: [ref: RefVm]
+  ask: [ref: RefVm]
+  'goto-related': [ref: RefVm]
+}>()
+
+function refForEntry(): RefVm {
+  return {
+    digestId: props.digestId,
+    rank: props.entry.rank,
+    title: props.entry.title,
+  }
+}
+
+function relatedRef(rank: number): RefVm {
+  return {
+    digestId: props.digestId,
+    rank,
+    title: `#${rank}`,
+  }
+}
 
 /** Juya stories link to the original story, everything else to the entry url. */
 const externalUrl = computed(() => props.entry.juya?.originalUrl ?? props.entry.url)
@@ -69,7 +91,12 @@ const showsBackground = computed(
 </script>
 
 <template>
-  <li class="entry" :class="{ rise: rises }" :style="riseStyle(props.rise)">
+  <li
+    class="entry"
+    :class="{ rise: rises }"
+    :style="riseStyle(props.rise)"
+    :data-ref="`d${props.digestId}-${props.entry.rank}`"
+  >
     <div class="rank">#{{ props.entry.rank }}</div>
     <div>
       <h4>
@@ -96,6 +123,17 @@ const showsBackground = computed(
           rel="noopener"
           >{{ externalHost }}<AppIcon name="ext" /></a
         >
+        <button
+          v-for="relatedRank in props.entry.relatedRanks ?? []"
+          :key="`related-${relatedRank}`"
+          type="button"
+          class="chip rel-chip"
+          :data-od-id="`related-${relatedRank}`"
+          :aria-label="`Related: entry #${relatedRank} names the same model`"
+          @click="emit('goto-related', relatedRef(relatedRank))"
+        >
+          Related: #{{ relatedRank }}
+        </button>
       </div>
 
       <dl
@@ -140,9 +178,18 @@ const showsBackground = computed(
         <button
           type="button"
           class="link-btn"
-          @click="emit('followup', props.entry.title)"
+          :data-od-id="`deepdive-${props.entry.key}`"
+          @click="emit('deepdive', refForEntry())"
         >
-          <AppIcon name="reply" />Ask a follow-up
+          <AppIcon name="layers" />Deep dive
+        </button>
+        <button
+          type="button"
+          class="link-btn"
+          :data-od-id="`followup-${props.entry.key}`"
+          @click="emit('ask', refForEntry())"
+        >
+          <AppIcon name="reply" />Ask about this
         </button>
       </div>
     </div>

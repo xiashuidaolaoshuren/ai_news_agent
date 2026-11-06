@@ -10,6 +10,7 @@ import {
   toHistoryPanelVm,
   type HistoryPanelVm,
 } from '@/vm'
+import type { RefVm } from '@/vm/types'
 
 const MATCH = {
   ref: { token: 'd15r3', digest_id: 15, run_id: 4, entry_id: 3, rank: 3 },
@@ -77,7 +78,8 @@ describe('HistoryPanel opened result', () => {
 
     await ask?.trigger('click')
 
-    expect(wrapper.emitted('ask')).toEqual([['NVIDIA/OpenShell']])
+    const expected: RefVm = { digestId: 15, rank: 3, title: 'NVIDIA/OpenShell' }
+    expect(wrapper.emitted('ask')).toEqual([[expected]])
   })
 
   it('keeps the actions when the saved entry resolved', () => {

@@ -25,9 +25,11 @@ const withVariant = hfEntry({
   },
 })
 
+const DIGEST_ID = 15
+
 describe('HfTable', () => {
-  it('names the eight comparison columns', () => {
-    const wrapper = mount(HfTable, { props: { entries: [hfEntry()] } })
+  it('names the nine comparison columns including Actions', () => {
+    const wrapper = mount(HfTable, { props: { entries: [hfEntry()], digestId: DIGEST_ID } })
     const headers = wrapper.findAll('thead th').map((th) => th.text())
 
     expect(headers).toEqual([
@@ -39,11 +41,12 @@ describe('HfTable', () => {
       'Likes',
       'Pipeline',
       'Variants',
+      'Actions',
     ])
   })
 
   it('renders one row per model with its metrics and pipeline', () => {
-    const wrapper = mount(HfTable, { props: { entries: [hfEntry()] } })
+    const wrapper = mount(HfTable, { props: { entries: [hfEntry()], digestId: DIGEST_ID } })
     const row = wrapper.get('tbody tr')
 
     expect(row.text()).toContain('#2')
@@ -57,14 +60,14 @@ describe('HfTable', () => {
   })
 
   it('shows a dash when no base model is declared', () => {
-    const wrapper = mount(HfTable, { props: { entries: [hfEntry()] } })
+    const wrapper = mount(HfTable, { props: { entries: [hfEntry()], digestId: DIGEST_ID } })
 
     expect(wrapper.get('tbody tr').text()).toContain('—')
     expect(wrapper.get('tbody tr').text()).not.toContain('Fine-tune of')
   })
 
   it('shows the base model label and source id for a family variant', () => {
-    const wrapper = mount(HfTable, { props: { entries: [withVariant] } })
+    const wrapper = mount(HfTable, { props: { entries: [withVariant], digestId: DIGEST_ID } })
     const row = wrapper.get('tbody tr')
 
     expect(row.text()).toContain('Fine-tune of')
@@ -72,7 +75,7 @@ describe('HfTable', () => {
   })
 
   it('keeps the table note about the dash', () => {
-    const wrapper = mount(HfTable, { props: { entries: [hfEntry()] } })
+    const wrapper = mount(HfTable, { props: { entries: [hfEntry()], digestId: DIGEST_ID } })
 
     expect(wrapper.get('.table-note').text()).toContain('—')
   })

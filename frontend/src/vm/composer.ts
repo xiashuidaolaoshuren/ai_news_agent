@@ -1,6 +1,6 @@
 import { sourceLabel } from '@/vm/digest'
 import { sourceKind } from '@/vm/run'
-import type { EntryKind } from '@/vm/types'
+import type { EntryKind, RefVm } from '@/vm/types'
 
 /** Stepper bounds from the spec (1-20), not the prototype's narrower demo range. */
 export const COUNT_MIN = 1
@@ -85,6 +85,7 @@ export const COUNT_INVALID = `Items per source must be a whole number from ${COU
 /** Shown when the send call itself fails, or when a preference PATCH is refused. */
 export const SEND_FAILED = 'Could not send this message.'
 export const PREFS_FAILED = 'Could not update this conversation’s sources.'
+export const FOLLOWUP_TARGET_UNAVAILABLE = 'That entry is no longer available.'
 
 /** One message per failing rule, keyed by the field that owns it. */
 export interface ComposerErrors {
@@ -129,6 +130,8 @@ export interface ComposerVmInput {
   errors: ComposerErrors
   busy: boolean
   notice: ComposerNotice
+  /** Optional follow-up target; drives placeholder and chip. */
+  ref: RefVm | null
 }
 
 /** Everything the composer renders; the component reads no other state. */
@@ -139,6 +142,15 @@ export interface ComposerVm {
   busy: boolean
   notice: ComposerNotice
   errors: ComposerErrors
+  ref: RefVm | null
+  placeholder: string
+}
+
+function placeholderFor(ref: RefVm | null): string {
+  if (ref === null) {
+    return 'Ask anything about your sources'
+  }
+  return `Ask about d${ref.digestId} #${ref.rank}…`
 }
 
 /** Bind the composer's raw state to one render-ready view-model. */
@@ -153,5 +165,7 @@ export function toComposerVm(input: ComposerVmInput): ComposerVm {
     busy: input.busy,
     notice: input.notice,
     errors: input.errors,
+    ref: input.ref,
+    placeholder: placeholderFor(input.ref),
   }
 }

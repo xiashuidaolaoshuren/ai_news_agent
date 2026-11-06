@@ -15,7 +15,17 @@ import { setupApiClient } from '@/api/setupClient'
 import { prefersReducedMotion } from '@/lib/motion'
 import { useSessionsStore } from '@/stores/sessions'
 import { toDigestVm, type DigestVm } from '@/vm/digest'
-import { toMessageVm, toRequestStateVm, toResolvedSourcesVm, toSentSourcesVm, type MessageVm, type RequestStateVm, type SentSourcesInput, type SentSourcesVm } from '@/vm/session'
+import {
+  toMessages,
+  toRequestStateVm,
+  toResolvedSourcesVm,
+  toSentSourcesVm,
+  type MessageVm,
+  type RequestStateVm,
+  type SentSourcesInput,
+  type SentSourcesVm,
+} from '@/vm/session'
+import type { RefVm } from '@/vm/types'
 import {
   toCancelledVm,
   toRunVm,
@@ -91,9 +101,23 @@ export function clockLabel(date: Date): string {
     .join(':')
 }
 
+/** Merge new API rows into the accumulated transcript, deduping by id. */
+function mergeRawMessages(accumulated: MessageOut[], batch: MessageOut[]): MessageOut[] {
+  const byId = new Map<number, MessageOut>()
+  for (const message of accumulated) {
+    byId.set(message.id, message)
+  }
+  for (const message of batch) {
+    byId.set(message.id, message)
+  }
+  return [...byId.values()].sort((a, b) => a.sequence - b.sequence)
+}
+
 /** Reactive thread state: the transcript, the live run, and its terminal outcome. */
 export function createThreadController(deps: ThreadDeps) {
   const messages = ref<MessageVm[]>([])
+  /** All transcript rows loaded for this conversation, oldest-first by sequence. */
+  const rawMessages = ref<MessageOut[]>([])
   const loading = ref(false)
   const loadingOlder = ref(false)
   /** The cursor for the page before the oldest row on screen, or null at the start. */
@@ -101,7 +125,11 @@ export function createThreadController(deps: ThreadDeps) {
   const loadError = ref<string | null>(null)
   const session = shallowRef<SessionOut | null>(null)
   const draft = ref('')
-  const pendingUser = ref<{ text: string; chips: SentSourcesVm | null } | null>(null)
+  const pendingUser = ref<{
+    text: string
+    chips: SentSourcesVm | null
+    ref?: RefVm | null
+  } | null>(null)
   const freshIds = ref<number[]>([])
   const rawSnapshot = shallowRef<RequestSnapshot>(deps.lifecycle.state)
   const progressTimes = ref<string[]>([])
@@ -355,6 +383,9 @@ export function createThreadController(deps: ThreadDeps) {
               ...(pendingUser.value.chips === null
                 ? {}
                 : { chips: pendingUser.value.chips }),
+              ...(pendingUser.value.ref !== undefined && pendingUser.value.ref !== null
+                ? { ref: pendingUser.value.ref }
+                : {}),
               warnings: [],
             },
           ]
@@ -400,11 +431,6 @@ export function createThreadController(deps: ThreadDeps) {
     })
   })
 
-  /** Render the transcript in reading order; the API pages newest first. */
-  function toMessages(loaded: MessageOut[]): MessageVm[] {
-    return [...loaded].sort((a, b) => a.sequence - b.sequence).map(toMessageVm)
-  }
-
   /**
    * Load the transcript. A reload after a run marks the rows it adds as fresh so
    * the reveal animation plays for the reply that just landed; opening a
@@ -422,7 +448,8 @@ export function createThreadController(deps: ThreadDeps) {
       if ((session.value?.id ?? null) !== sessionId) {
         return
       }
-      const next = toMessages(page.messages)
+      rawMessages.value = mergeRawMessages([], page.messages)
+      const next = toMessages(rawMessages.value)
       const known = new Set(messages.value.map((message) => message.id))
       messages.value = next
       nextCursor.value = page.nextCursor
@@ -459,11 +486,10 @@ export function createThreadController(deps: ThreadDeps) {
         return
       }
       nextCursor.value = page.nextCursor
-      const known = new Set(messages.value.map((message) => message.id))
-      const older = page.messages
-        .filter((message) => !known.has(message.id))
-        .map(toMessageVm)
-      messages.value = [...older, ...messages.value].sort((a, b) => a.sequence - b.sequence)
+      const known = new Set(rawMessages.value.map((message) => message.id))
+      const olderRaw = page.messages.filter((message) => !known.has(message.id))
+      rawMessages.value = mergeRawMessages(rawMessages.value, olderRaw)
+      messages.value = toMessages(rawMessages.value)
     } catch (caught) {
       if ((session.value?.id ?? null) === sessionId) {
         loadError.value =
@@ -485,6 +511,7 @@ export function createThreadController(deps: ThreadDeps) {
       return
     }
     messages.value = []
+    rawMessages.value = []
     loadError.value = null
     draft.value = ''
     pendingUser.value = null
@@ -542,8 +569,12 @@ export function createThreadController(deps: ThreadDeps) {
    * for the row the backend persists until the terminal reload brings that row back
    * with the reply.
    */
-  function markUserSent(text: string, sources: SentSourcesInput): void {
-    pendingUser.value = { text, chips: toSentSourcesVm(sources) }
+  function markUserSent(text: string, sources: SentSourcesInput, ref?: RefVm | null): void {
+    pendingUser.value = {
+      text,
+      chips: toSentSourcesVm(sources),
+      ...(ref !== undefined ? { ref } : {}),
+    }
   }
 
   return {

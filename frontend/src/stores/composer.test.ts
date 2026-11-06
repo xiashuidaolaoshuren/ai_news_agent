@@ -6,6 +6,7 @@ import type { RequestLifecycle, RequestSnapshot } from '@/api/lifecycle'
 import { createComposerController, type ComposerDeps } from '@/stores/composer'
 import { COUNT_INVALID, PREFS_FAILED, TEXT_REQUIRED, parseSources } from '@/vm/composer'
 import type { SentSourcesInput } from '@/vm/session'
+import type { RefVm } from '@/vm/types'
 
 const CATALOG = parseSources({
   defaults: ['juya'],
@@ -61,7 +62,7 @@ interface Harness {
   applied: SessionOut[]
   cancelCount: { value: number }
   patchError: { value: string | null }
-  marked: { text: string; sources: SentSourcesInput }[]
+  marked: { text: string; sources: SentSourcesInput; ref?: RefVm | null }[]
 }
 
 /** Composer controller wired to spies, so no HTTP layer is involved. */
@@ -114,8 +115,8 @@ function makeComposer(overrides: Partial<ComposerDeps> = {}): Harness {
       applied.push(next)
     },
     runAgain: () => {},
-    markUserSent: (text, sources) => {
-      marked.push({ text, sources })
+    markUserSent: (text, sources, ref) => {
+      marked.push(ref === undefined ? { text, sources } : { text, sources, ref })
     },
     newId: () => {
       ids += 1
@@ -336,14 +337,18 @@ describe('composer prefill', () => {
     expect(controller.focusToken.value).toBe(1)
   })
 
-  it('templates the follow-up prompt from an entry title', async () => {
+  it('sets ask-about target and clears the draft', async () => {
     const { controller, draft } = await ready()
+    draft.value = 'scratch'
 
-    controller.prefillFollowUp('NVIDIA/OpenShell')
+    const ref: RefVm = { digestId: 15, rank: 3, title: 'NVIDIA/OpenShell' }
+    controller.askAbout(ref)
 
-    expect(draft.value).toBe(
-      'Tell me more about “NVIDIA/OpenShell”: what it is and how I could try it.',
-    )
+    expect(draft.value).toBe('')
+    expect(controller.targetRef.value).toEqual(ref)
+    expect(controller.vm.value.ref).toEqual(ref)
+    expect(controller.vm.value.placeholder).toBe('Ask about d15 #3…')
+    expect(controller.focusToken.value).toBe(1)
   })
 
   it('refills from the last user message on Run again and focuses', async () => {

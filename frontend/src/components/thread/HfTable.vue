@@ -2,18 +2,41 @@
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AvatarTile from '@/components/thread/AvatarTile.vue'
 import { riseStyle } from '@/lib/motion'
-import type { EntryVm } from '@/vm'
+import type { EntryVm, RefVm } from '@/vm'
 
 const props = defineProps<{
   entries: EntryVm[]
+  digestId: number
   /** Set when the table arrived live, so each row reveals in turn. */
   animate?: boolean
   /** Where this table's rows start in the digest-wide stagger count. */
   startIndex?: number
 }>()
 
+const emit = defineEmits<{
+  deepdive: [ref: RefVm]
+  ask: [ref: RefVm]
+  'goto-related': [ref: RefVm]
+}>()
+
 function rowStyle(index: number): string | undefined {
   return props.animate === true ? riseStyle((props.startIndex ?? 0) + index) : undefined
+}
+
+function rowRef(entry: EntryVm): RefVm {
+  return {
+    digestId: props.digestId,
+    rank: entry.rank,
+    title: entry.hf?.modelId ?? entry.title,
+  }
+}
+
+function relatedRef(rank: number): RefVm {
+  return {
+    digestId: props.digestId,
+    rank,
+    title: `#${rank}`,
+  }
 }
 </script>
 
@@ -30,6 +53,7 @@ function rowStyle(index: number): string | undefined {
           <th scope="col" class="r">Likes</th>
           <th scope="col">Pipeline</th>
           <th scope="col">Variants</th>
+          <th scope="col" class="acts">Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -39,6 +63,7 @@ function rowStyle(index: number): string | undefined {
           class="hf-row"
           :class="{ rise: props.animate === true }"
           :style="rowStyle(index)"
+          :data-ref="`d${props.digestId}-${entry.rank}`"
         >
           <td class="mono muted">#{{ entry.rank }}</td>
           <td class="model">
@@ -73,6 +98,42 @@ function rowStyle(index: number): string | undefined {
               </span>
             </template>
             <span v-else aria-label="None reported">—</span>
+            <div
+              v-if="entry.relatedRanks && entry.relatedRanks.length > 0"
+              class="row-related"
+            >
+              <button
+                v-for="relatedRank in entry.relatedRanks"
+                :key="`hf-related-${relatedRank}`"
+                type="button"
+                class="chip rel-chip"
+                :data-od-id="`related-${relatedRank}`"
+                :aria-label="`Related: entry #${relatedRank} names the same model`"
+                @click="emit('goto-related', relatedRef(relatedRank))"
+              >
+                Related: #{{ relatedRank }}
+              </button>
+            </div>
+          </td>
+          <td class="acts">
+            <div class="row-acts">
+              <button
+                type="button"
+                class="link-btn"
+                :aria-label="`Deep dive: ${rowRef(entry).title}`"
+                @click="emit('deepdive', rowRef(entry))"
+              >
+                <AppIcon name="layers" />Deep dive
+              </button>
+              <button
+                type="button"
+                class="link-btn"
+                :aria-label="`Ask about this: ${rowRef(entry).title}`"
+                @click="emit('ask', rowRef(entry))"
+              >
+                <AppIcon name="reply" />Ask about this
+              </button>
+            </div>
           </td>
         </tr>
       </tbody>
@@ -83,3 +144,4 @@ function rowStyle(index: number): string | undefined {
     declared.
   </div>
 </template>
+

@@ -1,12 +1,13 @@
 import { defineStore, storeToRefs } from 'pinia'
 import { computed, getCurrentScope, onScopeDispose, ref, watch, type Ref } from 'vue'
 
-import type { SessionOut, SessionPatch } from '@/api/generated/types.gen'
+import type { PostMessageBody, SessionOut, SessionPatch } from '@/api/generated/types.gen'
 import {
   patchSessionApiV1SessionsSessionIdPatch,
   sourcesApiV1SourcesGet,
 } from '@/api/generated/sdk.gen'
 import type { RequestLifecycle, RequestSnapshot } from '@/api/lifecycle'
+import { SseHttpError } from '@/api/sse'
 import { setupApiClient } from '@/api/setupClient'
 import { useSessionsStore } from '@/stores/sessions'
 import { useThreadStore } from '@/stores/thread'
@@ -17,6 +18,7 @@ import {
   DEFAULT_ITEMS_PER_SOURCE,
   PREFS_FAILED,
   SEND_FAILED,
+  FOLLOWUP_TARGET_UNAVAILABLE,
   parseSources,
   prefsFor,
   toComposerVm,
@@ -27,6 +29,7 @@ import {
   type SourceOption,
 } from '@/vm/composer'
 import type { SentSourcesInput } from '@/vm/session'
+import type { RefVm } from '@/vm/types'
 
 /** Server calls and shared state the composer needs, injected for tests. */
 export interface ComposerDeps {
@@ -38,7 +41,7 @@ export interface ComposerDeps {
   patchPrefs(sessionId: string, body: SessionPatch): Promise<SessionOut>
   applySession(next: SessionOut): void
   runAgain(): void
-  markUserSent(text: string, sources: SentSourcesInput): void
+  markUserSent(text: string, sources: SentSourcesInput, ref?: RefVm | null): void
   newId(): string
 }
 
@@ -82,8 +85,8 @@ export function defaultComposerDeps(): ComposerDeps {
     runAgain: () => {
       thread.runAgain()
     },
-    markUserSent: (text, sources) => {
-      thread.markUserSent(text, sources)
+    markUserSent: (text, sources, ref) => {
+      thread.markUserSent(text, sources, ref)
     },
     newId: randomId,
   }
@@ -98,6 +101,8 @@ export function createComposerController(deps: ComposerDeps) {
   const selected = ref<string[]>([])
   const count = ref(String(DEFAULT_ITEMS_PER_SOURCE))
   const errors = ref<ComposerErrors>({})
+  /** Follow-up target for "Ask about this" messages; cleared after send. */
+  const targetRef = ref<RefVm | null>(null)
 
   /** Bumped whenever something outside the composer asks for the caret. */
   const focusToken = ref(0)
@@ -108,6 +113,7 @@ export function createComposerController(deps: ComposerDeps) {
     selected.value = [...prefs.selected]
     count.value = prefs.count
     errors.value = {}
+    targetRef.value = null
   }
 
   async function load(): Promise<void> {
@@ -172,6 +178,7 @@ export function createComposerController(deps: ComposerDeps) {
       errors: errors.value,
       busy: active.value,
       notice: notice.value,
+      ref: targetRef.value,
     }),
   )
 
@@ -249,15 +256,36 @@ export function createComposerController(deps: ComposerDeps) {
     await persistPrefs()
   }
 
+  function followupTargetPayload(ref: RefVm): NonNullable<PostMessageBody['followup_target']> {
+    return { digest_id: ref.digestId, display_rank: ref.rank }
+  }
+
+  function isFollowupTargetHttpError(caught: unknown): boolean {
+    if (!(caught instanceof SseHttpError) || caught.status !== 400) {
+      return false
+    }
+    const raw = `${caught.code ?? ''} ${caught.message}`.toLowerCase()
+    return raw.includes('follow-up target') || raw.includes('followup target')
+  }
+
+  function handleSendFailure(caught: unknown): void {
+    if (isFollowupTargetHttpError(caught)) {
+      targetRef.value = null
+      errors.value = { send: FOLLOWUP_TARGET_UNAVAILABLE }
+      return
+    }
+    errors.value = { send: SEND_FAILED }
+  }
+
   /** Validate, then start one run. Returns false when nothing was sent. */
   function send(): boolean {
     if (active.value) {
       sendBlocked.value = true
       return false
     }
-    const draft = deps.draft.value
+    const draftText = deps.draft.value
     const nextErrors = validateComposer({
-      text: draft,
+      text: draftText,
       selected: selected.value,
       count: count.value,
     })
@@ -271,22 +299,73 @@ export function createComposerController(deps: ComposerDeps) {
     }
     errors.value = {}
     sendBlocked.value = false
-    const content = draft.trim()
+    const content = draftText.trim()
     deps.draft.value = ''
-    deps.markUserSent(content, {
-      names: [...selected.value],
-      perSource: Number(count.value),
-    })
-    void deps.lifecycle
-      .send(sessionId, {
-        content,
-        client_request_id: deps.newId(),
-        juya_item_mode: 'stories',
-      })
-      .catch(() => {
-        errors.value = { send: SEND_FAILED }
-      })
+    const ref = targetRef.value
+    targetRef.value = null
+    const body: PostMessageBody = {
+      content,
+      client_request_id: deps.newId(),
+      juya_item_mode: 'stories',
+    }
+    if (ref !== null) {
+      body.followup_target = followupTargetPayload(ref)
+      body.followup_action = 'ask'
+    }
+    deps.markUserSent(
+      content,
+      {
+        names: [...selected.value],
+        perSource: Number(count.value),
+      },
+      ref ?? undefined,
+    )
+    void deps.lifecycle.send(sessionId, body).catch(handleSendFailure)
     return true
+  }
+
+  /** Send a deep-dive follow-up immediately for one digest entry. */
+  function deepDive(ref: RefVm): boolean {
+    if (active.value) {
+      sendBlocked.value = true
+      return false
+    }
+    const sessionId = deps.session()?.id
+    if (sessionId === undefined) {
+      return false
+    }
+    errors.value = {}
+    sendBlocked.value = false
+    const content = `Deep dive: ${ref.title}`
+    const body: PostMessageBody = {
+      content,
+      client_request_id: deps.newId(),
+      juya_item_mode: 'stories',
+      followup_target: followupTargetPayload(ref),
+      followup_action: 'deep_dive',
+    }
+    deps.markUserSent(
+      content,
+      {
+        names: [...selected.value],
+        perSource: Number(count.value),
+      },
+      ref,
+    )
+    void deps.lifecycle.send(sessionId, body).catch(handleSendFailure)
+    return true
+  }
+
+  /** Set the ask-about target and focus the composer (no send). */
+  function askAbout(ref: RefVm): void {
+    targetRef.value = ref
+    deps.draft.value = ''
+    clearError('text')
+    focusToken.value += 1
+  }
+
+  function removeRef(): void {
+    targetRef.value = null
   }
 
   /** Stop the run this conversation owns. */
@@ -308,12 +387,7 @@ export function createComposerController(deps: ComposerDeps) {
     focusToken.value += 1
   }
 
-  /** "Ask a follow-up" on one entry. */
-  function prefillFollowUp(title: string): void {
-    prefill(`Tell me more about “${title}”: what it is and how I could try it.`)
-  }
-
-  /** "Run again" refills from the last user message; it never resends. */
+  /** “Run again” refills from the last user message; it never resends. */
   function runAgain(): void {
     deps.runAgain()
     focusToken.value += 1
@@ -326,12 +400,15 @@ export function createComposerController(deps: ComposerDeps) {
     count,
     errors,
     focusToken,
+    targetRef,
     load,
     send,
+    deepDive,
+    askAbout,
+    removeRef,
     cancel,
     setText,
     prefill,
-    prefillFollowUp,
     runAgain,
     toggleSource,
     commitCount,

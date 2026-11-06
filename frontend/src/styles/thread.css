@@ -578,7 +578,82 @@
 }
 
 .entry-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
   margin-top: 10px;
+}
+
+.entry-foot .link-btn + .link-btn {
+  margin-left: 0;
+}
+
+.ai-label .re {
+  font:
+    500 12px/1 var(--font-mono);
+  padding: 0 6px;
+  margin-left: -6px;
+}
+
+.entry.hl,
+tr.hl,
+.section.hl {
+  animation: flash 1.2s var(--ease);
+}
+
+.rel-chip {
+  border: 0;
+  font-weight: 500;
+  color: var(--info);
+  transition:
+    background-color var(--d1) var(--ease),
+    color var(--d1) var(--ease),
+    box-shadow var(--d1) var(--ease);
+}
+
+.rel-chip:hover {
+  background: var(--info-bg);
+  color: var(--info-ink);
+  box-shadow: inset 0 0 0 1px var(--info-bd);
+}
+
+.ref-chip {
+  max-width: 100%;
+  height: 24px;
+  gap: 6px;
+  padding: 0 8px;
+  background: var(--info-bg);
+  color: var(--info-ink);
+  border: 1px solid var(--info-bd);
+}
+
+.ref-chip b {
+  font:
+    500 11.5px/1 var(--font-mono);
+  flex: none;
+}
+
+.ref-chip .t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.ref-chip .icon-btn {
+  width: 20px;
+  height: 20px;
+  margin-right: -5px;
+  color: var(--info-ink);
+}
+
+.ref-chip .icon-btn:hover {
+  background: var(--info-bd);
+}
+
+.ref-chip .icon-btn .ic,
+.chip .ic {
+  width: 12px;
+  height: 12px;
 }
 
 .link-btn {
@@ -636,6 +711,36 @@
   color: var(--muted);
   background: var(--sunken);
   white-space: nowrap;
+}
+
+.table-wrap th.acts,
+.table-wrap td.acts {
+  position: sticky;
+  right: 0;
+  background: var(--surface);
+  box-shadow: inset 1px 0 0 var(--border);
+  white-space: nowrap;
+}
+
+.table-wrap th.acts {
+  background: var(--sunken);
+}
+
+.row-acts {
+  display: grid;
+  justify-items: start;
+  margin: -5px 0 -5px -9px;
+}
+
+.row-acts .link-btn {
+  margin-left: 0;
+}
+
+.row-related {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .table-wrap td.r,

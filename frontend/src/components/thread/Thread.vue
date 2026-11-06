@@ -7,6 +7,7 @@ import FailedReply from '@/components/thread/FailedReply.vue'
 import HoverPreview from '@/components/thread/HoverPreview.vue'
 import InterruptedReply from '@/components/thread/InterruptedReply.vue'
 import MarkdownReply from '@/components/thread/MarkdownReply.vue'
+import RefChip from '@/components/thread/RefChip.vue'
 import RunCard from '@/components/thread/RunCard.vue'
 import SourceLogo from '@/components/thread/SourceLogo.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -18,6 +19,7 @@ import { PENDING_MESSAGE_ID } from '@/stores/thread'
 import type { MessageVm, RequestStateVm } from '@/vm'
 import type { DigestVm } from '@/vm/digest'
 import type { CancelledVm, RunVm } from '@/vm/run'
+import type { RefVm } from '@/vm/types'
 
 const props = defineProps<{
   messages: MessageVm[]
@@ -34,7 +36,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  followup: [title: string]
+  deepdive: [ref: RefVm]
+  ask: [ref: RefVm]
   suggest: [text: string]
   runAgain: []
   /** Poll the request again after the reconnect attempts ran out. */
@@ -64,6 +67,9 @@ const liveSlot = ref<HTMLElement | null>(null)
 let uninstall: (() => void) | null = null
 let swapTimer: number | null = null
 let swapFrom: number | null = null
+/** Timeout for clearing `.hl` when reduced motion hides animationend. */
+let hlClearTimer: number | null = null
+const FLASH_MS = 1200
 
 /**
  * True while the reader is at the end of the transcript, so new content may follow
@@ -98,6 +104,47 @@ function scrollToLatest(): void {
   }
   element.scrollTop = element.scrollHeight
   stick.value = true
+}
+
+function dataRefAttr(refVm: RefVm): string {
+  return `d${refVm.digestId}-${refVm.rank}`
+}
+
+/**
+ * Scroll an entry into view and flash it. Uses `data-ref` on rows; related navigations
+ * emit from digest children with the same key shape.
+ */
+function gotoRef(refVm: RefVm): void {
+  const root = thread.value
+  if (root === null) {
+    return
+  }
+  const selector = `[data-ref="${dataRefAttr(refVm)}"]`
+  const el = root.querySelector<HTMLElement>(selector)
+  if (el === null) {
+    return
+  }
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  el.classList.add('hl')
+  if (hlClearTimer !== null) {
+    window.clearTimeout(hlClearTimer)
+    hlClearTimer = null
+  }
+  if (prefersReducedMotion()) {
+    hlClearTimer = window.setTimeout(() => {
+      el.classList.remove('hl')
+      hlClearTimer = null
+    }, FLASH_MS)
+    return
+  }
+  const onEnd = (event: AnimationEvent): void => {
+    if (event.animationName !== 'flash') {
+      return
+    }
+    el.removeEventListener('animationend', onEnd)
+    el.classList.remove('hl')
+  }
+  el.addEventListener('animationend', onEnd)
 }
 
 /**
@@ -202,7 +249,13 @@ onUnmounted(() => {
     window.clearTimeout(swapTimer)
     swapTimer = null
   }
+  if (hlClearTimer !== null) {
+    window.clearTimeout(hlClearTimer)
+    hlClearTimer = null
+  }
 })
+
+defineExpose({ gotoRef })
 </script>
 
 <template>
@@ -238,17 +291,24 @@ onUnmounted(() => {
           data-od-id="user-message"
         >
           <div class="bubble">{{ message.text }}</div>
-          <div v-if="message.chips" class="req-meta">
-            <span
-              v-for="source in message.chips.sources"
-              :key="source.kind"
-              class="chip"
-            >
-              <SourceLogo :kind="source.kind" />{{ source.label }}
-            </span>
-            <span v-if="message.chips.perSource !== null" class="chip mono">{{
-              message.chips.perSource
-            }}/source</span>
+          <div
+            v-if="message.ref || message.chips"
+            class="req-meta"
+            data-od-id="user-message-meta"
+          >
+            <RefChip v-if="message.ref" :ref-vm="message.ref" od-id="message-ref-chip" />
+            <template v-if="message.chips">
+              <span
+                v-for="source in message.chips.sources"
+                :key="source.kind"
+                class="chip"
+              >
+                <SourceLogo :kind="source.kind" />{{ source.label }}
+              </span>
+              <span v-if="message.chips.perSource !== null" class="chip mono">{{
+                message.chips.perSource
+              }}/source</span>
+            </template>
           </div>
         </div>
 
@@ -260,6 +320,16 @@ onUnmounted(() => {
         >
           <div class="ai-label">
             <b>Agent</b>
+            <button
+              v-if="message.replyRef"
+              type="button"
+              class="re link-btn"
+              data-od-id="reply-ref-link"
+              :aria-label="`Go to entry #${message.replyRef.rank}`"
+              @click="gotoRef(message.replyRef)"
+            >
+              re: #{{ message.replyRef.rank }}
+            </button>
             <span v-if="formatClock(message.createdAt)" class="mono">{{
               formatClock(message.createdAt)
             }}</span>
@@ -268,7 +338,9 @@ onUnmounted(() => {
             v-if="message.kind === 'digest' && message.digest"
             :digest="message.digest"
             :animate="isFresh(message)"
-            @followup="emit('followup', $event)"
+            @deepdive="emit('deepdive', $event)"
+            @ask="emit('ask', $event)"
+            @goto-related="gotoRef($event)"
           />
           <CancelledReply
             v-else-if="message.kind === 'cancelled'"
@@ -320,7 +392,9 @@ onUnmounted(() => {
           <DigestReply
             :digest="props.liveDigest"
             animate
-            @followup="emit('followup', $event)"
+            @deepdive="emit('deepdive', $event)"
+            @ask="emit('ask', $event)"
+            @goto-related="gotoRef($event)"
           />
         </div>
 

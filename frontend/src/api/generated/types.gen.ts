@@ -29,6 +29,70 @@ export type ConnectorWarning = {
 };
 
 /**
+ * CredentialStatusOut
+ */
+export type CredentialStatusOut = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Status
+     */
+    status: 'ui' | 'env' | 'unset' | 'unreadable';
+    /**
+     * Last4
+     */
+    last4?: string | null;
+    /**
+     * Version
+     */
+    version?: string | null;
+};
+
+/**
+ * CredentialTestOut
+ */
+export type CredentialTestOut = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Result
+     */
+    result: 'ok' | 'auth_error' | 'unavailable' | 'rate_limited' | 'timeout';
+    /**
+     * Reason
+     */
+    reason: string;
+};
+
+/**
+ * CredentialUpdateIn
+ */
+export type CredentialUpdateIn = {
+    /**
+     * Value
+     */
+    value: string;
+};
+
+/**
+ * CredentialsOut
+ */
+export type CredentialsOut = {
+    /**
+     * Secret Key Configured
+     */
+    secret_key_configured: boolean;
+    /**
+     * Credentials
+     */
+    credentials?: Array<CredentialStatusOut>;
+};
+
+/**
  * DigestEntryView
  *
  * Common digest entry fields exposed to the API.
@@ -75,6 +139,10 @@ export type DigestEntryView = {
      * Display Rank
      */
     display_rank: number;
+    /**
+     * Output Language
+     */
+    output_language?: string | null;
 };
 
 /**
@@ -135,6 +203,20 @@ export type FamilyVariant = {
 export type FollowUpAction = 'read' | 'watch' | 'try' | 'build';
 
 /**
+ * FollowupTarget
+ */
+export type FollowupTarget = {
+    /**
+     * Digest Id
+     */
+    digest_id: number;
+    /**
+     * Display Rank
+     */
+    display_rank: number;
+};
+
+/**
  * GitHubDigestEntryView
  *
  * GitHub digest entry with repository presentation metadata.
@@ -181,6 +263,10 @@ export type GitHubDigestEntryView = {
      * Display Rank
      */
     display_rank: number;
+    /**
+     * Output Language
+     */
+    output_language?: string | null;
     owner?: PublisherOwnerView | null;
     /**
      * Preview Image Url
@@ -363,6 +449,10 @@ export type HuggingFaceDigestEntryView = {
      * Display Rank
      */
     display_rank: number;
+    /**
+     * Output Language
+     */
+    output_language?: string | null;
     owner?: PublisherOwnerView | null;
     /**
      * Base Model
@@ -388,6 +478,44 @@ export type HuggingFaceDigestEntryView = {
      * Family Variants
      */
     family_variants?: Array<FamilyVariant>;
+    /**
+     * Related Display Ranks
+     */
+    related_display_ranks?: Array<number>;
+};
+
+/**
+ * JuyaConfirmationBody
+ */
+export type JuyaConfirmationBody = {
+    /**
+     * Action
+     */
+    action: 'continue' | 'cancel';
+};
+
+/**
+ * JuyaConfirmationOut
+ */
+export type JuyaConfirmationOut = {
+    /**
+     * Story Count
+     */
+    story_count: number;
+    /**
+     * Issue
+     */
+    issue: string;
+    /**
+     * Issue Number
+     */
+    issue_number: string;
+    /**
+     * Issues
+     */
+    issues?: Array<{
+        [key: string]: string;
+    }> | null;
 };
 
 /**
@@ -438,6 +566,10 @@ export type JuyaDigestEntryView = {
      */
     display_rank: number;
     /**
+     * Output Language
+     */
+    output_language?: string | null;
+    /**
      * Item Type
      */
     item_type?: 'issue' | 'story' | null;
@@ -487,6 +619,44 @@ export type JuyaStoryView = {
      * Original Url
      */
     original_url?: string | null;
+};
+
+/**
+ * LanguageOut
+ */
+export type LanguageOut = {
+    /**
+     * Language
+     */
+    language: 'source_default' | 'en' | 'zh-CN';
+};
+
+/**
+ * LanguageUpdateIn
+ */
+export type LanguageUpdateIn = {
+    /**
+     * Language
+     */
+    language: 'source_default' | 'en' | 'zh-CN';
+};
+
+/**
+ * LlmCredentialUpdateIn
+ */
+export type LlmCredentialUpdateIn = {
+    /**
+     * Api Key
+     */
+    api_key: string;
+    /**
+     * Base Url
+     */
+    base_url?: string | null;
+    /**
+     * Model
+     */
+    model?: string | null;
 };
 
 /**
@@ -545,6 +715,16 @@ export type MessageOut = {
     warnings?: Array<ConnectorWarning>;
     digest?: DigestView | null;
     request?: ResolvedRequestOut | null;
+    followup_target?: FollowupTarget | null;
+    /**
+     * Followup Action
+     */
+    followup_action?: 'deep_dive' | 'ask' | null;
+    juya_confirmation?: JuyaConfirmationOut | null;
+    /**
+     * Collection Outcome
+     */
+    collection_outcome?: 'results' | 'no_eligible' | 'failed' | 'partial' | null;
 };
 
 /**
@@ -563,6 +743,19 @@ export type PostMessageBody = {
      * Juya Item Mode
      */
     juya_item_mode?: 'issue' | 'stories';
+    followup_target?: FollowupTarget | null;
+    /**
+     * Followup Action
+     */
+    followup_action?: 'deep_dive' | 'ask' | null;
+    /**
+     * Repeat Of User Message Id
+     */
+    repeat_of_user_message_id?: number | null;
+    /**
+     * Replace Source
+     */
+    replace_source?: string | null;
 };
 
 /**
@@ -649,6 +842,12 @@ export type ResolvedRequestOut = {
      * Per Source
      */
     per_source?: number | null;
+    /**
+     * Counts
+     */
+    counts?: {
+        [key: string]: string;
+    };
     /**
      * Timeframe
      */
@@ -785,6 +984,18 @@ export type SessionSearchPageOut = {
  * SourceKind
  */
 export type SourceKind = 'github' | 'bilibili' | 'juya' | 'huggingface' | 'zhihu';
+
+/**
+ * SourceProfileListOut
+ */
+export type SourceProfileListOut = {
+    /**
+     * Sources
+     */
+    sources?: Array<{
+        [key: string]: unknown;
+    }>;
+};
 
 /**
  * ValidationError
@@ -1292,6 +1503,38 @@ export type GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetResponses 
 
 export type GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetResponse = GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetResponses[keyof GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetResponses];
 
+export type PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostData = {
+    body: JuyaConfirmationBody;
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+        /**
+         * Request Id
+         */
+        request_id: string;
+    };
+    query?: never;
+    url: '/api/v1/sessions/{session_id}/requests/{request_id}/juya-confirmation';
+};
+
+export type PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostError = PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostErrors[keyof PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostErrors];
+
+export type PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostResponses = {
+    /**
+     * Continue streams digest events; cancel returns empty body
+     */
+    200: unknown;
+};
+
 export type CancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPostData = {
     body?: never;
     path: {
@@ -1484,3 +1727,246 @@ export type ShowHistoryApiV1HistoryHistoricalItemRefGetResponses = {
 };
 
 export type ShowHistoryApiV1HistoryHistoricalItemRefGetResponse = ShowHistoryApiV1HistoryHistoricalItemRefGetResponses[keyof ShowHistoryApiV1HistoryHistoricalItemRefGetResponses];
+
+export type GetOutputLanguageApiV1SettingsLanguageGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/language';
+};
+
+export type GetOutputLanguageApiV1SettingsLanguageGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: LanguageOut;
+};
+
+export type GetOutputLanguageApiV1SettingsLanguageGetResponse = GetOutputLanguageApiV1SettingsLanguageGetResponses[keyof GetOutputLanguageApiV1SettingsLanguageGetResponses];
+
+export type SaveOutputLanguageApiV1SettingsLanguagePutData = {
+    body: LanguageUpdateIn;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/language';
+};
+
+export type SaveOutputLanguageApiV1SettingsLanguagePutErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveOutputLanguageApiV1SettingsLanguagePutError = SaveOutputLanguageApiV1SettingsLanguagePutErrors[keyof SaveOutputLanguageApiV1SettingsLanguagePutErrors];
+
+export type SaveOutputLanguageApiV1SettingsLanguagePutResponses = {
+    /**
+     * Successful Response
+     */
+    200: LanguageOut;
+};
+
+export type SaveOutputLanguageApiV1SettingsLanguagePutResponse = SaveOutputLanguageApiV1SettingsLanguagePutResponses[keyof SaveOutputLanguageApiV1SettingsLanguagePutResponses];
+
+export type ListSourceProfilesApiV1SettingsSourcesGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/sources';
+};
+
+export type ListSourceProfilesApiV1SettingsSourcesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SourceProfileListOut;
+};
+
+export type ListSourceProfilesApiV1SettingsSourcesGetResponse = ListSourceProfilesApiV1SettingsSourcesGetResponses[keyof ListSourceProfilesApiV1SettingsSourcesGetResponses];
+
+export type SaveSourceProfileApiV1SettingsSourcesNamePutData = {
+    /**
+     * Body
+     */
+    body: {
+        [key: string]: unknown;
+    };
+    path: {
+        /**
+         * Name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/sources/{name}';
+};
+
+export type SaveSourceProfileApiV1SettingsSourcesNamePutErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveSourceProfileApiV1SettingsSourcesNamePutError = SaveSourceProfileApiV1SettingsSourcesNamePutErrors[keyof SaveSourceProfileApiV1SettingsSourcesNamePutErrors];
+
+export type SaveSourceProfileApiV1SettingsSourcesNamePutResponses = {
+    /**
+     * Response Save Source Profile Api V1 Settings Sources  Name  Put
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type SaveSourceProfileApiV1SettingsSourcesNamePutResponse = SaveSourceProfileApiV1SettingsSourcesNamePutResponses[keyof SaveSourceProfileApiV1SettingsSourcesNamePutResponses];
+
+export type ListCredentialsApiV1SettingsCredentialsGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/credentials';
+};
+
+export type ListCredentialsApiV1SettingsCredentialsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: CredentialsOut;
+};
+
+export type ListCredentialsApiV1SettingsCredentialsGetResponse = ListCredentialsApiV1SettingsCredentialsGetResponses[keyof ListCredentialsApiV1SettingsCredentialsGetResponses];
+
+export type DeleteLlmCredentialsApiV1SettingsCredentialsLlmDeleteData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/credentials/llm';
+};
+
+export type DeleteLlmCredentialsApiV1SettingsCredentialsLlmDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteLlmCredentialsApiV1SettingsCredentialsLlmDeleteResponse = DeleteLlmCredentialsApiV1SettingsCredentialsLlmDeleteResponses[keyof DeleteLlmCredentialsApiV1SettingsCredentialsLlmDeleteResponses];
+
+export type SaveLlmCredentialsApiV1SettingsCredentialsLlmPutData = {
+    body: LlmCredentialUpdateIn;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/credentials/llm';
+};
+
+export type SaveLlmCredentialsApiV1SettingsCredentialsLlmPutErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveLlmCredentialsApiV1SettingsCredentialsLlmPutError = SaveLlmCredentialsApiV1SettingsCredentialsLlmPutErrors[keyof SaveLlmCredentialsApiV1SettingsCredentialsLlmPutErrors];
+
+export type SaveLlmCredentialsApiV1SettingsCredentialsLlmPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: CredentialsOut;
+};
+
+export type SaveLlmCredentialsApiV1SettingsCredentialsLlmPutResponse = SaveLlmCredentialsApiV1SettingsCredentialsLlmPutResponses[keyof SaveLlmCredentialsApiV1SettingsCredentialsLlmPutResponses];
+
+export type TestCredentialApiV1SettingsCredentialsNameTestPostData = {
+    body?: never;
+    path: {
+        /**
+         * Name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/credentials/{name}/test';
+};
+
+export type TestCredentialApiV1SettingsCredentialsNameTestPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TestCredentialApiV1SettingsCredentialsNameTestPostError = TestCredentialApiV1SettingsCredentialsNameTestPostErrors[keyof TestCredentialApiV1SettingsCredentialsNameTestPostErrors];
+
+export type TestCredentialApiV1SettingsCredentialsNameTestPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: CredentialTestOut;
+};
+
+export type TestCredentialApiV1SettingsCredentialsNameTestPostResponse = TestCredentialApiV1SettingsCredentialsNameTestPostResponses[keyof TestCredentialApiV1SettingsCredentialsNameTestPostResponses];
+
+export type DeleteCredentialApiV1SettingsCredentialsNameDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/credentials/{name}';
+};
+
+export type DeleteCredentialApiV1SettingsCredentialsNameDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteCredentialApiV1SettingsCredentialsNameDeleteError = DeleteCredentialApiV1SettingsCredentialsNameDeleteErrors[keyof DeleteCredentialApiV1SettingsCredentialsNameDeleteErrors];
+
+export type DeleteCredentialApiV1SettingsCredentialsNameDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteCredentialApiV1SettingsCredentialsNameDeleteResponse = DeleteCredentialApiV1SettingsCredentialsNameDeleteResponses[keyof DeleteCredentialApiV1SettingsCredentialsNameDeleteResponses];
+
+export type SaveCredentialApiV1SettingsCredentialsNamePutData = {
+    body: CredentialUpdateIn;
+    path: {
+        /**
+         * Name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/credentials/{name}';
+};
+
+export type SaveCredentialApiV1SettingsCredentialsNamePutErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveCredentialApiV1SettingsCredentialsNamePutError = SaveCredentialApiV1SettingsCredentialsNamePutErrors[keyof SaveCredentialApiV1SettingsCredentialsNamePutErrors];
+
+export type SaveCredentialApiV1SettingsCredentialsNamePutResponses = {
+    /**
+     * Successful Response
+     */
+    200: CredentialsOut;
+};
+
+export type SaveCredentialApiV1SettingsCredentialsNamePutResponse = SaveCredentialApiV1SettingsCredentialsNamePutResponses[keyof SaveCredentialApiV1SettingsCredentialsNamePutResponses];

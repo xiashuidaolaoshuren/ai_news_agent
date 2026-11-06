@@ -10,6 +10,7 @@ import {
   type HistoryDeps,
 } from '@/stores/history'
 import type { HistorySearchQuery } from '@/vm'
+import type { RefVm } from '@/vm/types'
 
 const MATCH: HistorySearchMatchOut = {
   ref: { token: 'd15r9', digest_id: 15, run_id: 4, entry_id: 9, rank: 9 },
@@ -63,7 +64,7 @@ interface Harness {
   deps: HistoryDeps
   searches: HistorySearchQuery[]
   shows: string[]
-  askedTitles: string[]
+  askedRefs: RefVm[]
   timers: Timer[]
   /** Run the scheduled work that is still pending, then settle its promises. */
   flush(): Promise<void>
@@ -79,7 +80,7 @@ interface HarnessOptions {
 function makeHistory(options: HarnessOptions = {}): Harness {
   const searches: HistorySearchQuery[] = []
   const shows: string[] = []
-  const askedTitles: string[] = []
+  const askedRefs: RefVm[] = []
   const timers: Timer[] = []
 
   const deps: HistoryDeps = {
@@ -91,8 +92,8 @@ function makeHistory(options: HarnessOptions = {}): Harness {
       shows.push(token)
       return options.show === undefined ? showOut({ token }) : options.show(token)
     },
-    prefillFollowUp: (title) => {
-      askedTitles.push(title)
+    askAbout: (ref) => {
+      askedRefs.push(ref)
     },
     schedule: (handler, ms) => {
       const timer: Timer = { handler, ms, cancelled: false }
@@ -118,7 +119,7 @@ function makeHistory(options: HarnessOptions = {}): Harness {
     await settle()
   }
 
-  return { deps, searches, shows, askedTitles, timers, flush, settle }
+  return { deps, searches, shows, askedRefs, timers, flush, settle }
 }
 
 describe('history search', () => {
@@ -398,9 +399,14 @@ describe('history opened result', () => {
     controller.open(controller.vm.value.matches[0]!)
     await harness.settle()
 
-    controller.askInChat('Why small models are winning')
+    const expected: RefVm = {
+      digestId: MATCH.ref.digest_id,
+      rank: MATCH.ref.rank,
+      title: 'Why small models are winning',
+    }
+    controller.askInChat(expected)
 
-    expect(harness.askedTitles).toEqual(['Why small models are winning'])
+    expect(harness.askedRefs).toEqual([expected])
   })
 
   it('closes the opened result when the filters are cleared', async () => {

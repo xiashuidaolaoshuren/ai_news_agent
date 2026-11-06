@@ -393,13 +393,13 @@
         }
       }
     },
-    "/api/v1/sessions/{session_id}/requests/{request_id}/cancel": {
+    "/api/v1/sessions/{session_id}/requests/{request_id}/juya-confirmation": {
       "post": {
         "tags": [
           "sessions"
         ],
-        "summary": "Cancel Request",
-        "operationId": "cancel_request_api_v1_sessions__session_id__requests__request_id__cancel_post",
+        "summary": "Post Juya Confirmation",
+        "operationId": "post_juya_confirmation_api_v1_sessions__session_id__requests__request_id__juya_confirmation_post",
         "parameters": [
           {
             "name": "session_id",
@@ -420,123 +420,23 @@
             }
           }
         ],
-        "responses": {
-          "202": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/sessions/{session_id}/messages": {
-      "get": {
-        "tags": [
-          "sessions"
-        ],
-        "summary": "List Messages",
-        "operationId": "list_messages_api_v1_sessions__session_id__messages_get",
-        "parameters": [
-          {
-            "name": "session_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Session Id"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 100,
-              "minimum": 1,
-              "default": 20,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cursor"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MessageListPage"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "sessions"
-        ],
-        "summary": "Post Message",
-        "operationId": "post_message_api_v1_sessions__session_id__messages_post",
-        "parameters": [
-          {
-            "name": "session_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Session Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PostMessageBody"
+                "$ref": "#/components/schemas/JuyaConfirmationBody"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Session chat event stream",
+            "description": "Continue streams digest events; cancel returns empty body",
             "content": {
+              "application/json": {
+                "schema": {}
+              },
               "text/event-stream": {
                 "schema": {
                   "$defs": {
@@ -664,6 +564,17 @@
                         "display_rank": {
                           "title": "Display Rank",
                           "type": "integer"
+                        },
+                        "output_language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Output Language"
                         }
                       },
                       "required": [
@@ -1025,6 +936,17 @@
                           "title": "Display Rank",
                           "type": "integer"
                         },
+                        "output_language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Output Language"
+                        },
                         "owner": {
                           "anyOf": [
                             {
@@ -1149,6 +1071,17 @@
                           "title": "Display Rank",
                           "type": "integer"
                         },
+                        "output_language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Output Language"
+                        },
                         "owner": {
                           "anyOf": [
                             {
@@ -1223,6 +1156,13 @@
                           },
                           "title": "Family Variants",
                           "type": "array"
+                        },
+                        "related_display_ranks": {
+                          "items": {
+                            "type": "integer"
+                          },
+                          "title": "Related Display Ranks",
+                          "type": "array"
                         }
                       },
                       "required": [
@@ -1293,6 +1233,17 @@
                         "display_rank": {
                           "title": "Display Rank",
                           "type": "integer"
+                        },
+                        "output_language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Output Language"
                         },
                         "item_type": {
                           "anyOf": [
@@ -1587,6 +1538,1448 @@
                             }
                           ],
                           "title": "Per Source"
+                        },
+                        "counts": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "title": "Counts",
+                          "type": "object"
+                        },
+                        "timeframe": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Timeframe"
+                        },
+                        "topics": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "title": "Topics",
+                          "type": "array"
+                        },
+                        "language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Language"
+                        },
+                        "audience": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Audience"
+                        }
+                      },
+                      "title": "ResolvedRequestOut",
+                      "type": "object"
+                    },
+                    "StartedPayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "request_id": {
+                          "title": "Request Id",
+                          "type": "string"
+                        },
+                        "user_message_id": {
+                          "title": "User Message Id",
+                          "type": "integer"
+                        },
+                        "request": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/ResolvedRequestOut"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "intent": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Intent"
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "user_message_id"
+                      ],
+                      "title": "StartedPayload",
+                      "type": "object"
+                    },
+                    "StartedStreamEvent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "event": {
+                          "const": "started",
+                          "default": "started",
+                          "title": "Event",
+                          "type": "string"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/StartedPayload"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ],
+                      "title": "StartedStreamEvent",
+                      "type": "object"
+                    },
+                    "WorkflowErrorPayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "stage": {
+                          "title": "Stage",
+                          "type": "string"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "detail": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Detail"
+                        }
+                      },
+                      "required": [
+                        "stage",
+                        "message"
+                      ],
+                      "title": "WorkflowErrorPayload",
+                      "type": "object"
+                    }
+                  },
+                  "discriminator": {
+                    "mapping": {
+                      "delta": "#/components/schemas/DeltaStreamEvent",
+                      "digest": "#/components/schemas/DigestStreamEvent",
+                      "done": "#/components/schemas/DoneStreamEvent",
+                      "error": "#/components/schemas/ErrorStreamEvent",
+                      "progress": "#/components/schemas/ProgressStreamEvent",
+                      "started": "#/components/schemas/StartedStreamEvent"
+                    },
+                    "propertyName": "event"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/StartedStreamEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ProgressStreamEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DeltaStreamEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DigestStreamEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DoneStreamEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorStreamEvent"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}/requests/{request_id}/cancel": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Cancel Request",
+        "operationId": "cancel_request_api_v1_sessions__session_id__requests__request_id__cancel_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}/messages": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "List Messages",
+        "operationId": "list_messages_api_v1_sessions__session_id__messages_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageListPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Post Message",
+        "operationId": "post_message_api_v1_sessions__session_id__messages_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostMessageBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session chat event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$defs": {
+                    "ConnectorWarning": {
+                      "description": "Non-fatal connector issue (pipeline may continue).",
+                      "properties": {
+                        "connector": {
+                          "title": "Connector",
+                          "type": "string"
+                        },
+                        "code": {
+                          "title": "Code",
+                          "type": "string"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "detail": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Detail"
+                        }
+                      },
+                      "required": [
+                        "connector",
+                        "code",
+                        "message"
+                      ],
+                      "title": "ConnectorWarning",
+                      "type": "object"
+                    },
+                    "DeltaPayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "text": {
+                          "title": "Text",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "text"
+                      ],
+                      "title": "DeltaPayload",
+                      "type": "object"
+                    },
+                    "DeltaStreamEvent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "event": {
+                          "const": "delta",
+                          "default": "delta",
+                          "title": "Event",
+                          "type": "string"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/DeltaPayload"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ],
+                      "title": "DeltaStreamEvent",
+                      "type": "object"
+                    },
+                    "DigestEntryView": {
+                      "description": "Common digest entry fields exposed to the API.",
+                      "properties": {
+                        "source_kind": {
+                          "enum": [
+                            "bilibili",
+                            "zhihu"
+                          ],
+                          "title": "Source Kind",
+                          "type": "string"
+                        },
+                        "source_id": {
+                          "title": "Source Id",
+                          "type": "string"
+                        },
+                        "title": {
+                          "title": "Title",
+                          "type": "string"
+                        },
+                        "source_name": {
+                          "title": "Source Name",
+                          "type": "string"
+                        },
+                        "source_url": {
+                          "title": "Source Url",
+                          "type": "string"
+                        },
+                        "summary": {
+                          "title": "Summary",
+                          "type": "string"
+                        },
+                        "why_it_matters": {
+                          "title": "Why It Matters",
+                          "type": "string"
+                        },
+                        "background_knowledge": {
+                          "title": "Background Knowledge",
+                          "type": "string"
+                        },
+                        "follow_up_action": {
+                          "$ref": "#/components/schemas/FollowUpAction"
+                        },
+                        "confidence_caveat": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Confidence Caveat"
+                        },
+                        "display_rank": {
+                          "title": "Display Rank",
+                          "type": "integer"
+                        },
+                        "output_language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Output Language"
+                        }
+                      },
+                      "required": [
+                        "source_kind",
+                        "source_id",
+                        "title",
+                        "source_name",
+                        "source_url",
+                        "summary",
+                        "why_it_matters",
+                        "background_knowledge",
+                        "follow_up_action",
+                        "display_rank"
+                      ],
+                      "title": "DigestEntryView",
+                      "type": "object"
+                    },
+                    "DigestPayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "run_id": {
+                          "title": "Run Id",
+                          "type": "integer"
+                        },
+                        "digest_id": {
+                          "title": "Digest Id",
+                          "type": "integer"
+                        },
+                        "digest": {
+                          "$ref": "#/components/schemas/DigestView"
+                        },
+                        "markdown": {
+                          "title": "Markdown",
+                          "type": "string"
+                        },
+                        "warnings": {
+                          "items": {
+                            "$ref": "#/components/schemas/ConnectorWarning"
+                          },
+                          "title": "Warnings",
+                          "type": "array"
+                        },
+                        "errors": {
+                          "items": {
+                            "$ref": "#/components/schemas/WorkflowErrorPayload"
+                          },
+                          "title": "Errors",
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "run_id",
+                        "digest_id",
+                        "digest",
+                        "markdown"
+                      ],
+                      "title": "DigestPayload",
+                      "type": "object"
+                    },
+                    "DigestStreamEvent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "event": {
+                          "const": "digest",
+                          "default": "digest",
+                          "title": "Event",
+                          "type": "string"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/DigestPayload"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ],
+                      "title": "DigestStreamEvent",
+                      "type": "object"
+                    },
+                    "DigestView": {
+                      "description": "API projection of a saved digest plus selected news evidence.",
+                      "properties": {
+                        "generated_at": {
+                          "format": "date-time",
+                          "title": "Generated At",
+                          "type": "string"
+                        },
+                        "timeframe": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Timeframe"
+                        },
+                        "topics": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "title": "Topics",
+                          "type": "array"
+                        },
+                        "entries": {
+                          "items": {
+                            "discriminator": {
+                              "mapping": {
+                                "bilibili": "#/components/schemas/DigestEntryView",
+                                "github": "#/components/schemas/GitHubDigestEntryView",
+                                "huggingface": "#/components/schemas/HuggingFaceDigestEntryView",
+                                "juya": "#/components/schemas/JuyaDigestEntryView",
+                                "zhihu": "#/components/schemas/DigestEntryView"
+                              },
+                              "propertyName": "source_kind"
+                            },
+                            "oneOf": [
+                              {
+                                "$ref": "#/components/schemas/GitHubDigestEntryView"
+                              },
+                              {
+                                "$ref": "#/components/schemas/HuggingFaceDigestEntryView"
+                              },
+                              {
+                                "$ref": "#/components/schemas/JuyaDigestEntryView"
+                              },
+                              {
+                                "$ref": "#/components/schemas/DigestEntryView"
+                              }
+                            ]
+                          },
+                          "title": "Entries",
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "generated_at"
+                      ],
+                      "title": "DigestView",
+                      "type": "object"
+                    },
+                    "DonePayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "request_id": {
+                          "title": "Request Id",
+                          "type": "string"
+                        },
+                        "message_id": {
+                          "title": "Message Id",
+                          "type": "integer"
+                        },
+                        "run_id": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Run Id"
+                        },
+                        "path": {
+                          "title": "Path",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "message_id",
+                        "run_id",
+                        "path"
+                      ],
+                      "title": "DonePayload",
+                      "type": "object"
+                    },
+                    "DoneStreamEvent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "event": {
+                          "const": "done",
+                          "default": "done",
+                          "title": "Event",
+                          "type": "string"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/DonePayload"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ],
+                      "title": "DoneStreamEvent",
+                      "type": "object"
+                    },
+                    "ErrorPayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "request_id": {
+                          "title": "Request Id",
+                          "type": "string"
+                        },
+                        "code": {
+                          "title": "Code",
+                          "type": "string"
+                        },
+                        "message": {
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "correlation_id": {
+                          "title": "Correlation Id",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "request_id",
+                        "code",
+                        "message",
+                        "correlation_id"
+                      ],
+                      "title": "ErrorPayload",
+                      "type": "object"
+                    },
+                    "ErrorStreamEvent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "event": {
+                          "const": "error",
+                          "default": "error",
+                          "title": "Event",
+                          "type": "string"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/ErrorPayload"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ],
+                      "title": "ErrorStreamEvent",
+                      "type": "object"
+                    },
+                    "FamilyVariant": {
+                      "description": "Summary-only Hugging Face family variant for rich presentation.",
+                      "properties": {
+                        "source_id": {
+                          "title": "Source Id",
+                          "type": "string"
+                        },
+                        "title": {
+                          "title": "Title",
+                          "type": "string"
+                        },
+                        "url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Url"
+                        },
+                        "downloads_30d": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Downloads 30D"
+                        },
+                        "likes": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Likes"
+                        }
+                      },
+                      "required": [
+                        "source_id",
+                        "title"
+                      ],
+                      "title": "FamilyVariant",
+                      "type": "object"
+                    },
+                    "FollowUpAction": {
+                      "enum": [
+                        "read",
+                        "watch",
+                        "try",
+                        "build"
+                      ],
+                      "title": "FollowUpAction",
+                      "type": "string"
+                    },
+                    "GitHubDigestEntryView": {
+                      "description": "GitHub digest entry with repository presentation metadata.",
+                      "properties": {
+                        "source_kind": {
+                          "const": "github",
+                          "default": "github",
+                          "title": "Source Kind",
+                          "type": "string"
+                        },
+                        "source_id": {
+                          "title": "Source Id",
+                          "type": "string"
+                        },
+                        "title": {
+                          "title": "Title",
+                          "type": "string"
+                        },
+                        "source_name": {
+                          "title": "Source Name",
+                          "type": "string"
+                        },
+                        "source_url": {
+                          "title": "Source Url",
+                          "type": "string"
+                        },
+                        "summary": {
+                          "title": "Summary",
+                          "type": "string"
+                        },
+                        "why_it_matters": {
+                          "title": "Why It Matters",
+                          "type": "string"
+                        },
+                        "background_knowledge": {
+                          "title": "Background Knowledge",
+                          "type": "string"
+                        },
+                        "follow_up_action": {
+                          "$ref": "#/components/schemas/FollowUpAction"
+                        },
+                        "confidence_caveat": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Confidence Caveat"
+                        },
+                        "display_rank": {
+                          "title": "Display Rank",
+                          "type": "integer"
+                        },
+                        "output_language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Output Language"
+                        },
+                        "owner": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/PublisherOwnerView"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "preview_image_url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Preview Image Url"
+                        },
+                        "stars": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Stars"
+                        },
+                        "stars_today": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Stars Today"
+                        },
+                        "language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Language"
+                        }
+                      },
+                      "required": [
+                        "source_id",
+                        "title",
+                        "source_name",
+                        "source_url",
+                        "summary",
+                        "why_it_matters",
+                        "background_knowledge",
+                        "follow_up_action",
+                        "display_rank"
+                      ],
+                      "title": "GitHubDigestEntryView",
+                      "type": "object"
+                    },
+                    "HuggingFaceDigestEntryView": {
+                      "description": "Hugging Face digest entry with whitelisted family metrics.",
+                      "properties": {
+                        "source_kind": {
+                          "const": "huggingface",
+                          "default": "huggingface",
+                          "title": "Source Kind",
+                          "type": "string"
+                        },
+                        "source_id": {
+                          "title": "Source Id",
+                          "type": "string"
+                        },
+                        "title": {
+                          "title": "Title",
+                          "type": "string"
+                        },
+                        "source_name": {
+                          "title": "Source Name",
+                          "type": "string"
+                        },
+                        "source_url": {
+                          "title": "Source Url",
+                          "type": "string"
+                        },
+                        "summary": {
+                          "title": "Summary",
+                          "type": "string"
+                        },
+                        "why_it_matters": {
+                          "title": "Why It Matters",
+                          "type": "string"
+                        },
+                        "background_knowledge": {
+                          "title": "Background Knowledge",
+                          "type": "string"
+                        },
+                        "follow_up_action": {
+                          "$ref": "#/components/schemas/FollowUpAction"
+                        },
+                        "confidence_caveat": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Confidence Caveat"
+                        },
+                        "display_rank": {
+                          "title": "Display Rank",
+                          "type": "integer"
+                        },
+                        "output_language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Output Language"
+                        },
+                        "owner": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/PublisherOwnerView"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "base_model": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Base Model"
+                        },
+                        "trending_score": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Trending Score"
+                        },
+                        "downloads_30d": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Downloads 30D"
+                        },
+                        "likes": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Likes"
+                        },
+                        "pipeline_tag": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Pipeline Tag"
+                        },
+                        "family_variants": {
+                          "items": {
+                            "$ref": "#/components/schemas/FamilyVariant"
+                          },
+                          "title": "Family Variants",
+                          "type": "array"
+                        },
+                        "related_display_ranks": {
+                          "items": {
+                            "type": "integer"
+                          },
+                          "title": "Related Display Ranks",
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "source_id",
+                        "title",
+                        "source_name",
+                        "source_url",
+                        "summary",
+                        "why_it_matters",
+                        "background_knowledge",
+                        "follow_up_action",
+                        "display_rank"
+                      ],
+                      "title": "HuggingFaceDigestEntryView",
+                      "type": "object"
+                    },
+                    "JuyaDigestEntryView": {
+                      "description": "Juya digest entry with issue/story presentation metadata.",
+                      "properties": {
+                        "source_kind": {
+                          "const": "juya",
+                          "default": "juya",
+                          "title": "Source Kind",
+                          "type": "string"
+                        },
+                        "source_id": {
+                          "title": "Source Id",
+                          "type": "string"
+                        },
+                        "title": {
+                          "title": "Title",
+                          "type": "string"
+                        },
+                        "source_name": {
+                          "title": "Source Name",
+                          "type": "string"
+                        },
+                        "source_url": {
+                          "title": "Source Url",
+                          "type": "string"
+                        },
+                        "summary": {
+                          "title": "Summary",
+                          "type": "string"
+                        },
+                        "why_it_matters": {
+                          "title": "Why It Matters",
+                          "type": "string"
+                        },
+                        "background_knowledge": {
+                          "title": "Background Knowledge",
+                          "type": "string"
+                        },
+                        "follow_up_action": {
+                          "$ref": "#/components/schemas/FollowUpAction"
+                        },
+                        "confidence_caveat": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Confidence Caveat"
+                        },
+                        "display_rank": {
+                          "title": "Display Rank",
+                          "type": "integer"
+                        },
+                        "output_language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Output Language"
+                        },
+                        "item_type": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "issue",
+                                "story"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Item Type"
+                        },
+                        "issue": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/JuyaIssueView"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "story": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/JuyaStoryView"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "source_id",
+                        "title",
+                        "source_name",
+                        "source_url",
+                        "summary",
+                        "why_it_matters",
+                        "background_knowledge",
+                        "follow_up_action",
+                        "display_rank"
+                      ],
+                      "title": "JuyaDigestEntryView",
+                      "type": "object"
+                    },
+                    "JuyaIssueView": {
+                      "properties": {
+                        "id": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Id"
+                        },
+                        "date": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Date"
+                        },
+                        "url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Url"
+                        },
+                        "cover_url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Cover Url"
+                        },
+                        "lead_title": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Lead Title"
+                        }
+                      },
+                      "title": "JuyaIssueView",
+                      "type": "object"
+                    },
+                    "JuyaStoryView": {
+                      "properties": {
+                        "number": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Number"
+                        },
+                        "section": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Section"
+                        },
+                        "original_url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Original Url"
+                        }
+                      },
+                      "title": "JuyaStoryView",
+                      "type": "object"
+                    },
+                    "ProgressPayload": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "stage": {
+                          "title": "Stage",
+                          "type": "string"
+                        },
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Source"
+                        },
+                        "status": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "running",
+                                "done",
+                                "failed"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Status"
+                        },
+                        "count": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Count"
+                        }
+                      },
+                      "required": [
+                        "stage"
+                      ],
+                      "title": "ProgressPayload",
+                      "type": "object"
+                    },
+                    "ProgressStreamEvent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "event": {
+                          "const": "progress",
+                          "default": "progress",
+                          "title": "Event",
+                          "type": "string"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/ProgressPayload"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ],
+                      "title": "ProgressStreamEvent",
+                      "type": "object"
+                    },
+                    "PublisherOwnerView": {
+                      "description": "Publisher account metadata for GitHub and Hugging Face entries.",
+                      "properties": {
+                        "name": {
+                          "title": "Name",
+                          "type": "string"
+                        },
+                        "profile_url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Profile Url"
+                        },
+                        "avatar_url": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Avatar Url"
+                        },
+                        "type": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "organisation",
+                                "person"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Type"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "title": "PublisherOwnerView",
+                      "type": "object"
+                    },
+                    "ResolvedRequestOut": {
+                      "additionalProperties": false,
+                      "description": "Public, user-relevant options of one resolved digest request.",
+                      "properties": {
+                        "sources": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "title": "Sources",
+                          "type": "array"
+                        },
+                        "per_source": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Per Source"
+                        },
+                        "counts": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "title": "Counts",
+                          "type": "object"
                         },
                         "timeframe": {
                           "anyOf": [
@@ -1936,6 +3329,344 @@
           }
         }
       }
+    },
+    "/api/v1/settings/language": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Get Output Language",
+        "operationId": "get_output_language_api_v1_settings_language_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LanguageOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Save Output Language",
+        "operationId": "save_output_language_api_v1_settings_language_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LanguageUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LanguageOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/sources": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "List Source Profiles",
+        "operationId": "list_source_profiles_api_v1_settings_sources_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceProfileListOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/sources/{name}": {
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Save Source Profile",
+        "operationId": "save_source_profile_api_v1_settings_sources__name__put",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Save Source Profile Api V1 Settings Sources  Name  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/credentials": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "List Credentials",
+        "operationId": "list_credentials_api_v1_settings_credentials_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialsOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/credentials/llm": {
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Save Llm Credentials",
+        "operationId": "save_llm_credentials_api_v1_settings_credentials_llm_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmCredentialUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Delete Llm Credentials",
+        "operationId": "delete_llm_credentials_api_v1_settings_credentials_llm_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/api/v1/settings/credentials/{name}/test": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Test Credential",
+        "operationId": "test_credential_api_v1_settings_credentials__name__test_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialTestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/credentials/{name}": {
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Save Credential",
+        "operationId": "save_credential_api_v1_settings_credentials__name__put",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Delete Credential",
+        "operationId": "delete_credential_api_v1_settings_credentials__name__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1974,6 +3705,119 @@
         ],
         "title": "ConnectorWarning",
         "description": "Non-fatal connector issue (pipeline may continue)."
+      },
+      "CredentialStatusOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ui",
+              "env",
+              "unset",
+              "unreadable"
+            ],
+            "title": "Status"
+          },
+          "last4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last4"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "CredentialStatusOut"
+      },
+      "CredentialTestOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "auth_error",
+              "unavailable",
+              "rate_limited",
+              "timeout"
+            ],
+            "title": "Result"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "result",
+          "reason"
+        ],
+        "title": "CredentialTestOut"
+      },
+      "CredentialUpdateIn": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "title": "CredentialUpdateIn"
+      },
+      "CredentialsOut": {
+        "properties": {
+          "secret_key_configured": {
+            "type": "boolean",
+            "title": "Secret Key Configured"
+          },
+          "credentials": {
+            "items": {
+              "$ref": "#/components/schemas/CredentialStatusOut"
+            },
+            "type": "array",
+            "title": "Credentials"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "secret_key_configured"
+        ],
+        "title": "CredentialsOut"
       },
       "DigestEntryView": {
         "properties": {
@@ -2030,6 +3874,17 @@
           "display_rank": {
             "type": "integer",
             "title": "Display Rank"
+          },
+          "output_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Language"
           }
         },
         "type": "object",
@@ -2173,6 +4028,25 @@
         ],
         "title": "FollowUpAction"
       },
+      "FollowupTarget": {
+        "properties": {
+          "digest_id": {
+            "type": "integer",
+            "title": "Digest Id"
+          },
+          "display_rank": {
+            "type": "integer",
+            "title": "Display Rank"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "digest_id",
+          "display_rank"
+        ],
+        "title": "FollowupTarget"
+      },
       "GitHubDigestEntryView": {
         "properties": {
           "source_kind": {
@@ -2226,6 +4100,17 @@
           "display_rank": {
             "type": "integer",
             "title": "Display Rank"
+          },
+          "output_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Language"
           },
           "owner": {
             "anyOf": [
@@ -2543,6 +4428,17 @@
             "type": "integer",
             "title": "Display Rank"
           },
+          "output_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Language"
+          },
           "owner": {
             "anyOf": [
               {
@@ -2617,6 +4513,13 @@
             },
             "type": "array",
             "title": "Family Variants"
+          },
+          "related_display_ranks": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Related Display Ranks"
           }
         },
         "type": "object",
@@ -2633,6 +4536,65 @@
         ],
         "title": "HuggingFaceDigestEntryView",
         "description": "Hugging Face digest entry with whitelisted family metrics."
+      },
+      "JuyaConfirmationBody": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "continue",
+              "cancel"
+            ],
+            "title": "Action"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "JuyaConfirmationBody"
+      },
+      "JuyaConfirmationOut": {
+        "properties": {
+          "story_count": {
+            "type": "integer",
+            "title": "Story Count"
+          },
+          "issue": {
+            "type": "string",
+            "title": "Issue"
+          },
+          "issue_number": {
+            "type": "string",
+            "title": "Issue Number"
+          },
+          "issues": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "story_count",
+          "issue",
+          "issue_number"
+        ],
+        "title": "JuyaConfirmationOut"
       },
       "JuyaDigestEntryView": {
         "properties": {
@@ -2687,6 +4649,17 @@
           "display_rank": {
             "type": "integer",
             "title": "Display Rank"
+          },
+          "output_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Language"
           },
           "item_type": {
             "anyOf": [
@@ -2839,6 +4812,80 @@
         "type": "object",
         "title": "JuyaStoryView"
       },
+      "LanguageOut": {
+        "properties": {
+          "language": {
+            "type": "string",
+            "enum": [
+              "source_default",
+              "en",
+              "zh-CN"
+            ],
+            "title": "Language"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "language"
+        ],
+        "title": "LanguageOut"
+      },
+      "LanguageUpdateIn": {
+        "properties": {
+          "language": {
+            "type": "string",
+            "enum": [
+              "source_default",
+              "en",
+              "zh-CN"
+            ],
+            "title": "Language"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "language"
+        ],
+        "title": "LanguageUpdateIn"
+      },
+      "LlmCredentialUpdateIn": {
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "title": "Api Key"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "api_key"
+        ],
+        "title": "LlmCredentialUpdateIn"
+      },
       "MessageListPage": {
         "properties": {
           "messages": {
@@ -2943,6 +4990,58 @@
                 "type": "null"
               }
             ]
+          },
+          "followup_target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FollowupTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "followup_action": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "deep_dive",
+                  "ask"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Followup Action"
+          },
+          "juya_confirmation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JuyaConfirmationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "collection_outcome": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "results",
+                  "no_eligible",
+                  "failed",
+                  "partial"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Outcome"
           }
         },
         "additionalProperties": false,
@@ -2983,6 +5082,53 @@
             ],
             "title": "Juya Item Mode",
             "default": "issue"
+          },
+          "followup_target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FollowupTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "followup_action": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "deep_dive",
+                  "ask"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Followup Action"
+          },
+          "repeat_of_user_message_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repeat Of User Message Id"
+          },
+          "replace_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replace Source"
           }
         },
         "additionalProperties": false,
@@ -3158,6 +5304,13 @@
               }
             ],
             "title": "Per Source"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Counts"
           },
           "timeframe": {
             "anyOf": [
@@ -3457,6 +5610,21 @@
         ],
         "title": "SourceKind"
       },
+      "SourceProfileListOut": {
+        "properties": {
+          "sources": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SourceProfileListOut"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -3521,6 +5689,13 @@
                 ],
                 "default": null,
                 "title": "Per Source"
+              },
+              "counts": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "title": "Counts",
+                "type": "object"
               },
               "timeframe": {
                 "anyOf": [
@@ -3806,6 +5981,18 @@
               "display_rank": {
                 "title": "Display Rank",
                 "type": "integer"
+              },
+              "output_language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Output Language"
               }
             },
             "required": [
@@ -4008,6 +6195,18 @@
                 "title": "Display Rank",
                 "type": "integer"
               },
+              "output_language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Output Language"
+              },
               "owner": {
                 "anyOf": [
                   {
@@ -4138,6 +6337,18 @@
                 "title": "Display Rank",
                 "type": "integer"
               },
+              "output_language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Output Language"
+              },
               "owner": {
                 "anyOf": [
                   {
@@ -4218,6 +6429,13 @@
                 },
                 "title": "Family Variants",
                 "type": "array"
+              },
+              "related_display_ranks": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Related Display Ranks",
+                "type": "array"
               }
             },
             "required": [
@@ -4289,6 +6507,18 @@
               "display_rank": {
                 "title": "Display Rank",
                 "type": "integer"
+              },
+              "output_language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Output Language"
               },
               "item_type": {
                 "anyOf": [
@@ -4668,6 +6898,13 @@
                 "default": null,
                 "title": "Per Source"
               },
+              "counts": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "title": "Counts",
+                "type": "object"
+              },
               "timeframe": {
                 "anyOf": [
                   {
@@ -4982,6 +7219,18 @@
               "display_rank": {
                 "title": "Display Rank",
                 "type": "integer"
+              },
+              "output_language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Output Language"
               }
             },
             "required": [
@@ -5226,6 +7475,18 @@
                 "title": "Display Rank",
                 "type": "integer"
               },
+              "output_language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Output Language"
+              },
               "owner": {
                 "anyOf": [
                   {
@@ -5356,6 +7617,18 @@
                 "title": "Display Rank",
                 "type": "integer"
               },
+              "output_language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Output Language"
+              },
               "owner": {
                 "anyOf": [
                   {
@@ -5436,6 +7709,13 @@
                 },
                 "title": "Family Variants",
                 "type": "array"
+              },
+              "related_display_ranks": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Related Display Ranks",
+                "type": "array"
               }
             },
             "required": [
@@ -5507,6 +7787,18 @@
               "display_rank": {
                 "title": "Display Rank",
                 "type": "integer"
+              },
+              "output_language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Output Language"
               },
               "item_type": {
                 "anyOf": [

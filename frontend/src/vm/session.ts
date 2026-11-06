@@ -1,8 +1,13 @@
-import type { MessageOut, ResolvedRequestOut, SessionOut } from '@/api/generated/types.gen'
+import type {
+  FollowupTarget,
+  MessageOut,
+  ResolvedRequestOut,
+  SessionOut,
+} from '@/api/generated/types.gen'
 import { sourceKindOf, sourceLabel, toDigestVm, toWarningVm } from '@/vm/digest'
 import type { DigestVm, WarningVm } from '@/vm/digest'
 import { textOrNull } from '@/vm/entries'
-import type { EntryKind } from '@/vm/types'
+import type { EntryKind, FollowupActionVm, RefVm } from '@/vm/types'
 
 /** Exact assistant content the backend writes when a request is cancelled. */
 export const CANCELLED_ASSISTANT_MESSAGE = 'The request was cancelled.'
@@ -69,6 +74,11 @@ export interface MessageVm {
   /** The sources a question was sent with, for messages sent in this page session. */
   chips?: SentSourcesVm
   warnings: WarningVm[]
+  /** User message: optional follow-up target chip. */
+  ref?: RefVm
+  followupAction?: FollowupActionVm
+  /** Assistant message: link to the preceding user's follow-up target (`re: #n`). */
+  replyRef?: RefVm
 }
 
 /** Terminal request states the thread shows as an alert rather than a reply. */
@@ -209,9 +219,52 @@ export function groupSessions(sessions: SessionOut[], now: Date): SessionGroupVm
   return groups
 }
 
-/** Classify one transcript message and project it for the thread. */
-export function toMessageVm(message: MessageOut): MessageVm {
+/** Map `(digest_id, display_rank)` → entry title from digest messages in the transcript. */
+function buildDigestEntryTitleIndex(messages: MessageOut[]): Map<string, string> {
+  const index = new Map<string, string>()
+  for (const message of messages) {
+    if (message.role !== 'assistant' || message.digest === undefined || message.digest === null) {
+      continue
+    }
+    const digestId = message.digest_id
+    if (digestId === undefined || digestId === null) {
+      continue
+    }
+    for (const entry of message.digest.entries ?? []) {
+      const title = textOrNull(entry.title ?? null)
+      const key = `${digestId}:${entry.display_rank}`
+      index.set(key, title !== null && title !== '' ? title : `#${entry.display_rank}`)
+    }
+  }
+  return index
+}
+
+function followupTargetToRef(
+  target: FollowupTarget,
+  digestTitles: Map<string, string>,
+): RefVm {
+  const key = `${target.digest_id}:${target.display_rank}`
+  const title = digestTitles.get(key) ?? `#${target.display_rank}`
+  return {
+    digestId: target.digest_id,
+    rank: target.display_rank,
+    title,
+  }
+}
+
+export interface MessageMapContext {
+  digestTitles: Map<string, string>
+  /** The immediately preceding user message's follow-up ref, for assistant `re:`. */
+  previousUserRef: RefVm | null
+}
+
+/**
+ * Classify one transcript message. Prefer `toMessages` for full transcripts so entry
+ * titles and assistant `re:` links resolve from digest rows.
+ */
+export function toMessageVm(message: MessageOut, context?: MessageMapContext): MessageVm {
   const warnings = message.warnings ?? []
+  const titles = context?.digestTitles ?? new Map<string, string>()
   const vm: MessageVm = {
     id: message.id,
     sequence: message.sequence,
@@ -225,6 +278,13 @@ export function toMessageVm(message: MessageOut): MessageVm {
     if (message.request) {
       vm.chips = toResolvedSourcesVm(message.request)
     }
+    if (message.followup_target !== undefined && message.followup_target !== null) {
+      vm.ref = followupTargetToRef(message.followup_target, titles)
+      const action = message.followup_action
+      if (action === 'deep_dive' || action === 'ask') {
+        vm.followupAction = action
+      }
+    }
     return vm
   }
   if (message.digest !== null && message.digest !== undefined) {
@@ -235,6 +295,9 @@ export function toMessageVm(message: MessageOut): MessageVm {
       warnings,
     })
     vm.warnings = vm.digest.warnings
+    if (context?.previousUserRef !== undefined && context?.previousUserRef !== null) {
+      vm.replyRef = context.previousUserRef
+    }
     return vm
   }
   if (message.content === CANCELLED_ASSISTANT_MESSAGE) {
@@ -242,11 +305,28 @@ export function toMessageVm(message: MessageOut): MessageVm {
     return vm
   }
   if (FAILED_ASSISTANT_MESSAGES.includes(message.content.trim())) {
-    // The backend persists the safe failure text as the run's assistant row, so the
-    // row the transcript carries is the same alert the live run showed.
     vm.kind = 'failed'
     vm.alert = { kind: 'failed', message: vm.text, canRunAgain: true }
     return vm
   }
+  if (context?.previousUserRef !== undefined && context?.previousUserRef !== null) {
+    vm.replyRef = context.previousUserRef
+  }
   return vm
+}
+
+/** Sort and map a page of API messages; resolves follow-up titles from digest rows. */
+export function toMessages(loaded: MessageOut[]): MessageVm[] {
+  const sorted = [...loaded].sort((a, b) => a.sequence - b.sequence)
+  const digestTitles = buildDigestEntryTitleIndex(sorted)
+  let previousUserRef: RefVm | null = null
+  const out: MessageVm[] = []
+  for (const message of sorted) {
+    const vm = toMessageVm(message, { digestTitles, previousUserRef })
+    out.push(vm)
+    if (message.role === 'user') {
+      previousUserRef = vm.ref ?? null
+    }
+  }
+  return out
 }

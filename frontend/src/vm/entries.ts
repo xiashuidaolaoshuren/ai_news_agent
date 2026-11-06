@@ -178,7 +178,12 @@ export function toVm(api: ApiDigestEntry): EntryVm {
     vm.previewUrl = resolveDemoAsset(github.preview_image_url)
   }
   if (kind === 'huggingface') {
-    vm.hf = huggingFaceVm(api as HuggingFaceDigestEntryView)
+    const hf = api as HuggingFaceDigestEntryView
+    vm.hf = huggingFaceVm(hf)
+    const related = hf.related_display_ranks
+    if (related !== undefined && related.length > 0) {
+      vm.relatedRanks = [...related]
+    }
   }
   return vm
 }

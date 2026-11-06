@@ -10,6 +10,7 @@ import {
   FlaskConical,
   History,
   Info,
+  Layers,
   LoaderCircle,
   Menu,
   Moon,
@@ -31,6 +32,7 @@ const props = defineProps<{
     | 'alert'
     | 'ext'
     | 'reply'
+    | 'layers'
     | 'spark'
     | 'plus'
     | 'search'
@@ -57,6 +59,7 @@ const ICONS = {
   alert: AlertTriangle,
   ext: ExternalLink,
   reply: Reply,
+  layers: Layers,
   spark: Sparkles,
   plus: Plus,
   search: Search,

@@ -3,10 +3,13 @@ import { describe, expect, it } from 'vitest'
 
 import EntryRow from '@/components/thread/EntryRow.vue'
 import { githubEntry, juyaEntry } from '@/components/thread/vm-builders'
+import type { RefVm } from '@/vm/types'
+
+const DIGEST_ID = 15
 
 describe('EntryRow', () => {
   it('shows rank, title link, source tag, and host', () => {
-    const wrapper = mount(EntryRow, { props: { entry: githubEntry() } })
+    const wrapper = mount(EntryRow, { props: { entry: githubEntry(), digestId: DIGEST_ID } })
 
     expect(wrapper.get('.rank').text()).toBe('#1')
     expect(wrapper.get('h4 a').text()).toBe('NVIDIA/OpenShell')
@@ -20,7 +23,10 @@ describe('EntryRow', () => {
 
   it('omits a null summary, reason, and caveat instead of labelling them empty', () => {
     const wrapper = mount(EntryRow, {
-      props: { entry: githubEntry({ summary: null, whyItMatters: null, caveat: null }) },
+      props: {
+        entry: githubEntry({ summary: null, whyItMatters: null, caveat: null }),
+        digestId: DIGEST_ID,
+      },
     })
 
     expect(wrapper.findAll('dt')).toHaveLength(0)
@@ -29,16 +35,16 @@ describe('EntryRow', () => {
   })
 
   it('labels the fields that are present', () => {
-    const wrapper = mount(EntryRow, { props: { entry: githubEntry() } })
+    const wrapper = mount(EntryRow, { props: { entry: githubEntry(), digestId: DIGEST_ID } })
     const labels = wrapper.findAll('dt').map((dt) => dt.text())
 
     expect(labels).toEqual(['Summary', 'Why it matters'])
   })
 
   it('marks a link as previewable only when the entry has a preview url', () => {
-    const withPreview = mount(EntryRow, { props: { entry: githubEntry() } })
+    const withPreview = mount(EntryRow, { props: { entry: githubEntry(), digestId: DIGEST_ID } })
     const withoutPreview = mount(EntryRow, {
-      props: { entry: githubEntry({ previewUrl: null }) },
+      props: { entry: githubEntry({ previewUrl: null }), digestId: DIGEST_ID },
     })
 
     expect(withPreview.get('h4 a').attributes('data-preview')).toBe(
@@ -47,15 +53,21 @@ describe('EntryRow', () => {
     expect(withoutPreview.get('h4 a').attributes('data-preview')).toBeUndefined()
   })
 
-  it('renders the follow-up action as a button, not a duplicate link', () => {
-    const wrapper = mount(EntryRow, { props: { entry: githubEntry() } })
+  it('renders Deep dive and Ask about this actions', () => {
+    const wrapper = mount(EntryRow, { props: { entry: githubEntry(), digestId: DIGEST_ID } })
+    const footButtons = wrapper.findAll('.entry-foot .link-btn')
 
-    expect(wrapper.get('.entry-foot button').text()).toBe('Ask a follow-up')
+    expect(footButtons).toHaveLength(2)
+    expect(footButtons[0]!.text()).toContain('Deep dive')
+    expect(footButtons[1]!.text()).toContain('Ask about this')
   })
 
   it('renders blank-line-separated Juya prose as separate paragraphs', () => {
     const wrapper = mount(EntryRow, {
-      props: { entry: juyaEntry({ summary: 'First sentence.\n\nSecond paragraph.' }) },
+      props: {
+        entry: juyaEntry({ summary: 'First sentence.\n\nSecond paragraph.' }),
+        digestId: DIGEST_ID,
+      },
     })
 
     const paragraphs = wrapper.findAll('.entry-body dd')[0]?.findAll('p') ?? []
@@ -66,7 +78,7 @@ describe('EntryRow', () => {
   })
 
   it('keeps a single Juya paragraph as one paragraph', () => {
-    const wrapper = mount(EntryRow, { props: { entry: juyaEntry() } })
+    const wrapper = mount(EntryRow, { props: { entry: juyaEntry(), digestId: DIGEST_ID } })
 
     const paragraphs = wrapper.findAll('.entry-body dd')[0]?.findAll('p') ?? []
     expect(paragraphs.map((paragraph) => paragraph.text())).toEqual([
@@ -76,7 +88,10 @@ describe('EntryRow', () => {
 
   it('never renders Juya prose as markup', () => {
     const wrapper = mount(EntryRow, {
-      props: { entry: juyaEntry({ summary: '<script>alert(1)</script> & more' }) },
+      props: {
+        entry: juyaEntry({ summary: '<script>alert(1)</script> & more' }),
+        digestId: DIGEST_ID,
+      },
     })
 
     expect(wrapper.find('.entry-body script').exists()).toBe(false)
@@ -96,6 +111,7 @@ describe('EntryRow', () => {
             background: '背景段落一。\n\n背景段落二。',
           },
         }),
+        digestId: DIGEST_ID,
       },
     })
 
@@ -118,6 +134,7 @@ describe('EntryRow', () => {
             background: '背景段落一。\n\n背景段落二。',
           },
         }),
+        digestId: DIGEST_ID,
       },
     })
 
@@ -139,27 +156,40 @@ describe('EntryRow', () => {
           whyItMatters: 'Short reason.',
           juya: { topic: '要闻', originalUrl: null, storyNumber: 1, background: null },
         }),
+        digestId: DIGEST_ID,
       },
     })
 
     expect(wrapper.find('.entry-toggle').exists()).toBe(false)
   })
 
-  it('asks a Juya story follow-up with its clean headline', async () => {
+  it('emits ask with a RefVm for a Juya story', async () => {
+    const title = '有关部门拟增列AI技术'
+    const entry = juyaEntry({ title })
+    const expected: RefVm = { digestId: DIGEST_ID, rank: entry.rank, title }
     const wrapper = mount(EntryRow, {
-      props: { entry: juyaEntry({ title: '有关部门拟增列AI技术' }) },
+      props: { entry, digestId: DIGEST_ID },
     })
 
-    await wrapper.get('.entry-foot button').trigger('click')
+    const askBtn = wrapper
+      .findAll('.entry-foot .link-btn')
+      .find((b) => b.text().includes('Ask about this'))
+    await askBtn!.trigger('click')
 
-    expect(wrapper.emitted('followup')).toEqual([['有关部门拟增列AI技术']])
+    expect(wrapper.emitted('ask')).toEqual([[expected]])
   })
 
-  it('asks the entry title as a follow-up when the action is used', async () => {
-    const wrapper = mount(EntryRow, { props: { entry: githubEntry() } })
+  it('emits ask with a RefVm for a GitHub entry', async () => {
+    const entry = githubEntry()
+    const expected: RefVm = { digestId: DIGEST_ID, rank: entry.rank, title: entry.title }
+    const wrapper = mount(EntryRow, { props: { entry, digestId: DIGEST_ID } })
 
-    await wrapper.get('.entry-foot button').trigger('click')
+    const askBtn = wrapper
+      .findAll('.entry-foot .link-btn')
+      .find((b) => b.text().includes('Ask about this'))
+    await askBtn!.trigger('click')
 
-    expect(wrapper.emitted('followup')).toEqual([['NVIDIA/OpenShell']])
+    expect(wrapper.emitted('ask')).toEqual([[expected]])
   })
 })
+

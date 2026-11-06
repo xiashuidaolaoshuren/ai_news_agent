@@ -24,13 +24,14 @@ import {
   type OpenedItemVm,
   type OpenedResultInput,
 } from '@/vm'
+import type { RefVm } from '@/vm/types'
 
 /** Server calls and ambient services the history panel needs, injected for tests. */
 export interface HistoryDeps {
   search(query: HistorySearchQuery): Promise<HistorySearchResultOut>
   show(token: string): Promise<HistoryItemShowOut>
-  /** "Ask in chat" on an opened entry; the composer owns the wording. */
-  prefillFollowUp(title: string): void
+  /** "Ask in chat" targets the composer's follow-up chip from a historical entry. */
+  askAbout(ref: RefVm): void
   schedule(handler: () => void, ms: number): unknown
   cancel(handle: unknown): void
 }
@@ -77,8 +78,8 @@ export function defaultHistoryDeps(): HistoryDeps {
       }
       return result.data
     },
-    prefillFollowUp: (title) => {
-      composer.prefillFollowUp(title)
+    askAbout: (ref) => {
+      composer.askAbout(ref)
     },
     schedule: (handler, ms) => setTimeout(handler, ms),
     cancel: (handle) => {
@@ -214,9 +215,9 @@ export function createHistoryController(deps: HistoryDeps) {
     openedError.value = null
   }
 
-  /** "Ask in chat" on the opened entry: hand the title to the composer. */
-  function askInChat(title: string): void {
-    deps.prefillFollowUp(title)
+  /** "Ask in chat" on the opened entry: set the composer's follow-up target. */
+  function askInChat(ref: RefVm): void {
+    deps.askAbout(ref)
   }
 
   const openedInput = computed<OpenedResultInput | null>(() => {

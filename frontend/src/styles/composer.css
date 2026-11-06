@@ -45,6 +45,11 @@
   border-color: var(--danger-bd);
 }
 
+.c-refs {
+  display: flex;
+  padding: 10px 12px 0;
+}
+
 .c-notice {
   display: flex;
   align-items: center;

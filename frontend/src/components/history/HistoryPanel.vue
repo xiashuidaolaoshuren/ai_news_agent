@@ -4,6 +4,7 @@ import EntryRow from '@/components/thread/EntryRow.vue'
 import MarkdownReply from '@/components/thread/MarkdownReply.vue'
 import SourceTag from '@/components/thread/SourceTag.vue'
 import type { HistoryFilters, HistoryMatchVm, HistoryPanelVm } from '@/vm'
+import type { RefVm } from '@/vm/types'
 
 const props = defineProps<{ vm: HistoryPanelVm }>()
 
@@ -13,7 +14,9 @@ const emit = defineEmits<{
   clear: []
   retry: []
   closeResult: []
-  ask: [title: string]
+  deepdive: [ref: RefVm]
+  ask: [ref: RefVm]
+  'goto-related': [ref: RefVm]
   close: []
 }>()
 
@@ -27,6 +30,14 @@ const OPENED_NOTE = 'Opened from history. The current conversation is unchanged.
 /** The result actions are the prototype's row of buttons under the saved entry. */
 function text(event: Event): string {
   return (event.target as HTMLInputElement | HTMLSelectElement).value
+}
+
+function refFromMatch(match: HistoryMatchVm): RefVm {
+  return {
+    digestId: match.digestId,
+    rank: match.rank,
+    title: match.title,
+  }
 }
 </script>
 
@@ -170,7 +181,13 @@ function text(event: Event): string {
           {{ props.vm.opened.error }}
         </p>
         <ul v-else-if="props.vm.opened.item?.entry" class="entries">
-          <EntryRow :entry="props.vm.opened.item.entry" @followup="emit('ask', $event)" />
+          <EntryRow
+            :entry="props.vm.opened.item.entry"
+            :digest-id="props.vm.opened.match.digestId"
+            @deepdive="emit('deepdive', $event)"
+            @ask="emit('ask', $event)"
+            @goto-related="emit('goto-related', $event)"
+          />
         </ul>
         <MarkdownReply
           v-else-if="props.vm.opened.item"
@@ -188,7 +205,7 @@ function text(event: Event): string {
           <button
             type="button"
             class="btn btn-sm btn-ghost"
-            @click="emit('ask', props.vm.opened.match.title)"
+            @click="emit('ask', refFromMatch(props.vm.opened.match))"
           >
             <AppIcon name="reply" />Ask in chat
           </button>

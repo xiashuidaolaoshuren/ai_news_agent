@@ -468,6 +468,7 @@ function composerVmFor(view: string): ComposerVm {
     errors: {},
     busy: false,
     notice: 'none',
+    ref: null,
   }
   switch (view) {
     case 'streaming':

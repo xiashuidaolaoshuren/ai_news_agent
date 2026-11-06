@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPostData, CancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPostErrors, CancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPostResponses, CreateSessionApiV1SessionsPostData, CreateSessionApiV1SessionsPostResponses, DeleteSessionApiV1SessionsSessionIdDeleteData, DeleteSessionApiV1SessionsSessionIdDeleteErrors, DeleteSessionApiV1SessionsSessionIdDeleteResponses, GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetData, GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetErrors, GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetResponses, GetSessionApiV1SessionsSessionIdGetData, GetSessionApiV1SessionsSessionIdGetErrors, GetSessionApiV1SessionsSessionIdGetResponses, HealthApiV1HealthGetData, HealthApiV1HealthGetResponses, ListMessagesApiV1SessionsSessionIdMessagesGetData, ListMessagesApiV1SessionsSessionIdMessagesGetErrors, ListMessagesApiV1SessionsSessionIdMessagesGetResponses, ListSessionsApiV1SessionsGetData, ListSessionsApiV1SessionsGetErrors, ListSessionsApiV1SessionsGetResponses, PatchSessionApiV1SessionsSessionIdPatchData, PatchSessionApiV1SessionsSessionIdPatchErrors, PatchSessionApiV1SessionsSessionIdPatchResponses, PostMessageApiV1SessionsSessionIdMessagesPostData, PostMessageApiV1SessionsSessionIdMessagesPostErrors, PostMessageApiV1SessionsSessionIdMessagesPostResponse, PostMessageApiV1SessionsSessionIdMessagesPostResponses, RootGetData, RootGetResponses, SearchApiV1SessionsSearchGetData, SearchApiV1SessionsSearchGetErrors, SearchApiV1SessionsSearchGetResponses, SearchHistoryApiV1HistorySearchGetData, SearchHistoryApiV1HistorySearchGetErrors, SearchHistoryApiV1HistorySearchGetResponses, ShowHistoryApiV1HistoryHistoricalItemRefGetData, ShowHistoryApiV1HistoryHistoricalItemRefGetErrors, ShowHistoryApiV1HistoryHistoricalItemRefGetResponses, SourcesApiV1SourcesGetData, SourcesApiV1SourcesGetResponses } from './types.gen';
+import type { CancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPostData, CancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPostErrors, CancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPostResponses, CreateSessionApiV1SessionsPostData, CreateSessionApiV1SessionsPostResponses, DeleteCredentialApiV1SettingsCredentialsNameDeleteData, DeleteCredentialApiV1SettingsCredentialsNameDeleteErrors, DeleteCredentialApiV1SettingsCredentialsNameDeleteResponses, DeleteLlmCredentialsApiV1SettingsCredentialsLlmDeleteData, DeleteLlmCredentialsApiV1SettingsCredentialsLlmDeleteResponses, DeleteSessionApiV1SessionsSessionIdDeleteData, DeleteSessionApiV1SessionsSessionIdDeleteErrors, DeleteSessionApiV1SessionsSessionIdDeleteResponses, GetOutputLanguageApiV1SettingsLanguageGetData, GetOutputLanguageApiV1SettingsLanguageGetResponses, GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetData, GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetErrors, GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetResponses, GetSessionApiV1SessionsSessionIdGetData, GetSessionApiV1SessionsSessionIdGetErrors, GetSessionApiV1SessionsSessionIdGetResponses, HealthApiV1HealthGetData, HealthApiV1HealthGetResponses, ListCredentialsApiV1SettingsCredentialsGetData, ListCredentialsApiV1SettingsCredentialsGetResponses, ListMessagesApiV1SessionsSessionIdMessagesGetData, ListMessagesApiV1SessionsSessionIdMessagesGetErrors, ListMessagesApiV1SessionsSessionIdMessagesGetResponses, ListSessionsApiV1SessionsGetData, ListSessionsApiV1SessionsGetErrors, ListSessionsApiV1SessionsGetResponses, ListSourceProfilesApiV1SettingsSourcesGetData, ListSourceProfilesApiV1SettingsSourcesGetResponses, PatchSessionApiV1SessionsSessionIdPatchData, PatchSessionApiV1SessionsSessionIdPatchErrors, PatchSessionApiV1SessionsSessionIdPatchResponses, PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostData, PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostErrors, PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostResponses, PostMessageApiV1SessionsSessionIdMessagesPostData, PostMessageApiV1SessionsSessionIdMessagesPostErrors, PostMessageApiV1SessionsSessionIdMessagesPostResponse, PostMessageApiV1SessionsSessionIdMessagesPostResponses, RootGetData, RootGetResponses, SaveCredentialApiV1SettingsCredentialsNamePutData, SaveCredentialApiV1SettingsCredentialsNamePutErrors, SaveCredentialApiV1SettingsCredentialsNamePutResponses, SaveLlmCredentialsApiV1SettingsCredentialsLlmPutData, SaveLlmCredentialsApiV1SettingsCredentialsLlmPutErrors, SaveLlmCredentialsApiV1SettingsCredentialsLlmPutResponses, SaveOutputLanguageApiV1SettingsLanguagePutData, SaveOutputLanguageApiV1SettingsLanguagePutErrors, SaveOutputLanguageApiV1SettingsLanguagePutResponses, SaveSourceProfileApiV1SettingsSourcesNamePutData, SaveSourceProfileApiV1SettingsSourcesNamePutErrors, SaveSourceProfileApiV1SettingsSourcesNamePutResponses, SearchApiV1SessionsSearchGetData, SearchApiV1SessionsSearchGetErrors, SearchApiV1SessionsSearchGetResponses, SearchHistoryApiV1HistorySearchGetData, SearchHistoryApiV1HistorySearchGetErrors, SearchHistoryApiV1HistorySearchGetResponses, ShowHistoryApiV1HistoryHistoricalItemRefGetData, ShowHistoryApiV1HistoryHistoricalItemRefGetErrors, ShowHistoryApiV1HistoryHistoricalItemRefGetResponses, SourcesApiV1SourcesGetData, SourcesApiV1SourcesGetResponses, TestCredentialApiV1SettingsCredentialsNameTestPostData, TestCredentialApiV1SettingsCredentialsNameTestPostErrors, TestCredentialApiV1SettingsCredentialsNameTestPostResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -76,6 +76,18 @@ export const patchSessionApiV1SessionsSessionIdPatch = <ThrowOnError extends boo
 export const getRequestStatusApiV1SessionsSessionIdRequestsRequestIdGet = <ThrowOnError extends boolean = false>(options: Options<GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetData, ThrowOnError>): RequestResult<GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetResponses, GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetErrors, ThrowOnError> => (options.client ?? client).get<GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetResponses, GetRequestStatusApiV1SessionsSessionIdRequestsRequestIdGetErrors, ThrowOnError>({ url: '/api/v1/sessions/{session_id}/requests/{request_id}', ...options });
 
 /**
+ * Post Juya Confirmation
+ */
+export const postJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPost = <ThrowOnError extends boolean = false>(options: Options<PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostData, ThrowOnError>): RequestResult<PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostResponses, PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostErrors, ThrowOnError> => (options.client ?? client).post<PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostResponses, PostJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPostErrors, ThrowOnError>({
+    url: '/api/v1/sessions/{session_id}/requests/{request_id}/juya-confirmation',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
  * Cancel Request
  */
 export const cancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPost = <ThrowOnError extends boolean = false>(options: Options<CancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPostData, ThrowOnError>): RequestResult<CancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPostResponses, CancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPostErrors, ThrowOnError> => (options.client ?? client).post<CancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPostResponses, CancelRequestApiV1SessionsSessionIdRequestsRequestIdCancelPostErrors, ThrowOnError>({ url: '/api/v1/sessions/{session_id}/requests/{request_id}/cancel', ...options });
@@ -106,3 +118,81 @@ export const searchHistoryApiV1HistorySearchGet = <ThrowOnError extends boolean 
  * Show History
  */
 export const showHistoryApiV1HistoryHistoricalItemRefGet = <ThrowOnError extends boolean = false>(options: Options<ShowHistoryApiV1HistoryHistoricalItemRefGetData, ThrowOnError>): RequestResult<ShowHistoryApiV1HistoryHistoricalItemRefGetResponses, ShowHistoryApiV1HistoryHistoricalItemRefGetErrors, ThrowOnError> => (options.client ?? client).get<ShowHistoryApiV1HistoryHistoricalItemRefGetResponses, ShowHistoryApiV1HistoryHistoricalItemRefGetErrors, ThrowOnError>({ url: '/api/v1/history/{historical_item_ref}', ...options });
+
+/**
+ * Get Output Language
+ */
+export const getOutputLanguageApiV1SettingsLanguageGet = <ThrowOnError extends boolean = false>(options?: Options<GetOutputLanguageApiV1SettingsLanguageGetData, ThrowOnError>): RequestResult<GetOutputLanguageApiV1SettingsLanguageGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<GetOutputLanguageApiV1SettingsLanguageGetResponses, unknown, ThrowOnError>({ url: '/api/v1/settings/language', ...options });
+
+/**
+ * Save Output Language
+ */
+export const saveOutputLanguageApiV1SettingsLanguagePut = <ThrowOnError extends boolean = false>(options: Options<SaveOutputLanguageApiV1SettingsLanguagePutData, ThrowOnError>): RequestResult<SaveOutputLanguageApiV1SettingsLanguagePutResponses, SaveOutputLanguageApiV1SettingsLanguagePutErrors, ThrowOnError> => (options.client ?? client).put<SaveOutputLanguageApiV1SettingsLanguagePutResponses, SaveOutputLanguageApiV1SettingsLanguagePutErrors, ThrowOnError>({
+    url: '/api/v1/settings/language',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * List Source Profiles
+ */
+export const listSourceProfilesApiV1SettingsSourcesGet = <ThrowOnError extends boolean = false>(options?: Options<ListSourceProfilesApiV1SettingsSourcesGetData, ThrowOnError>): RequestResult<ListSourceProfilesApiV1SettingsSourcesGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<ListSourceProfilesApiV1SettingsSourcesGetResponses, unknown, ThrowOnError>({ url: '/api/v1/settings/sources', ...options });
+
+/**
+ * Save Source Profile
+ */
+export const saveSourceProfileApiV1SettingsSourcesNamePut = <ThrowOnError extends boolean = false>(options: Options<SaveSourceProfileApiV1SettingsSourcesNamePutData, ThrowOnError>): RequestResult<SaveSourceProfileApiV1SettingsSourcesNamePutResponses, SaveSourceProfileApiV1SettingsSourcesNamePutErrors, ThrowOnError> => (options.client ?? client).put<SaveSourceProfileApiV1SettingsSourcesNamePutResponses, SaveSourceProfileApiV1SettingsSourcesNamePutErrors, ThrowOnError>({
+    url: '/api/v1/settings/sources/{name}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * List Credentials
+ */
+export const listCredentialsApiV1SettingsCredentialsGet = <ThrowOnError extends boolean = false>(options?: Options<ListCredentialsApiV1SettingsCredentialsGetData, ThrowOnError>): RequestResult<ListCredentialsApiV1SettingsCredentialsGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<ListCredentialsApiV1SettingsCredentialsGetResponses, unknown, ThrowOnError>({ url: '/api/v1/settings/credentials', ...options });
+
+/**
+ * Delete Llm Credentials
+ */
+export const deleteLlmCredentialsApiV1SettingsCredentialsLlmDelete = <ThrowOnError extends boolean = false>(options?: Options<DeleteLlmCredentialsApiV1SettingsCredentialsLlmDeleteData, ThrowOnError>): RequestResult<DeleteLlmCredentialsApiV1SettingsCredentialsLlmDeleteResponses, unknown, ThrowOnError> => (options?.client ?? client).delete<DeleteLlmCredentialsApiV1SettingsCredentialsLlmDeleteResponses, unknown, ThrowOnError>({ url: '/api/v1/settings/credentials/llm', ...options });
+
+/**
+ * Save Llm Credentials
+ */
+export const saveLlmCredentialsApiV1SettingsCredentialsLlmPut = <ThrowOnError extends boolean = false>(options: Options<SaveLlmCredentialsApiV1SettingsCredentialsLlmPutData, ThrowOnError>): RequestResult<SaveLlmCredentialsApiV1SettingsCredentialsLlmPutResponses, SaveLlmCredentialsApiV1SettingsCredentialsLlmPutErrors, ThrowOnError> => (options.client ?? client).put<SaveLlmCredentialsApiV1SettingsCredentialsLlmPutResponses, SaveLlmCredentialsApiV1SettingsCredentialsLlmPutErrors, ThrowOnError>({
+    url: '/api/v1/settings/credentials/llm',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Test Credential
+ */
+export const testCredentialApiV1SettingsCredentialsNameTestPost = <ThrowOnError extends boolean = false>(options: Options<TestCredentialApiV1SettingsCredentialsNameTestPostData, ThrowOnError>): RequestResult<TestCredentialApiV1SettingsCredentialsNameTestPostResponses, TestCredentialApiV1SettingsCredentialsNameTestPostErrors, ThrowOnError> => (options.client ?? client).post<TestCredentialApiV1SettingsCredentialsNameTestPostResponses, TestCredentialApiV1SettingsCredentialsNameTestPostErrors, ThrowOnError>({ url: '/api/v1/settings/credentials/{name}/test', ...options });
+
+/**
+ * Delete Credential
+ */
+export const deleteCredentialApiV1SettingsCredentialsNameDelete = <ThrowOnError extends boolean = false>(options: Options<DeleteCredentialApiV1SettingsCredentialsNameDeleteData, ThrowOnError>): RequestResult<DeleteCredentialApiV1SettingsCredentialsNameDeleteResponses, DeleteCredentialApiV1SettingsCredentialsNameDeleteErrors, ThrowOnError> => (options.client ?? client).delete<DeleteCredentialApiV1SettingsCredentialsNameDeleteResponses, DeleteCredentialApiV1SettingsCredentialsNameDeleteErrors, ThrowOnError>({ url: '/api/v1/settings/credentials/{name}', ...options });
+
+/**
+ * Save Credential
+ */
+export const saveCredentialApiV1SettingsCredentialsNamePut = <ThrowOnError extends boolean = false>(options: Options<SaveCredentialApiV1SettingsCredentialsNamePutData, ThrowOnError>): RequestResult<SaveCredentialApiV1SettingsCredentialsNamePutResponses, SaveCredentialApiV1SettingsCredentialsNamePutErrors, ThrowOnError> => (options.client ?? client).put<SaveCredentialApiV1SettingsCredentialsNamePutResponses, SaveCredentialApiV1SettingsCredentialsNamePutErrors, ThrowOnError>({
+    url: '/api/v1/settings/credentials/{name}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});

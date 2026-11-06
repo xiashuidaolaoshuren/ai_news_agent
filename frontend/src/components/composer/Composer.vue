@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, useTemplateRef } from 'vue'
 
 import AppIcon from '@/components/ui/AppIcon.vue'
+import RefChip from '@/components/thread/RefChip.vue'
 import SourceLogo from '@/components/thread/SourceLogo.vue'
 import type { ComposerVm } from '@/vm/composer'
 
@@ -14,6 +15,7 @@ const emit = defineEmits<{
   toggleSource: [name: string]
   commitCount: [raw: string]
   stepCount: [delta: number]
+  removeRef: []
 }>()
 
 const dock = useTemplateRef<HTMLElement>('dock')
@@ -128,12 +130,21 @@ defineExpose({
         <AppIcon name="load" class="spin" />{{ NOTICE_COPY[props.vm.notice] }}
       </div>
 
+      <div v-if="props.vm.ref !== null" class="c-refs">
+        <RefChip
+          :ref-vm="props.vm.ref"
+          od-id="composer-ref-chip"
+          removable
+          @remove="emit('removeRef')"
+        />
+      </div>
+
       <label class="sr-only" for="msg">Message</label>
       <textarea
         id="msg"
         ref="input"
         rows="2"
-        placeholder="Ask for a digest or a follow-up…"
+        :placeholder="props.vm.placeholder"
         :value="props.vm.text"
         :aria-invalid="props.vm.errors.text !== undefined"
         :aria-describedby="props.vm.errors.text === undefined ? undefined : 'err-text'"

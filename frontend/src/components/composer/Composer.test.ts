@@ -17,6 +17,7 @@ function vm(overrides: Partial<ComposerVmInput> = {}) {
     errors: {},
     busy: false,
     notice: 'none',
+    ref: null,
     ...overrides,
   })
 }

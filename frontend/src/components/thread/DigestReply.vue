@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import type { DigestVm, SectionVm } from '@/vm'
+import type { DigestVm, RefVm, SectionVm } from '@/vm'
 import { riseStyle } from '@/lib/motion'
 
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -10,7 +10,11 @@ import { formatDigestWhen } from '@/components/thread/format'
 
 const props = defineProps<{ digest: DigestVm; animate?: boolean }>()
 
-const emit = defineEmits<{ followup: [title: string] }>()
+const emit = defineEmits<{
+  deepdive: [ref: RefVm]
+  ask: [ref: RefVm]
+  'goto-related': [ref: RefVm]
+}>()
 
 const when = computed(() => formatDigestWhen(props.digest.generatedAt))
 
@@ -69,9 +73,12 @@ function warningStyle(index: number): string | undefined {
       v-for="(section, index) in digest.sections"
       :key="`${section.kind}:${section.rangeStart}`"
       :section="section"
+      :digest-id="digest.digestId ?? -1"
       :animate="props.animate === true"
       :start-index="sectionStarts[index] ?? 0"
-      @followup="emit('followup', $event)"
+      @deepdive="emit('deepdive', $event)"
+      @ask="emit('ask', $event)"
+      @goto-related="emit('goto-related', $event)"
     />
   </div>
 </template>

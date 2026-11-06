@@ -12,6 +12,7 @@ import { useHistoryStore } from '@/stores/history'
 import { useSessionsStore } from '@/stores/sessions'
 import { useThemeStore } from '@/stores/theme'
 import { useThreadStore } from '@/stores/thread'
+import type { RefVm } from '@/vm/types'
 
 const themeStore = useThemeStore()
 const sessions = useSessionsStore()
@@ -21,6 +22,7 @@ const history = useHistoryStore()
 
 const shell = useTemplateRef<InstanceType<typeof AppShell>>('shell')
 const composerField = useTemplateRef<InstanceType<typeof Composer>>('composerField')
+const threadView = useTemplateRef<InstanceType<typeof Thread>>('threadView')
 
 /** An open inline edit in the sidebar takes Escape before the shell closes overlays. */
 const inlineEditOpen = computed(
@@ -75,12 +77,20 @@ watch(
 )
 
 /**
- * "Ask in chat" on an opened history result: hand the title to the composer, and
- * step out of the way only when the panel covers the dock.
+ * "Ask in chat" on an opened history result: set the composer's follow-up target.
  */
-function onHistoryAsk(title: string): void {
-  history.askInChat(title)
+function onHistoryAsk(ref: RefVm): void {
+  history.askInChat(ref)
   shell.value?.closeHistoryIfOverlay()
+}
+
+function onHistoryDeepDive(ref: RefVm): void {
+  void composer.deepDive(ref)
+  shell.value?.closeHistoryIfOverlay()
+}
+
+function onHistoryGotoRelated(ref: RefVm): void {
+  threadView.value?.gotoRef(ref)
 }
 
 onUnmounted(() => {
@@ -104,6 +114,7 @@ onUnmounted(() => {
 
     <template #default>
       <Thread
+        ref="threadView"
         :messages="thread.visibleMessages"
         :fresh-ids="thread.freshIds"
         :run="thread.run"
@@ -115,7 +126,8 @@ onUnmounted(() => {
         @load-older="thread.loadOlder()"
         @run-again="composer.runAgain()"
         @retry-poll="thread.retryPoll()"
-        @followup="composer.prefillFollowUp($event)"
+        @deepdive="composer.deepDive($event)"
+        @ask="composer.askAbout($event)"
         @suggest="composer.prefill($event)"
         @reveal-done="thread.revealFinished()"
       />
@@ -131,6 +143,7 @@ onUnmounted(() => {
         @toggle-source="composer.toggleSource($event)"
         @commit-count="composer.commitCount($event)"
         @step-count="composer.stepCount($event)"
+        @remove-ref="composer.removeRef()"
       />
     </template>
 
@@ -142,7 +155,9 @@ onUnmounted(() => {
         @retry="history.retry()"
         @open="history.open($event)"
         @close-result="history.closeResult()"
+        @deepdive="onHistoryDeepDive($event)"
         @ask="onHistoryAsk($event)"
+        @goto-related="onHistoryGotoRelated($event)"
         @close="shell?.closeHistory()"
       />
     </template>
