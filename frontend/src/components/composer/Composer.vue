@@ -13,9 +13,9 @@ const emit = defineEmits<{
   cancel: []
   updateText: [text: string]
   toggleSource: [name: string]
-  commitCount: [raw: string]
-  stepCount: [delta: number]
   removeRef: []
+  openSettings: [name: string]
+  dismissCounts: []
 }>()
 
 const dock = useTemplateRef<HTMLElement>('dock')
@@ -51,10 +51,6 @@ function onKeydown(event: KeyboardEvent): void {
 
 function onInput(event: Event): void {
   emit('updateText', (event.target as HTMLTextAreaElement).value)
-}
-
-function onCountInput(event: Event): void {
-  emit('commitCount', (event.target as HTMLInputElement).value)
 }
 
 /**
@@ -105,6 +101,18 @@ defineExpose({
 
 <template>
   <div ref="dock" class="composer-dock">
+    <div
+      v-if="!props.vm.countsSeen"
+      class="alert alert-info dock-note"
+      role="status"
+      data-od-id="source-count-notice"
+    >
+      <AppIcon name="info" />
+      <p>New requests use the global source counts from Settings, initially 5 per source.</p>
+      <button type="button" class="icon-btn" aria-label="Dismiss notice" @click="emit('dismissCounts')">
+        <AppIcon name="close" />
+      </button>
+    </div>
     <form
       class="composer"
       :class="{ invalid: hasErrors }"
@@ -161,58 +169,31 @@ defineExpose({
           data-od-id="source-checkboxes"
         >
           <legend>Sources</legend>
-          <label v-for="source in props.vm.sources" :key="source.name" class="src-chk">
-            <input
-              type="checkbox"
-              :data-src="source.name"
-              :checked="source.checked"
-              :disabled="props.vm.busy"
-              @change="emit('toggleSource', source.name)"
-            />
-            <span>
-              <i class="box"><AppIcon name="check" /></i>
-              <SourceLogo v-if="source.kind !== null" :kind="source.kind" />{{ source.label }}
-            </span>
-          </label>
+          <span v-for="source in props.vm.sources" :key="source.name" class="src-pair">
+            <label class="src-chk">
+              <input
+                type="checkbox"
+                :data-src="source.name"
+                :checked="source.checked"
+                :disabled="props.vm.busy"
+                @change="emit('toggleSource', source.name)"
+              />
+              <span>
+                <i class="box"><AppIcon name="check" /></i>
+                <SourceLogo v-if="source.kind !== null" :kind="source.kind" />{{ source.label }}
+              </span>
+            </label>
+            <button
+              type="button"
+              class="src-gear"
+              :aria-label="`${source.label} settings`"
+              :data-od-id="`source-settings-${source.name}`"
+              @click="emit('openSettings', source.name)"
+            >
+              <AppIcon name="gear" />
+            </button>
+          </span>
         </fieldset>
-
-        <div class="per">
-          <label for="per-n">Per source</label>
-          <div
-            class="stepper"
-            :class="{ err: props.vm.errors.count !== undefined }"
-            data-od-id="items-per-source"
-          >
-            <button
-              type="button"
-              aria-label="Fewer items"
-              :disabled="props.vm.busy"
-              @click="emit('stepCount', -1)"
-            >
-              −
-            </button>
-            <input
-              id="per-n"
-              type="number"
-              inputmode="numeric"
-              min="1"
-              max="20"
-              :value="props.vm.count"
-              :aria-invalid="props.vm.errors.count !== undefined"
-              :aria-describedby="props.vm.errors.count === undefined ? undefined : 'err-n'"
-              :disabled="props.vm.busy"
-              @change="onCountInput"
-            />
-            <button
-              type="button"
-              aria-label="More items"
-              :disabled="props.vm.busy"
-              @click="emit('stepCount', 1)"
-            >
-              +
-            </button>
-          </div>
-        </div>
 
         <div class="c-actions">
           <button

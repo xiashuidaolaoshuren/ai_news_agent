@@ -7,17 +7,22 @@ import ChatHead from '@/components/shell/ChatHead.vue'
 import Composer from '@/components/composer/Composer.vue'
 import HistoryPanel from '@/components/history/HistoryPanel.vue'
 import Thread from '@/components/thread/Thread.vue'
+import SettingsDialog from '@/components/settings/SettingsDialog.vue'
 import { useComposerStore } from '@/stores/composer'
 import { useHistoryStore } from '@/stores/history'
 import { useSessionsStore } from '@/stores/sessions'
+import { useSettingsStore } from '@/stores/settings'
 import { useThemeStore } from '@/stores/theme'
 import { useThreadStore } from '@/stores/thread'
+import type { OutputLanguage } from '@/stores/settings'
+import type { SourceProfileVm } from '@/vm/settings'
 import type { RefVm } from '@/vm/types'
 
 const themeStore = useThemeStore()
 const sessions = useSessionsStore()
 const thread = useThreadStore()
 const composer = useComposerStore()
+const settings = useSettingsStore()
 const history = useHistoryStore()
 
 const shell = useTemplateRef<InstanceType<typeof AppShell>>('shell')
@@ -101,7 +106,7 @@ onUnmounted(() => {
 <template>
   <AppShell ref="shell" :escape-guard="inlineEditOpen">
     <template #sidebar>
-      <Sidebar />
+      <Sidebar @open-settings="settings.open('sources')" />
     </template>
 
     <template #header>
@@ -135,6 +140,7 @@ onUnmounted(() => {
         @ask="composer.askAbout($event)"
         @suggest="composer.prefill($event)"
         @reveal-done="thread.revealFinished()"
+        @confirm-juya="thread.confirmJuya($event.messageId, $event.action)"
       />
     </template>
 
@@ -146,9 +152,9 @@ onUnmounted(() => {
         @cancel="composer.cancel()"
         @update-text="composer.setText($event)"
         @toggle-source="composer.toggleSource($event)"
-        @commit-count="composer.commitCount($event)"
-        @step-count="composer.stepCount($event)"
         @remove-ref="composer.removeRef()"
+        @open-settings="settings.open('sources', $event)"
+        @dismiss-counts="settings.dismissCounts()"
       />
     </template>
 
@@ -167,4 +173,21 @@ onUnmounted(() => {
       />
     </template>
   </AppShell>
+  <SettingsDialog
+    :vm="{
+      open: settings.isOpen,
+      tab: settings.tab,
+      language: settings.draft.language,
+      profiles: settings.draft.profiles,
+      fieldErrors: settings.fieldErrors,
+      saved: settings.saved,
+      loadError: settings.loadError,
+      focus: settings.focus,
+    }"
+    @close="settings.close()"
+    @save="settings.save()"
+    @retry="settings.load()"
+    @update-language="settings.draft.language = $event as OutputLanguage"
+    @update-profile="settings.updateProfile($event as SourceProfileVm)"
+  />
 </template>

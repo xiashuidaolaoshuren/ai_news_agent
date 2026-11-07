@@ -476,6 +476,7 @@ function composerVmFor(view: string): ComposerVm {
     errors: {},
     busy: false,
     notice: 'none',
+    countsSeen: true,
     ref: null,
   }
   switch (view) {

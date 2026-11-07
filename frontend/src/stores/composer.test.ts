@@ -5,7 +5,7 @@ import type { PostMessageBody, SessionOut, SessionPatch } from '@/api/generated/
 import type { RequestLifecycle, RequestSnapshot } from '@/api/lifecycle'
 import { SseHttpError } from '@/api/sse'
 import { createComposerController, type ComposerDeps } from '@/stores/composer'
-import { COUNT_INVALID, PREFS_FAILED, TEXT_REQUIRED, parseSources } from '@/vm/composer'
+import { PREFS_FAILED, TEXT_REQUIRED, parseSources } from '@/vm/composer'
 import type { SentSourcesInput } from '@/vm/session'
 import type { RefVm } from '@/vm/types'
 
@@ -97,6 +97,8 @@ function makeComposer(overrides: Partial<ComposerDeps> = {}): Harness {
 
   const deps: ComposerDeps = {
     loadSources: async () => CATALOG,
+    hiddenSources: async () => ['bilibili'],
+    countsSeen: () => true,
     session: () => session.value,
     draft,
     snapshot: () => snapshot.value,
@@ -202,18 +204,25 @@ describe('composer send', () => {
     ])
   })
 
-  it('counts a typed item count among the sent sources', async () => {
+  it('sends the session sources without a composer count', async () => {
     const { controller, marked, draft } = await ready()
     await controller.commitCount('8')
     draft.value = 'What shipped this week?'
 
     controller.send()
 
-    expect(marked[0]?.sources).toEqual({ names: ['juya'], perSource: 8 })
+    expect(marked[0]?.sources).toEqual({ names: ['juya'], perSource: 5 })
   })
 })
 
 describe('composer source preferences', () => {
+  it('keeps Bilibili out of the composer while it stays selectable in settings', async () => {
+    const { controller } = await ready()
+
+    expect(controller.vm.value.sources.map((source) => source.name)).not.toContain('bilibili')
+    expect(controller.vm.value.sources.map((source) => source.name)).toContain('juya')
+  })
+
   it('patches the session when a source is toggled', async () => {
     const { controller, patches, applied } = await ready()
 
@@ -222,7 +231,7 @@ describe('composer source preferences', () => {
     expect(patches).toEqual([
       {
         sessionId: 's1',
-        body: { connector_names: ['juya', 'github'], items_per_source: 5 },
+        body: { connector_names: ['juya', 'github'] },
       },
     ])
     expect(applied).toHaveLength(1)
@@ -447,37 +456,19 @@ describe('composer prefill', () => {
 })
 
 describe('composer count preferences', () => {
-  it('patches the session when a typed count is committed', async () => {
+  it('does not patch the session when a typed count is committed', async () => {
     const { controller, patches } = await ready()
 
     await controller.commitCount('8')
 
-    expect(controller.vm.value.count).toBe('8')
-    expect(patches).toEqual([
-      { sessionId: 's1', body: { connector_names: ['juya'], items_per_source: 8 } },
-    ])
-  })
-
-  it('reports an unusable count, keeps the raw text, and patches nothing', async () => {
-    const { controller, patches } = await ready()
-
-    await controller.commitCount('99')
-
     expect(patches).toEqual([])
-    expect(controller.vm.value.count).toBe('99')
-    expect(controller.vm.value.errors.count).toBe(COUNT_INVALID)
   })
 
-  it('clamps a stepper step into 1-20 and clears the count error', async () => {
+  it('does not patch the session from a stepper step', async () => {
     const { controller, patches } = await ready()
-    await controller.commitCount('99')
 
     await controller.stepCount(-1)
 
-    expect(controller.vm.value.count).toBe('20')
-    expect(controller.vm.value.errors.count).toBeUndefined()
-    expect(patches).toEqual([
-      { sessionId: 's1', body: { connector_names: ['juya'], items_per_source: 20 } },
-    ])
+    expect(patches).toEqual([])
   })
 })

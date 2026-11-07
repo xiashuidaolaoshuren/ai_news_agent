@@ -17,6 +17,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Settings,
   Reply,
   Search,
   Sparkles,
@@ -53,7 +54,8 @@ const props = defineProps<{
     | 'up'
     | 'down'
     | 'stop'
-}>()
+    | 'gear'
+  }>()
 
 const ICONS = {
   alert: AlertTriangle,
@@ -80,6 +82,7 @@ const ICONS = {
   up: ArrowUp,
   down: ArrowDown,
   stop: Square,
+  gear: Settings,
 } as const
 
 const icon = computed(() => ICONS[props.name])

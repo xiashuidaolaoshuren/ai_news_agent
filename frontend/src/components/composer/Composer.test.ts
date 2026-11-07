@@ -18,6 +18,7 @@ function vm(overrides: Partial<ComposerVmInput> = {}) {
     busy: false,
     notice: 'none',
     ref: null,
+    countsSeen: true,
     ...overrides,
   })
 }
@@ -52,8 +53,36 @@ describe('composer keyboard', () => {
   })
 })
 
+describe('composer source counts', () => {
+  it('has no per-source count stepper', () => {
+    const wrapper = mount(Composer, { props: { vm: vm() } })
+
+    expect(wrapper.find('#per-n').exists()).toBe(false)
+    expect(wrapper.find('[data-od-id="items-per-source"]').exists()).toBe(false)
+  })
+
+  it('opens that source settings from its gear', async () => {
+    const wrapper = mount(Composer, { props: { vm: vm() } })
+
+    await wrapper.get('[data-od-id="source-settings-github"]').trigger('click')
+
+    expect(wrapper.emitted('openSettings')).toEqual([['github']])
+  })
+
+  it('shows the global count notice until it is dismissed', async () => {
+    const wrapper = mount(Composer, { props: { vm: vm({ countsSeen: false }) } })
+    const notice = wrapper.get('[data-od-id="source-count-notice"]')
+
+    expect(notice.text()).toContain(
+      'New requests use the global source counts from Settings, initially 5 per source.',
+    )
+    await notice.get('[aria-label="Dismiss notice"]').trigger('click')
+    expect(wrapper.emitted('dismissCounts')).toHaveLength(1)
+  })
+})
+
 describe('composer busy state', () => {
-  it('disables the sources, the stepper and Send, and offers Cancel', async () => {
+  it('disables the sources and Send, and offers Cancel', async () => {
     const wrapper = mount(Composer, { props: { vm: vm({ busy: true, notice: 'running' }) } })
 
     expect(wrapper.get('[data-od-id="send-button"]').attributes('disabled')).toBeDefined()
@@ -62,7 +91,7 @@ describe('composer busy state', () => {
         .findAll('[data-od-id="source-checkboxes"] input')
         .every((input) => input.attributes('disabled') !== undefined),
     ).toBe(true)
-    expect(wrapper.get('#per-n').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('#per-n').exists()).toBe(false)
     expect(wrapper.find('[data-od-id="cancel-request"]').exists()).toBe(true)
     expect(wrapper.get('[data-od-id="busy-notice"]').text()).toContain(
       'You can draft your next message.',

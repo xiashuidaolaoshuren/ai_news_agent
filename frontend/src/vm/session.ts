@@ -100,6 +100,15 @@ export interface MessageVm {
   collection?: CollectionVm
   /** A stored digest request this row can run again. */
   repeat?: RepeatVm
+  /** A Juya request waiting for confirmation before the digest is written. */
+  juyaConfirm?: JuyaConfirmVm
+}
+
+/** The pending Juya confirmation shown in the thread. */
+export interface JuyaConfirmVm {
+  storyCount: number
+  issue: string
+  issueNumber: string
 }
 
 /** The stored resolution a Run again or try-source action repeats. */
@@ -413,6 +422,13 @@ export function toMessageVm(message: MessageOut, context?: MessageMapContext): M
     vm.kind = 'user'
     if (message.request) {
       vm.chips = toResolvedSourcesVm(message.request)
+    }
+    if (message.juya_confirmation !== undefined && message.juya_confirmation !== null) {
+      vm.juyaConfirm = {
+        storyCount: message.juya_confirmation.story_count,
+        issue: message.juya_confirmation.issue,
+        issueNumber: message.juya_confirmation.issue_number,
+      }
     }
     if (message.followup_target !== undefined && message.followup_target !== null) {
       vm.ref = followupTargetToRef(message.followup_target, titles)

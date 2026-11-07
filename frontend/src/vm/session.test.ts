@@ -29,6 +29,24 @@ function message(overrides: Partial<MessageOut> = {}): MessageOut {
 }
 
 describe('toMessageVm kinds', () => {
+  it('carries a pending Juya confirmation on the user message', () => {
+    const vm = toMessageVm(
+      message({
+        juya_confirmation: {
+          story_count: 24,
+          issue: '2026-10',
+          issue_number: '42',
+        },
+      }),
+    )
+
+    expect(vm.juyaConfirm).toEqual({
+      storyCount: 24,
+      issue: '2026-10',
+      issueNumber: '42',
+    })
+  })
+
   it('marks a user message', () => {
     const vm = toMessageVm(message())
 

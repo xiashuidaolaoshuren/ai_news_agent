@@ -19,6 +19,8 @@ const DELETE_COLLAPSE_MS = 330
 
 const store = useSessionsStore()
 
+const emit = defineEmits<{ openSettings: [] }>()
+
 const query = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -193,6 +195,9 @@ const deleteTitle = computed(() => {
   </div>
 
   <div class="sb-foot">
+    <button type="button" class="btn" data-od-id="settings-button" @click="emit('openSettings')">
+      <AppIcon name="gear" />Settings
+    </button>
     <ThemeSwitch />
     <BackendStatus />
   </div>

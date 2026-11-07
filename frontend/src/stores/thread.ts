@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, shallowRef, type Ref } from 'vue'
 
 import type { MessageOut, SessionOut } from '@/api/generated/types.gen'
+import { postJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPost } from '@/api/generated/sdk.gen'
 import { listMessagesApiV1SessionsSessionIdMessagesGet } from '@/api/generated/sdk.gen'
 import {
   createRequestLifecycle,
@@ -61,6 +62,11 @@ export interface ThreadDeps {
    * it assigned to the first message, its digest count, or the request it is running.
    */
   onSessionChanged?(): void
+  confirmJuya(
+    sessionId: string,
+    requestId: string,
+    action: 'continue' | 'cancel',
+  ): Promise<void>
 }
 
 /** Production dependencies wired to the generated client and the request lifecycle. */
@@ -79,6 +85,13 @@ export function defaultThreadDeps(): ThreadDeps {
       return { messages: result.data.messages, nextCursor: result.data.next_cursor ?? null }
     },
     lifecycle: createRequestLifecycle(defaultLifecycleDeps()),
+    async confirmJuya(sessionId, requestId, action): Promise<void> {
+      await postJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPost({
+        path: { session_id: sessionId, request_id: requestId },
+        body: { action },
+        throwOnError: true,
+      })
+    },
     now: () => new Date(),
     schedule: (handler, ms) => {
       setTimeout(handler, ms)
@@ -586,6 +599,27 @@ export function createThreadController(deps: ThreadDeps) {
    * for the row the backend persists until the terminal reload brings that row back
    * with the reply.
    */
+  /**
+   * Answer a pending large Juya request. Continue resumes the same request;
+   * cancel stores the cancellation. Either way the transcript reloads.
+   */
+  async function confirmJuya(
+    messageId: number,
+    action: 'continue' | 'cancel',
+  ): Promise<void> {
+    const current = session.value
+    const sessionId = current?.id
+    const requestId = rawSnapshot.value.requestId ?? current?.active_request_id ?? null
+    if (sessionId === undefined || requestId === null || messageId < 0) {
+      return
+    }
+    await deps.confirmJuya(sessionId, requestId, action)
+    if (action === 'continue') {
+      await deps.lifecycle.resume(sessionId, requestId)
+    }
+    await loadMessages(sessionId)
+  }
+
   function markUserSent(text: string, sources: SentSourcesInput, ref?: RefVm | null): void {
     pendingUser.value = {
       text,
@@ -619,6 +653,7 @@ export function createThreadController(deps: ThreadDeps) {
     runAgain,
     retryPoll,
     markUserSent,
+    confirmJuya,
     revealFinished,
   }
 }

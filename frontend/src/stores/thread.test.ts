@@ -133,6 +133,7 @@ function makeStore(options: StoreOptions = {}) {
     now: options.now ?? (() => at(20, 14, 1)),
     schedule: options.schedule ?? (() => undefined),
     onSessionChanged: options.onSessionChanged,
+    confirmJuya: async () => undefined,
   })
   return { controller, lifecycle, reloads }
 }

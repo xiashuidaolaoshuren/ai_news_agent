@@ -133,6 +133,7 @@ export interface ComposerVmInput {
   notice: ComposerNotice
   /** Optional follow-up target; drives placeholder and chip. */
   ref: RefVm | null
+  countsSeen: boolean
 }
 
 /** Everything the composer renders; the component reads no other state. */
@@ -145,6 +146,7 @@ export interface ComposerVm {
   errors: ComposerErrors
   ref: RefVm | null
   placeholder: string
+  countsSeen: boolean
 }
 
 function placeholderFor(ref: RefVm | null): string {
@@ -168,5 +170,6 @@ export function toComposerVm(input: ComposerVmInput): ComposerVm {
     errors: input.errors,
     ref: input.ref,
     placeholder: placeholderFor(input.ref),
+    countsSeen: input.countsSeen,
   }
 }

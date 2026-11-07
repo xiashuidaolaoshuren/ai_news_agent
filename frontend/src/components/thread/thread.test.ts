@@ -52,6 +52,38 @@ function assistantMessage(over: Partial<MessageOut> = {}): MessageOut {
 }
 
 describe('Thread', () => {
+  it('asks before a large Juya request and does not show a digest until Continue', async () => {
+    const [user] = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        role: 'user',
+        content: 'Summarize this issue',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        juya_confirmation: {
+          story_count: 24,
+          issue: '2026-10',
+          issue_number: '42',
+        },
+      }),
+    ])
+    const wrapper = mount(Thread, { props: { messages: [user!] } })
+    const panel = wrapper.get('[data-od-id="juya-all-confirm"]')
+
+    expect(panel.text()).toContain('24 stories')
+    expect(panel.text()).toContain('2026-10')
+    expect(panel.text()).toContain('42')
+    expect(wrapper.find('[data-od-id^="digest-"]').exists()).toBe(false)
+
+    await wrapper.get('[data-od-id="juya-confirm-continue"]').trigger('click')
+    expect(wrapper.emitted('confirmJuya')).toEqual([[{ messageId: 1, action: 'continue' }]])
+
+    await wrapper.get('[data-od-id="juya-confirm-cancel"]').trigger('click')
+    expect(wrapper.emitted('confirmJuya')?.[1]).toEqual([{ messageId: 1, action: 'cancel' }])
+  })
+
   it('shows the loading skeleton instead of the empty conversation while opening', () => {
     const wrapper = mount(Thread, { props: { messages: [], loading: true } })
 

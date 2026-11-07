@@ -62,6 +62,8 @@ const emit = defineEmits<{
   repeat: [payload: RepeatVm & { replaceSource?: string }]
   /** The live reply finished typing itself out; the transcript can take over. */
   revealDone: []
+  /** Continue or cancel a pending large Juya request. */
+  confirmJuya: [payload: { messageId: number; action: 'continue' | 'cancel' }]
 }>()
 
 /**
@@ -333,6 +335,41 @@ defineExpose({ gotoRef })
               }}/source</span>
             </template>
           </div>
+          <section
+            v-if="message.juyaConfirm"
+            class="section"
+            role="group"
+            data-od-id="juya-all-confirm"
+          >
+            <div class="section-head">
+              <h3>Confirm a large Juya request</h3>
+            </div>
+            <div class="set-body">
+              <p>
+                This request would include
+                <b class="num">{{ message.juyaConfirm.storyCount }} stories</b>
+                from <b>{{ message.juyaConfirm.issue }}</b>, issue
+                {{ message.juyaConfirm.issueNumber }}. Requests over 20 stories need your
+                confirmation before the digest is written.
+              </p>
+              <div class="seg">
+                <button
+                  type="button"
+                  data-od-id="juya-confirm-cancel"
+                  @click="emit('confirmJuya', { messageId: message.id, action: 'cancel' })"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  data-od-id="juya-confirm-continue"
+                  @click="emit('confirmJuya', { messageId: message.id, action: 'continue' })"
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
 
         <div

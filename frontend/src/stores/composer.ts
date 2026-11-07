@@ -12,9 +12,6 @@ import { setupApiClient } from '@/api/setupClient'
 import { useSessionsStore } from '@/stores/sessions'
 import { useThreadStore } from '@/stores/thread'
 import {
-  COUNT_INVALID,
-  COUNT_MAX,
-  COUNT_MIN,
   DEFAULT_ITEMS_PER_SOURCE,
   PREFS_FAILED,
   SEND_FAILED,
@@ -35,6 +32,8 @@ import type { RefVm } from '@/vm/types'
 /** Server calls and shared state the composer needs, injected for tests. */
 export interface ComposerDeps {
   loadSources(): Promise<SourceOption[]>
+  hiddenSources(): Promise<string[]>
+  countsSeen(): boolean
   session(): SessionOut | null
   draft: Ref<string>
   snapshot(): RequestSnapshot
@@ -65,6 +64,27 @@ export function defaultComposerDeps(): ComposerDeps {
     async loadSources(): Promise<SourceOption[]> {
       const result = await sourcesApiV1SourcesGet()
       return parseSources(result.data ?? null)
+    },
+    async hiddenSources(): Promise<string[]> {
+      const { listSourceProfilesApiV1SettingsSourcesGet } = await import(
+        '@/api/generated/sdk.gen'
+      )
+      const { toSourceProfilesVm } = await import('@/vm/settings')
+      try {
+        const result = await listSourceProfilesApiV1SettingsSourcesGet()
+        return toSourceProfilesVm(result.data ?? null)
+          .filter((profile) => profile.hidden)
+          .map((profile) => profile.name)
+      } catch {
+        return []
+      }
+    },
+    countsSeen: () => {
+      try {
+        return localStorage.getItem('anra-counts-seen') === '1'
+      } catch {
+        return false
+      }
     },
     session: () => thread.session,
     draft,
@@ -119,7 +139,11 @@ export function createComposerController(deps: ComposerDeps) {
 
   async function load(): Promise<void> {
     try {
-      sources.value = await deps.loadSources()
+      const [catalog, hidden] = await Promise.all([
+        deps.loadSources(),
+        deps.hiddenSources(),
+      ])
+      sources.value = catalog.filter((source) => !hidden.includes(source.name))
     } catch {
       sources.value = []
     }
@@ -180,6 +204,7 @@ export function createComposerController(deps: ComposerDeps) {
       busy: active.value,
       notice: notice.value,
       ref: targetRef.value,
+      countsSeen: deps.countsSeen(),
     }),
   )
 
@@ -199,17 +224,12 @@ export function createComposerController(deps: ComposerDeps) {
    */
   async function persistPrefs(): Promise<boolean> {
     const sessionId = deps.session()?.id
-    const items = Number(count.value)
     if (sessionId === undefined || selected.value.length === 0) {
-      return false
-    }
-    if (!Number.isInteger(items) || items < COUNT_MIN || items > COUNT_MAX) {
       return false
     }
     try {
       const next = await deps.patchPrefs(sessionId, {
         connector_names: [...selected.value],
-        items_per_source: items,
       })
       deps.applySession(next)
       clearError('prefs')
@@ -232,30 +252,11 @@ export function createComposerController(deps: ComposerDeps) {
     await persistPrefs()
   }
 
-  /** Take a typed count once the field is committed, and persist it when usable. */
-  async function commitCount(raw: string): Promise<void> {
-    count.value = raw
-    const value = Number(raw)
-    if (!Number.isInteger(value) || value < COUNT_MIN || value > COUNT_MAX) {
-      errors.value = { ...errors.value, count: COUNT_INVALID }
-      return
-    }
-    clearError('count')
-    await persistPrefs()
-  }
+  /** Counts are global settings now; the composer no longer writes one. */
+  async function commitCount(_raw: string): Promise<void> {}
 
-  /** One stepper click, clamped into the spec's range. */
-  async function stepCount(delta: number): Promise<void> {
-    const current = Number(count.value)
-    const base = Number.isFinite(current) ? Math.round(current) : COUNT_MIN
-    const before = count.value
-    count.value = String(Math.min(COUNT_MAX, Math.max(COUNT_MIN, base + delta)))
-    clearError('count')
-    if (count.value === before) {
-      return
-    }
-    await persistPrefs()
-  }
+  /** The stepper is gone; a leftover step writes nothing. */
+  async function stepCount(_delta: number): Promise<void> {}
 
   function followupTargetPayload(ref: RefVm): NonNullable<PostMessageBody['followup_target']> {
     return { digest_id: ref.digestId, display_rank: ref.rank }

@@ -63,7 +63,8 @@ Visual source is the current prototype: anchors, chip text, settings dialog, key
 | `frontend/src/api/client.ts` | modify | Attach `Authorization` on HTTP and SSE | existing client setup | verified path; filename provisional if the attach point lives in `api/config.ts` |
 | `frontend/src/components/composer/Composer.vue` | modify | Remove the stepper; add source gears; one-time notice | `source-settings-*`, `source-count-notice` | verified |
 | `frontend/src/components/thread/Thread.vue` | modify | Juya confirmation panel | `juya-all-confirm` | verified |
-| `frontend/src/styles/thread.css` | modify | Dialog, keys, and sign-in rules copied from the prototype | CSS | verified |
+| `frontend/src/styles/settings.css` | create | Dialog rules copied from the prototype (not `thread.css`; the dialog is not thread UI) | CSS | verified |
+| `frontend/src/styles/thread.css` | modify | Keys and sign-in rules copied from the prototype | CSS | verified |
 
 ### Blast radius
 
