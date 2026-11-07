@@ -168,6 +168,8 @@ type PrototypeView = {
 const PROTOTYPE_VIEWS: PrototypeView[] = [
   { id: 'digest', label: 'Digest reply', implemented: true },
   { id: 'empty', label: 'Empty conversation', implemented: true },
+  { id: 'loading', label: 'Loading conversation', implemented: true },
+  { id: 'loadfailed', label: 'Load failed', implemented: true },
   { id: 'streaming', label: 'Streaming', implemented: true },
   { id: 'writing', label: 'Writing digest', implemented: true },
   { id: 'streamtext', label: 'Streaming text', implemented: true },
@@ -363,6 +365,8 @@ interface ViewState {
   run: RunVm | null
   cancelled: CancelledVm | null
   alert: RequestStateVm | null
+  loading?: boolean
+  loadError?: string | null
 }
 
 const NO_STATE: ViewState = { messages: [], run: null, cancelled: null, alert: null }
@@ -371,6 +375,10 @@ function stateFor(view: string): ViewState {
   switch (view) {
     case 'empty':
       return NO_STATE
+    case 'loading':
+      return { ...NO_STATE, loading: true }
+    case 'loadfailed':
+      return { ...NO_STATE, loadError: 'backend down' }
     case 'streaming':
       return { ...NO_STATE, messages: [askMessage], run: toRunVm(runInput()) }
     case 'writing':
@@ -541,7 +549,14 @@ createApp({
         }, view.value),
         h('div', { class: 'stage' }, [
           h('div', { class: 'stage-main' }, [
-            h(Thread, { ...stateFor(view.value) }),
+            h(Thread, {
+              ...stateFor(view.value),
+              catalog: CATALOG.map((source) => ({
+                name: source.name,
+                label: source.label,
+                kind: source.kind,
+              })),
+            }),
             h(Composer, { vm: composerVmFor(view.value) }),
           ]),
           ...(HISTORY_VIEWS.has(view.value)

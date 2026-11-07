@@ -37,7 +37,12 @@ Visual source is the current prototype: anchors, chip text, settings dialog, key
 | `frontend/src/components/thread/EntryRow.vue` | modify | Deep dive, Ask about this, Related | `deepdive-*`, `followup-*`, `related-*` | verified |
 | `frontend/src/components/thread/HfTable.vue` | modify | Actions column | `hf-row-{rank}` | verified |
 | `frontend/src/components/thread/DigestReply.vue` | modify | Run again foot | `digest-run-again` | verified |
+| `frontend/src/components/thread/ConversationSkeleton.vue` | create | First-load skeleton | `conversation-loading` | verified |
+| `frontend/src/components/thread/LoadFailed.vue` | create | Transcript load error and retry | `conversation-load-failed`, `retry-load` | verified |
+| `frontend/src/components/thread/NoEligibleResults.vue` | create | Finished empty collect and try-source buttons | `no-eligible-results`, `try-{source}` | verified |
+| `frontend/src/components/thread/CollectionFailed.vue` | create | Source collect failure and retry | `collection-failed`, `retry-collection` | verified |
 | `frontend/src/components/thread/Thread.vue` | modify | Chips, reply link, skeleton, collection states | thread anchors | verified |
+| `frontend/src/App.vue` | modify | Wire opening, load error, catalog, and repeat | — | verified |
 | `frontend/src/components/composer/Composer.vue` | modify | Reference chip; stepper removed in U3 | `composer-ref-chip` | verified |
 | `frontend/src/stores/composer.ts` | modify | Hold a target instead of a pasted sentence | composer store | verified |
 | `frontend/src/stores/thread.ts` | modify | Send target, action, and repeat fields | thread store | verified |
@@ -94,7 +99,7 @@ Visual source is the current prototype: anchors, chip text, settings dialog, key
 ### U2 — Loading and collection states
 
 - [ ] **Do:** Show the prototype skeleton, load error, no-results suggestions, collection failure, and digest-foot Run again.
-- **Consumes:** Backend **B4**. `thread.loading` and `thread.loadError`. Prototype `renderSkeleton`, `renderNoResults`, `collection-failed`, and `digest-run-again`.
+- **Consumes:** Backend **B4**. `thread.opening` (first open and retry only; `thread.loading` also covers post-run reloads), `thread.loadError`. Prototype `renderSkeleton`, `renderNoResults`, `collection-failed`, and `digest-run-again`.
 - **Produces:** `conversation-loading` during the first messages request. `empty-conversation` only after a successful load with no messages. `conversation-load-failed` with `retry-load`. `no-eligible-results` with up to three `try-{source}` buttons. `collection-failed` with `retry-collection`. Partial digests keep their entries and name the failed source. `digest-run-again` sends `repeat_of_user_message_id` and shows the prototype help sentence.
 - **Acceptance:** A conversation that already has digests does not flash "Start a digest". The empty state appears only when loading has finished and there are no messages. A failed load shows Retry and does not wipe saved messages. No-results buttons state the topic and timeframe and send `replace_source`. Failure is not titled as no eligible results. Run again does not only refill the composer.
 - **Compatibility:** Cancelled, interrupted, and reconnect banners stay.
@@ -102,7 +107,7 @@ Visual source is the current prototype: anchors, chip text, settings dialog, key
 - **Plan mode:** medium (named unknown: whether `thread.loading` is already true before `Thread` renders the new session)
 - **TDD suitable:** partial
 - **TDD suitable reason:** outcome selection and the repeat payload are testable; the skeleton is checked against the prototype.
-- **Verification:** `npm test -- --run src/components/thread/thread.test.ts src/stores/thread.test.ts` from `frontend/`, then a browser pass of loading, empty, load error, no-results, failure, partial, and Run again.
+- **Verification:** `npm test -- --run src/vm/session.test.ts src/stores/thread.test.ts src/stores/composer.test.ts src/components/thread/thread.test.ts src/components/thread/digest.test.ts` from `frontend/`, then a browser pass of loading, empty, load error, no-results, failure, partial, and Run again.
 
 ### U3 — Sources settings
 
@@ -164,3 +169,4 @@ Per subtask, obey **`TDD suitable`**. **`partial`** tests behavior and checks th
 | Date | Change | Kind |
 |---|---|---|
 | 2026-10-30 | Split from `2026-10-20-targeted-followups-plan.md`. Follow-up UI is U1–U2. Settings, Keys, and sign-in from the settings spec and the current prototype are U3–U5. | material |
+| 2026-11-06 | U2 file map names the four collection-state components, `App.vue`, and `thread.opening`. Verification adds the session, composer, and digest tests. | equivalent |

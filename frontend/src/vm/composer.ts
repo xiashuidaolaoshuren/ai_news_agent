@@ -86,6 +86,7 @@ export const COUNT_INVALID = `Items per source must be a whole number from ${COU
 export const SEND_FAILED = 'Could not send this message.'
 export const PREFS_FAILED = 'Could not update this conversation’s sources.'
 export const FOLLOWUP_TARGET_UNAVAILABLE = 'That entry is no longer available.'
+export const REPEAT_UNAVAILABLE = 'That request can’t be repeated.'
 
 /** One message per failing rule, keyed by the field that owns it. */
 export interface ComposerErrors {

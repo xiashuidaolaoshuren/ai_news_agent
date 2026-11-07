@@ -141,6 +141,65 @@ function makeStore(options: StoreOptions = {}) {
 const SENT_SOURCES = { names: ['juya', 'github'], perSource: 5 }
 
 describe('thread store session loading', () => {
+  it('marks the conversation opening only for the load that opens it', async () => {
+    const gate = deferred<MessageOut[]>()
+    let opened = false
+    let seenWhileReloading: boolean | null = null
+    const store = makeStore({
+      loadMessages: async () => {
+        if (!opened) {
+          opened = true
+          return gate.promise
+        }
+        seenWhileReloading = store.controller.opening.value
+        return []
+      },
+      post: async () =>
+        (async function* generate() {
+          yield started
+          yield {
+            event: 'done',
+            data: { request_id: 'r1', message_id: 2, run_id: 9, path: 'digest' },
+          }
+        })(),
+    })
+
+    const opening = store.controller.openSession(sessionOut())
+    expect(store.controller.opening.value).toBe(true)
+    gate.resolve([])
+    await opening
+    expect(store.controller.opening.value).toBe(false)
+
+    await store.lifecycle.send('s1', { content: 'What shipped?' })
+    expect(seenWhileReloading).toBe(false)
+    expect(store.controller.opening.value).toBe(false)
+  })
+
+  it('retries a failed load without dropping messages already on screen', async () => {
+    let fail = false
+    const store = makeStore({
+      loadMessages: async () => {
+        if (fail) {
+          throw new Error('backend down')
+        }
+        return [message({ id: 1, sequence: 1, content: 'Kept' })]
+      },
+    })
+    await store.controller.openSession(sessionOut())
+
+    fail = true
+    await store.controller.retryLoad()
+
+    expect(store.controller.messages.value.map((item) => item.text)).toEqual(['Kept'])
+    expect(store.controller.loadError.value).toBe('backend down')
+
+    fail = false
+    await store.controller.retryLoad()
+
+    expect(store.controller.loadError.value).toBeNull()
+    expect(store.controller.messages.value.map((item) => item.text)).toEqual(['Kept'])
+  })
+
   it('renders a loaded page in reading order and resumes an active request', async () => {
     const store = makeStore({
       loadMessages: async () => [

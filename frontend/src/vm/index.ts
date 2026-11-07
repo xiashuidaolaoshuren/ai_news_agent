@@ -31,6 +31,7 @@ export {
   REQUEST_FAILED_MESSAGE,
   WORKFLOW_FAILED_MESSAGE,
   groupSessions,
+  summarizeRequest,
   toMessageVm,
   toMessages,
   toRequestStateVm,
@@ -38,7 +39,9 @@ export {
   toSessionVm,
 } from '@/vm/session'
 export type {
+  CollectionVm,
   MessageKind,
+  RepeatVm,
   MessageMapContext,
   MessageVm,
   RequestStateInput,

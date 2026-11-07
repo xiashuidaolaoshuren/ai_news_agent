@@ -19,6 +19,7 @@ import {
   PREFS_FAILED,
   SEND_FAILED,
   FOLLOWUP_TARGET_UNAVAILABLE,
+  REPEAT_UNAVAILABLE,
   parseSources,
   prefsFor,
   toComposerVm,
@@ -268,10 +269,22 @@ export function createComposerController(deps: ComposerDeps) {
     return raw.includes('follow-up target') || raw.includes('followup target')
   }
 
+  function isRepeatHttpError(caught: unknown): boolean {
+    return (
+      caught instanceof SseHttpError &&
+      caught.status === 400 &&
+      (caught.code === 'repeat_resolution_missing' || caught.code === 'repeat_source_unknown')
+    )
+  }
+
   function handleSendFailure(caught: unknown): void {
     if (isFollowupTargetHttpError(caught)) {
       targetRef.value = null
       errors.value = { send: FOLLOWUP_TARGET_UNAVAILABLE }
+      return
+    }
+    if (isRepeatHttpError(caught)) {
+      errors.value = { send: REPEAT_UNAVAILABLE }
       return
     }
     errors.value = { send: SEND_FAILED }
@@ -356,6 +369,41 @@ export function createComposerController(deps: ComposerDeps) {
     return true
   }
 
+  /** Start a new run from a stored resolution, optionally on one replacement source. */
+  function repeat(input: {
+    userMessageId: number
+    text: string
+    sources: string[]
+    perSource: number | null
+    replaceSource?: string
+  }): boolean {
+    if (active.value) {
+      sendBlocked.value = true
+      return false
+    }
+    const sessionId = deps.session()?.id
+    if (sessionId === undefined) {
+      return false
+    }
+    errors.value = {}
+    sendBlocked.value = false
+    const body: PostMessageBody = {
+      content: input.text,
+      client_request_id: deps.newId(),
+      juya_item_mode: 'stories',
+      repeat_of_user_message_id: input.userMessageId,
+    }
+    if (input.replaceSource !== undefined) {
+      body.replace_source = input.replaceSource
+    }
+    deps.markUserSent(input.text, {
+      names: input.sources,
+      perSource: input.perSource ?? 0,
+    })
+    void deps.lifecycle.send(sessionId, body).catch(handleSendFailure)
+    return true
+  }
+
   /** Set the ask-about target and focus the composer (no send). */
   function askAbout(ref: RefVm): void {
     targetRef.value = ref
@@ -404,6 +452,7 @@ export function createComposerController(deps: ComposerDeps) {
     load,
     send,
     deepDive,
+    repeat,
     askAbout,
     removeRef,
     cancel,

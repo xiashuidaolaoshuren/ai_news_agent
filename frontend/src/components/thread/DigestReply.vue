@@ -2,18 +2,20 @@
 import { computed } from 'vue'
 
 import type { DigestVm, RefVm, SectionVm } from '@/vm'
+import type { RepeatVm } from '@/vm/session'
 import { riseStyle } from '@/lib/motion'
 
 import AppIcon from '@/components/ui/AppIcon.vue'
 import DigestSection from '@/components/thread/DigestSection.vue'
 import { formatDigestWhen } from '@/components/thread/format'
 
-const props = defineProps<{ digest: DigestVm; animate?: boolean }>()
+const props = defineProps<{ digest: DigestVm; animate?: boolean; repeat?: RepeatVm | null }>()
 
 const emit = defineEmits<{
   deepdive: [ref: RefVm]
   ask: [ref: RefVm]
   'goto-related': [ref: RefVm]
+  repeat: [repeat: RepeatVm]
 }>()
 
 const when = computed(() => formatDigestWhen(props.digest.generatedAt))
@@ -80,5 +82,20 @@ function warningStyle(index: number): string | undefined {
       @ask="emit('ask', $event)"
       @goto-related="emit('goto-related', $event)"
     />
+
+    <div v-if="props.repeat" class="digest-foot" data-od-id="digest-run-again">
+      <button
+        type="button"
+        class="btn btn-sm"
+        :aria-describedby="`again-${digest.ref ?? 'digest'}`"
+        @click="emit('repeat', props.repeat)"
+      >
+        <AppIcon name="refresh" />Run again
+      </button>
+      <p class="help" :id="`again-${digest.ref ?? 'digest'}`">
+        Repeats the request behind {{ digest.ref }}: {{ props.repeat.summary }}. Sources, counts,
+        timeframe and language come from that request, not from current Settings.
+      </p>
+    </div>
   </div>
 </template>

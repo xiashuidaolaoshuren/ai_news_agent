@@ -119,6 +119,8 @@ export function createThreadController(deps: ThreadDeps) {
   /** All transcript rows loaded for this conversation, oldest-first by sequence. */
   const rawMessages = ref<MessageOut[]>([])
   const loading = ref(false)
+  /** True only while the transcript for a newly opened conversation is loading. */
+  const opening = ref(false)
   const loadingOlder = ref(false)
   /** The cursor for the page before the oldest row on screen, or null at the start. */
   const nextCursor = ref<string | null>(null)
@@ -438,9 +440,12 @@ export function createThreadController(deps: ThreadDeps) {
    */
   async function loadMessages(
     sessionId: string,
-    options: { markFresh?: boolean } = {},
+    options: { markFresh?: boolean; opening?: boolean } = {},
   ): Promise<void> {
     loading.value = true
+    if (options.opening === true) {
+      opening.value = true
+    }
     loadError.value = null
     try {
       const page = await deps.loadMessages(sessionId)
@@ -466,6 +471,9 @@ export function createThreadController(deps: ThreadDeps) {
       }
     } finally {
       loading.value = false
+      if (options.opening === true) {
+        opening.value = false
+      }
     }
   }
 
@@ -526,7 +534,7 @@ export function createThreadController(deps: ThreadDeps) {
     if (next === null) {
       return
     }
-    await loadMessages(next.id)
+    await loadMessages(next.id, { opening: true })
     const active = next.active_request_id ?? null
     if (active !== null) {
       await deps.lifecycle.resume(next.id, active)
@@ -543,6 +551,15 @@ export function createThreadController(deps: ThreadDeps) {
       return
     }
     session.value = next
+  }
+
+  /** Load the open conversation again after a failed load. */
+  async function retryLoad(): Promise<void> {
+    const sessionId = session.value?.id
+    if (sessionId === undefined) {
+      return
+    }
+    await loadMessages(sessionId, { opening: true })
   }
 
   /** "Run again" refills the composer; it never resends by itself. */
@@ -582,6 +599,7 @@ export function createThreadController(deps: ThreadDeps) {
     visibleMessages,
     freshIds,
     loading,
+    opening,
     loadingOlder,
     nextCursor,
     loadError,
@@ -596,6 +614,7 @@ export function createThreadController(deps: ThreadDeps) {
     loadMessages,
     loadOlder,
     openSession,
+    retryLoad,
     syncSession,
     runAgain,
     retryPoll,

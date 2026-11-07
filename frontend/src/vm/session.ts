@@ -60,7 +60,24 @@ export function toResolvedSourcesVm(request: ResolvedRequestOut): SentSourcesVm 
   return { sources, perSource: request.per_source ?? null }
 }
 
-export type MessageKind = 'user' | 'digest' | 'markdown' | 'cancelled' | 'failed'
+export type MessageKind =
+  | 'user'
+  | 'digest'
+  | 'markdown'
+  | 'cancelled'
+  | 'failed'
+  | 'noresults'
+  | 'collectfailed'
+
+/** How a finished digest collect ended, for the no-results and failure blocks. */
+export interface CollectionVm {
+  outcome: 'no_eligible' | 'failed'
+  sources: EntryKind[]
+  topic: string | null
+  timeframe: string | null
+  failedSource: EntryKind | null
+  reason: string | null
+}
 
 export interface MessageVm {
   id: number
@@ -79,6 +96,19 @@ export interface MessageVm {
   followupAction?: FollowupActionVm
   /** Assistant message: link to the preceding user's follow-up target (`re: #n`). */
   replyRef?: RefVm
+  /** Set on a finished empty collect or a source failure. */
+  collection?: CollectionVm
+  /** A stored digest request this row can run again. */
+  repeat?: RepeatVm
+}
+
+/** The stored resolution a Run again or try-source action repeats. */
+export interface RepeatVm {
+  userMessageId: number
+  text: string
+  summary: string
+  sources: string[]
+  perSource: number | null
 }
 
 /** Terminal request states the thread shows as an alert rather than a reply. */
@@ -256,6 +286,112 @@ export interface MessageMapContext {
   digestTitles: Map<string, string>
   /** The immediately preceding user message's follow-up ref, for assistant `re:`. */
   previousUserRef: RefVm | null
+  /** The immediately preceding user message's stored resolution, when it has one. */
+  previousRequest?: ResolvedRequestOut | null
+  /** The immediately preceding user message, for repeat actions. */
+  previousUser?: { id: number; text: string; request: ResolvedRequestOut | null } | null
+}
+
+const REPEAT_KINDS = new Set<MessageKind>(['digest', 'noresults', 'collectfailed'])
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  en: 'English',
+  'zh-CN': '中文',
+}
+
+/** The prototype's request summary: sources, count, timeframe, and language. */
+export function summarizeRequest(request: ResolvedRequestOut): string {
+  const labels = (request.sources ?? [])
+    .map((name) => {
+      const kind = sourceKindOf(name)
+      return kind === null ? name : sourceLabel(kind)
+    })
+    .filter((label) => label !== '')
+  const count =
+    request.per_source === null || request.per_source === undefined
+      ? 'all stories'
+      : `${request.per_source} per source`
+  const parts = [labels.join(', '), count]
+  const timeframe = textOrNull(request.timeframe ?? null)
+  if (timeframe !== null) {
+    parts.push(timeframe)
+  }
+  const language = textOrNull(request.language ?? null)
+  if (language !== null) {
+    parts.push(LANGUAGE_LABELS[language] ?? language)
+  }
+  return parts.join(' · ')
+}
+
+function attachRepeat(vm: MessageVm, context: MessageMapContext | undefined): void {
+  const user = context?.previousUser
+  if (
+    user === undefined ||
+    user === null ||
+    user.request === null ||
+    user.id <= 0 ||
+    !REPEAT_KINDS.has(vm.kind)
+  ) {
+    return
+  }
+  vm.repeat = {
+    userMessageId: user.id,
+    text: user.text,
+    summary: summarizeRequest(user.request),
+    sources: [...(user.request.sources ?? [])],
+    perSource: user.request.per_source ?? null,
+  }
+}
+
+/** Codes the backend treats as a whole-source abort, copied from collection_outcomes.py. */
+const SOURCE_FAILURE_CODES = new Set([
+  'juya_rss_unavailable',
+  'search_failed',
+  'invalid_search_response',
+  'no_input',
+  'request_failed',
+  'rate_limited',
+  'auth_missing',
+  'anti_bot_blocked',
+  'proxy_connection_failed',
+  'auth_required_missing',
+  'auth_required_rejected',
+])
+
+function collectionFrom(
+  outcome: 'no_eligible' | 'failed',
+  request: ResolvedRequestOut | null | undefined,
+  failure?: { source: EntryKind | null; reason: string | null },
+): CollectionVm {
+  const sources: EntryKind[] = []
+  for (const name of request?.sources ?? []) {
+    const kind = sourceKindOf(name)
+    if (kind !== null) {
+      sources.push(kind)
+    }
+  }
+  const topics = (request?.topics ?? []).map((topic) => topic.trim()).filter((topic) => topic !== '')
+  return {
+    outcome,
+    sources,
+    topic: topics.length > 0 ? topics.join(', ') : null,
+    timeframe: textOrNull(request?.timeframe ?? null),
+    failedSource: failure?.source ?? null,
+    reason: failure?.reason ?? null,
+  }
+}
+
+function sourceFailure(
+  warnings: MessageOut['warnings'],
+): { source: EntryKind | null; reason: string | null } {
+  const warning = (warnings ?? []).find((item) => SOURCE_FAILURE_CODES.has(item.code))
+  if (warning === undefined) {
+    return { source: null, reason: null }
+  }
+  return {
+    source: sourceKindOf(warning.connector),
+    reason: textOrNull(warning.message),
+  }
 }
 
 /**
@@ -287,6 +423,30 @@ export function toMessageVm(message: MessageOut, context?: MessageMapContext): M
     }
     return vm
   }
+  if (
+    message.digest !== null &&
+    message.digest !== undefined &&
+    message.collection_outcome === 'no_eligible'
+  ) {
+    vm.kind = 'noresults'
+    vm.collection = collectionFrom('no_eligible', context?.previousRequest)
+    attachRepeat(vm, context)
+    return vm
+  }
+  if (
+    message.digest !== null &&
+    message.digest !== undefined &&
+    message.collection_outcome === 'failed'
+  ) {
+    vm.kind = 'collectfailed'
+    vm.collection = collectionFrom(
+      'failed',
+      context?.previousRequest,
+      sourceFailure(message.warnings),
+    )
+    attachRepeat(vm, context)
+    return vm
+  }
   if (message.digest !== null && message.digest !== undefined) {
     vm.kind = 'digest'
     vm.digest = toDigestVm({
@@ -298,6 +458,7 @@ export function toMessageVm(message: MessageOut, context?: MessageMapContext): M
     if (context?.previousUserRef !== undefined && context?.previousUserRef !== null) {
       vm.replyRef = context.previousUserRef
     }
+    attachRepeat(vm, context)
     return vm
   }
   if (message.content === CANCELLED_ASSISTANT_MESSAGE) {
@@ -320,12 +481,25 @@ export function toMessages(loaded: MessageOut[]): MessageVm[] {
   const sorted = [...loaded].sort((a, b) => a.sequence - b.sequence)
   const digestTitles = buildDigestEntryTitleIndex(sorted)
   let previousUserRef: RefVm | null = null
+  let previousRequest: ResolvedRequestOut | null = null
+  let previousUser: MessageMapContext['previousUser'] = null
   const out: MessageVm[] = []
   for (const message of sorted) {
-    const vm = toMessageVm(message, { digestTitles, previousUserRef })
+    const vm = toMessageVm(message, {
+      digestTitles,
+      previousUserRef,
+      previousRequest,
+      previousUser,
+    })
     out.push(vm)
     if (message.role === 'user') {
       previousUserRef = vm.ref ?? null
+      previousRequest = message.request ?? null
+      previousUser = {
+        id: message.id,
+        text: message.content,
+        request: message.request ?? null,
+      }
     }
   }
   return out

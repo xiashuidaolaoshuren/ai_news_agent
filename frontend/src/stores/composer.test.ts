@@ -3,6 +3,7 @@ import { ref, shallowRef } from 'vue'
 
 import type { PostMessageBody, SessionOut, SessionPatch } from '@/api/generated/types.gen'
 import type { RequestLifecycle, RequestSnapshot } from '@/api/lifecycle'
+import { SseHttpError } from '@/api/sse'
 import { createComposerController, type ComposerDeps } from '@/stores/composer'
 import { COUNT_INVALID, PREFS_FAILED, TEXT_REQUIRED, parseSources } from '@/vm/composer'
 import type { SentSourcesInput } from '@/vm/session'
@@ -321,6 +322,83 @@ describe('composer text field', () => {
 
     expect(draft.value).toBe('What shipped this week?')
     expect(controller.vm.value.errors.text).toBeUndefined()
+  })
+})
+
+describe('composer repeat', () => {
+  it('repeats a stored request and blocks while a run is active', async () => {
+    const { controller, sends, marked, snapshot } = await ready()
+
+    expect(
+      controller.repeat({
+        userMessageId: 7,
+        text: 'Run again · d15',
+        sources: ['github'],
+        perSource: 5,
+        replaceSource: 'github',
+      }),
+    ).toBe(true)
+
+    expect(sends).toEqual([
+      {
+        sessionId: 's1',
+        body: {
+          content: 'Run again · d15',
+          client_request_id: 'req-1',
+          juya_item_mode: 'stories',
+          repeat_of_user_message_id: 7,
+          replace_source: 'github',
+        },
+      },
+    ])
+    expect(marked).toEqual([
+      {
+        text: 'Run again · d15',
+        sources: { names: ['github'], perSource: 5 },
+      },
+    ])
+
+    snapshot.value = { ...idleSnapshot(), state: 'streaming', requestId: 'r1' }
+    expect(
+      controller.repeat({
+        userMessageId: 8,
+        text: 'again',
+        sources: ['juya'],
+        perSource: 5,
+      }),
+    ).toBe(false)
+    expect(controller.vm.value.notice).toBe('blocked')
+    expect(sends).toHaveLength(1)
+  })
+
+  it('says a stored request can no longer be repeated', async () => {
+    const harness = makeComposer({
+      lifecycle: {
+        get state() {
+          return idleSnapshot()
+        },
+        async send(): Promise<void> {
+          throw new SseHttpError(400, 'repeat_resolution_missing', 'missing')
+        },
+        async cancel(): Promise<void> {},
+        async resume(): Promise<void> {},
+        subscribe(): () => void {
+          return () => {}
+        },
+      } as unknown as RequestLifecycle,
+    })
+    const controller = createComposerController(harness.deps)
+    await controller.load()
+
+    controller.repeat({
+      userMessageId: 7,
+      text: 'Run again · d15',
+      sources: ['github'],
+      perSource: 5,
+    })
+    await Promise.resolve()
+
+    expect(controller.vm.value.errors.send).toBe('That request can’t be repeated.')
   })
 })
 

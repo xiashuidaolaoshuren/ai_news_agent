@@ -3,7 +3,16 @@ import { describe, expect, it } from 'vitest'
 
 import DigestReply from '@/components/thread/DigestReply.vue'
 import { digestVm, githubEntry, juyaEntry, juyaIssue, sectionVm, warningVm } from '@/components/thread/vm-builders'
+import type { RepeatVm } from '@/vm/session'
 import type { RefVm } from '@/vm/types'
+
+const REPEAT: RepeatVm = {
+  userMessageId: 7,
+  text: 'What shipped?',
+  summary: 'GitHub · 5 per source · past week · English',
+  sources: ['github'],
+  perSource: 5,
+}
 
 describe('DigestReply', () => {
   it('shows the digest reference, time, item count, and source tally', () => {
@@ -193,5 +202,22 @@ describe('DigestReply', () => {
     await askBtn!.trigger('click')
 
     expect(wrapper.emitted('ask')).toEqual([[expected]])
+  })
+
+  it('offers to run the stored request again and hides it without one', async () => {
+    const withRepeat = mount(DigestReply, {
+      props: { digest: digestVm(), repeat: REPEAT },
+    })
+
+    const foot = withRepeat.get('[data-od-id="digest-run-again"]')
+    expect(foot.text()).toContain('Repeats the request behind d15')
+    expect(foot.text()).toContain('GitHub · 5 per source · past week · English')
+
+    await foot.get('button').trigger('click')
+
+    expect(withRepeat.emitted('repeat')).toEqual([[REPEAT]])
+
+    const without = mount(DigestReply, { props: { digest: digestVm() } })
+    expect(without.find('[data-od-id="digest-run-again"]').exists()).toBe(false)
   })
 })

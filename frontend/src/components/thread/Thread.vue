@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import CancelledReply from '@/components/thread/CancelledReply.vue'
+import CollectionFailed from '@/components/thread/CollectionFailed.vue'
+import ConversationSkeleton from '@/components/thread/ConversationSkeleton.vue'
 import DigestReply from '@/components/thread/DigestReply.vue'
 import EmptyConversation from '@/components/thread/EmptyConversation.vue'
+import LoadFailed from '@/components/thread/LoadFailed.vue'
+import NoEligibleResults from '@/components/thread/NoEligibleResults.vue'
 import FailedReply from '@/components/thread/FailedReply.vue'
 import HoverPreview from '@/components/thread/HoverPreview.vue'
 import InterruptedReply from '@/components/thread/InterruptedReply.vue'
@@ -17,6 +21,8 @@ import { prefersReducedMotion } from '@/lib/motion'
 import { shouldStickToBottom } from '@/lib/scroll'
 import { PENDING_MESSAGE_ID } from '@/stores/thread'
 import type { MessageVm, RequestStateVm } from '@/vm'
+import type { RepeatVm } from '@/vm/session'
+import type { EntryKind } from '@/vm/types'
 import type { DigestVm } from '@/vm/digest'
 import type { CancelledVm, RunVm } from '@/vm/run'
 import type { RefVm } from '@/vm/types'
@@ -33,6 +39,12 @@ const props = defineProps<{
   /** True while the transcript has a page before the oldest row on screen. */
   canLoadOlder?: boolean
   loadingOlder?: boolean
+  /** True while the conversation's first messages request is in flight. */
+  loading?: boolean
+  /** Set when that request failed. */
+  loadError?: string | null
+  /** Sources a no-results block can offer instead of the ones already checked. */
+  catalog?: { name: string; label: string; kind: EntryKind | null }[]
 }>()
 
 const emit = defineEmits<{
@@ -44,6 +56,10 @@ const emit = defineEmits<{
   retryPoll: []
   /** Ask for the page of messages before the oldest row on screen. */
   loadOlder: []
+  /** Try the failed messages request again. */
+  retryLoad: []
+  /** Repeat a stored digest request, optionally on one replacement source. */
+  repeat: [payload: RepeatVm & { replaceSource?: string }]
   /** The live reply finished typing itself out; the transcript can take over. */
   revealDone: []
 }>()
@@ -273,8 +289,15 @@ defineExpose({ gotoRef })
           Load earlier messages
         </button>
       </div>
+      <ConversationSkeleton
+        v-if="props.loading === true && props.messages.length === 0"
+      />
+      <LoadFailed
+        v-else-if="props.loadError && props.messages.length === 0"
+        @retry="emit('retryLoad')"
+      />
       <EmptyConversation
-        v-if="
+        v-else-if="
           props.messages.length === 0 &&
           !props.run &&
           !props.cancelled &&
@@ -338,9 +361,24 @@ defineExpose({ gotoRef })
             v-if="message.kind === 'digest' && message.digest"
             :digest="message.digest"
             :animate="isFresh(message)"
+            :repeat="message.repeat ?? null"
             @deepdive="emit('deepdive', $event)"
             @ask="emit('ask', $event)"
             @goto-related="gotoRef($event)"
+            @repeat="emit('repeat', $event)"
+          />
+          <NoEligibleResults
+            v-else-if="message.kind === 'noresults' && message.collection"
+            :collection="message.collection"
+            :repeat="message.repeat ?? null"
+            :catalog="props.catalog ?? []"
+            @repeat="emit('repeat', $event)"
+          />
+          <CollectionFailed
+            v-else-if="message.kind === 'collectfailed' && message.collection"
+            :collection="message.collection"
+            :repeat="message.repeat ?? null"
+            @repeat="emit('repeat', $event)"
           />
           <CancelledReply
             v-else-if="message.kind === 'cancelled'"

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import Thread from '@/components/thread/Thread.vue'
 import type { DigestView, MessageOut } from '@/api/generated/types.gen'
-import { toDigestVm, toMessageVm, toSentSourcesVm } from '@/vm'
+import { toDigestVm, toMessageVm, toMessages, toSentSourcesVm } from '@/vm'
 import { toRunVm } from '@/vm/run'
 
 const GITHUB_ENTRY = {
@@ -52,6 +52,133 @@ function assistantMessage(over: Partial<MessageOut> = {}): MessageOut {
 }
 
 describe('Thread', () => {
+  it('shows the loading skeleton instead of the empty conversation while opening', () => {
+    const wrapper = mount(Thread, { props: { messages: [], loading: true } })
+
+    expect(wrapper.get('[data-od-id="conversation-loading"]').attributes('aria-label')).toBe(
+      'Loading conversation',
+    )
+    expect(wrapper.find('[data-od-id="empty-conversation"]').exists()).toBe(false)
+  })
+
+  it('offers a retry when the conversation failed to load', async () => {
+    const wrapper = mount(Thread, {
+      props: { messages: [], loadError: 'backend down' },
+    })
+
+    expect(wrapper.get('[data-od-id="conversation-load-failed"]').text()).toContain(
+      'Couldn’t load this conversation.',
+    )
+    expect(wrapper.find('[data-od-id="empty-conversation"]').exists()).toBe(false)
+
+    await wrapper.get('[data-od-id="retry-load"]').trigger('click')
+
+    expect(wrapper.emitted('retryLoad')).toHaveLength(1)
+  })
+
+  it('suggests up to three other sources for a finished empty collect', async () => {
+    const [user, noResults] = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        role: 'user',
+        content: 'What shipped in speech models?',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        request: {
+          sources: ['github'],
+          per_source: 5,
+          timeframe: 'past week',
+          topics: ['speech models'],
+          language: 'en',
+          audience: null,
+        },
+      }),
+      assistantMessage({
+        id: 2,
+        sequence: 2,
+        content: '',
+        digest: { generated_at: '2026-10-01T20:04:00', entries: [] } as DigestView,
+        warnings: [],
+        collection_outcome: 'no_eligible',
+      }),
+    ])
+    const wrapper = mount(Thread, {
+      props: {
+        messages: [user!, noResults!],
+        catalog: [
+          { name: 'github', label: 'GitHub', kind: 'github' },
+          { name: 'juya', label: 'Juya', kind: 'juya' },
+          { name: 'huggingface', label: 'Hugging Face', kind: 'huggingface' },
+          { name: 'zhihu', label: 'Zhihu', kind: 'zhihu' },
+          { name: 'bilibili', label: 'Bilibili', kind: 'bilibili' },
+        ],
+      },
+    })
+
+    const block = wrapper.get('[data-od-id="no-eligible-results"]')
+    expect(block.text()).toContain('speech models')
+    expect(block.text()).toContain('past week')
+    const tries = block.findAll('[data-od-id^="try-"]')
+    expect(tries).toHaveLength(3)
+    expect(tries.map((button) => button.attributes('data-od-id'))).not.toContain('try-github')
+
+    await tries[0]!.trigger('click')
+
+    expect(wrapper.emitted('repeat')?.[0]?.[0]).toMatchObject({
+      userMessageId: 1,
+      text: 'What shipped in speech models?',
+      replaceSource: 'juya',
+    })
+  })
+
+  it('names the source that failed to collect instead of calling it no results', async () => {
+    const [, failed] = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        role: 'user',
+        content: 'What shipped in speech models?',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        request: {
+          sources: ['github'],
+          per_source: 5,
+          timeframe: null,
+          topics: [],
+          language: null,
+          audience: null,
+        },
+      }),
+      assistantMessage({
+        id: 2,
+        sequence: 2,
+        content: '',
+        digest: { generated_at: '2026-10-01T20:04:00', entries: [] } as DigestView,
+        warnings: [
+          { connector: 'github', code: 'search_failed', message: 'GitHub search returned 503.' },
+        ],
+        collection_outcome: 'failed',
+      }),
+    ])
+    const wrapper = mount(Thread, { props: { messages: [failed!] } })
+
+    const alert = wrapper.get('[data-od-id="collection-failed"]')
+    expect(alert.text()).toContain('Couldn’t collect from GitHub.')
+    expect(alert.text()).toContain('GitHub search returned 503.')
+    expect(alert.text()).not.toContain('No eligible results')
+
+    await wrapper.get('[data-od-id="retry-collection"]').trigger('click')
+
+    expect(wrapper.emitted('repeat')?.[0]?.[0]).toMatchObject({
+      userMessageId: 1,
+      text: 'What shipped in speech models?',
+    })
+    expect(wrapper.emitted('repeat')?.[0]?.[0]).not.toHaveProperty('replaceSource')
+  })
+
   it('renders a user message as a bubble with no agent label', () => {
     const wrapper = mount(Thread, {
       props: {

@@ -213,6 +213,51 @@
   padding: 2px 0 10px;
 }
 
+/* First-load skeleton, copied from the prototype. */
+.skel {
+  display: grid;
+  gap: 20px;
+}
+
+.skel .bubble {
+  width: min(380px, 80%);
+  justify-self: end;
+}
+
+.skel .writing {
+  padding: 0;
+}
+
+.set-body {
+  padding: 12px 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.help {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.digest-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.digest-foot .help {
+  flex: 1 1 260px;
+}
+
 .jump-latest {
   position: sticky;
   /* The thread's own bottom padding already reserves the composer dock, and a

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import type { MessageOut, SessionOut } from '@/api/generated/types.gen'
-import { groupSessions, toMessageVm, toRequestStateVm, toSessionVm } from '@/vm'
+import {
+  groupSessions,
+  summarizeRequest,
+  toMessageVm,
+  toMessages,
+  toRequestStateVm,
+  toSessionVm,
+} from '@/vm'
 
 const CANCELLED_TEXT = 'The request was cancelled.'
 
@@ -317,5 +324,143 @@ describe('resolved request chips', () => {
     const vm = toMessageVm(message({ request: null }))
 
     expect(vm.chips).toBeUndefined()
+  })
+})
+
+describe('collection outcomes', () => {
+  it('maps a finished empty collect to no eligible results', () => {
+    const [user, assistant] = toMessages([
+      message({
+        id: 1,
+        sequence: 1,
+        role: 'user',
+        content: 'What shipped in speech models?',
+        request: {
+          sources: ['github'],
+          per_source: 5,
+          timeframe: 'past week',
+          topics: ['speech models'],
+          language: 'en',
+          audience: null,
+        },
+      }),
+      message({
+        id: 2,
+        sequence: 2,
+        role: 'assistant',
+        content: '',
+        run_id: 4,
+        digest_id: 15,
+        digest: { generated_at: '2026-10-01T20:04:00Z', entries: [] },
+        collection_outcome: 'no_eligible',
+      }),
+    ])
+
+    expect(user?.kind).toBe('user')
+    expect(assistant?.kind).toBe('noresults')
+    expect(assistant?.collection).toEqual({
+      outcome: 'no_eligible',
+      sources: ['github'],
+      topic: 'speech models',
+      timeframe: 'past week',
+      failedSource: null,
+      reason: null,
+    })
+  })
+
+  it('maps a source failure to a collection failure, not no results', () => {
+    const [, assistant] = toMessages([
+      message({
+        id: 1,
+        sequence: 1,
+        role: 'user',
+        request: {
+          sources: ['github', 'huggingface'],
+          per_source: 5,
+          timeframe: null,
+          topics: [],
+          language: null,
+          audience: null,
+        },
+      }),
+      message({
+        id: 2,
+        sequence: 2,
+        role: 'assistant',
+        content: '',
+        run_id: 4,
+        digest_id: 16,
+        digest: { generated_at: '2026-10-01T20:04:00Z', entries: [] },
+        warnings: [
+          {
+            connector: 'github',
+            code: 'search_failed',
+            message: 'GitHub search returned 503.',
+          },
+        ],
+        collection_outcome: 'failed',
+      }),
+    ])
+
+    expect(assistant?.kind).toBe('collectfailed')
+    expect(assistant?.collection).toMatchObject({
+      outcome: 'failed',
+      failedSource: 'github',
+      reason: 'GitHub search returned 503.',
+    })
+  })
+
+  it('attaches a repeat only when the previous user message stored a resolution', () => {
+    const stored = {
+      sources: ['github'],
+      per_source: 5,
+      timeframe: 'past week',
+      topics: ['agents'],
+      language: 'en',
+      audience: null,
+    }
+    const digest = message({
+      id: 8,
+      sequence: 2,
+      role: 'assistant',
+      content: '',
+      run_id: 4,
+      digest_id: 15,
+      digest: { generated_at: '2026-10-01T20:04:00Z', entries: [] },
+      collection_outcome: 'results',
+    })
+    const [, withRequest] = toMessages([
+      message({
+        id: 7,
+        content: 'What shipped?',
+        request: stored,
+      }),
+      digest,
+    ])
+    const [, withoutRequest] = toMessages([
+      message({ id: 7, content: 'What shipped?' }),
+      digest,
+    ])
+
+    expect(withRequest?.repeat).toMatchObject({
+      userMessageId: 7,
+      text: 'What shipped?',
+      sources: ['github'],
+      perSource: 5,
+    })
+    expect(withoutRequest?.repeat).toBeUndefined()
+  })
+
+  it('summarizes a stored request the way the prototype does', () => {
+    expect(
+      summarizeRequest({
+        sources: ['juya', 'github'],
+        per_source: 5,
+        timeframe: 'past week',
+        topics: ['agents'],
+        language: 'en',
+        audience: null,
+      }),
+    ).toBe('Juya, GitHub · 5 per source · past week · English')
   })
 })
