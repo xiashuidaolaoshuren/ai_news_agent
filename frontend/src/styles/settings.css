@@ -7,19 +7,18 @@
   z-index: 40;
   display: grid;
   place-items: center;
-  padding: 0;
+  padding: 24px;
   background: var(--scrim);
 }
 
 .modal {
   width: min(760px, 100%);
-  height: 100%;
   max-height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: 12px;
   box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
@@ -30,6 +29,9 @@
   padding: 16px;
   display: grid;
   gap: 12px;
+  /* Sections clip their own overflow, so auto rows would shrink instead of
+     letting the body scroll once the dialog is taller than the viewport. */
+  grid-auto-rows: max-content;
   align-content: start;
   background: var(--bg);
 }
@@ -90,4 +92,118 @@
   display: flex;
   gap: 6px;
   align-items: center;
+}
+
+/* Keys panel, copied from the prototype's `.key-*` rules. */
+
+.key-row {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.key-row.nobtn {
+  grid-template-columns: 190px minmax(0, 1fr);
+}
+
+.section-head + .key-row {
+  border-top: 0;
+}
+
+.key-name {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.key-name label {
+  color: var(--fg);
+}
+
+.key-last4 {
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+.key-row > .help,
+.key-row > .link-btn {
+  grid-column: 2 / -1;
+  justify-self: start;
+}
+
+.key-acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.key-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--sunken);
+}
+
+.key-actions .help {
+  flex: 1 1 220px;
+}
+
+.key-warn {
+  color: var(--warn-fg);
+}
+
+.key-warn:hover {
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+
+.dot.env {
+  background: var(--info);
+}
+
+.dot.off {
+  background: var(--border-strong);
+}
+
+.dot.err {
+  background: var(--danger);
+}
+
+.modal-foot .help {
+  margin: 0;
+}
+
+/* The prototype drops the dialog inset and stacks each key row on a phone. */
+@media (max-width: 620px) {
+  .modal-wrap {
+    padding: 0;
+  }
+
+  .modal {
+    height: 100%;
+    border-radius: 0;
+  }
+
+  .key-row,
+  .key-row.nobtn {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .key-row > .help,
+  .key-row > .link-btn {
+    grid-column: auto;
+  }
+
+  /* One column: the prototype's Save spans the row, so the buttons join the grid. */
+  .key-acts {
+    display: contents;
+  }
 }

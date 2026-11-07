@@ -2,14 +2,25 @@ import { defineStore } from 'pinia'
 import { reactive } from 'vue'
 
 import {
+  deleteCredentialApiV1SettingsCredentialsNameDelete,
+  deleteLlmCredentialsApiV1SettingsCredentialsLlmDelete,
   getOutputLanguageApiV1SettingsLanguageGet,
+  listCredentialsApiV1SettingsCredentialsGet,
   listSourceProfilesApiV1SettingsSourcesGet,
+  saveCredentialApiV1SettingsCredentialsNamePut,
+  saveLlmCredentialsApiV1SettingsCredentialsLlmPut,
   saveOutputLanguageApiV1SettingsLanguagePut,
   saveSourceProfileApiV1SettingsSourcesNamePut,
+  testCredentialApiV1SettingsCredentialsNameTestPost,
 } from '@/api/generated/sdk.gen'
 import { setupApiClient } from '@/api/setupClient'
 import {
+  EMPTY_KEYS_DRAFT,
+  toCredentialsVm,
   toSourceProfilesVm,
+  type CredentialTestOutcome,
+  type CredentialsVm,
+  type KeysDraft,
   type SourceProfileVm,
 } from '@/vm/settings'
 
@@ -22,15 +33,51 @@ export interface SettingsDraft {
   profiles: SourceProfileVm[]
 }
 
+/** What the LLM group saves in one PUT. */
+export interface LlmCredentialInput {
+  apiKey: string
+  baseUrl: string | null
+  model: string | null
+}
+
 /** Server calls the settings panel needs, injected for tests. */
 export interface SettingsDeps {
   listProfiles(): Promise<unknown>
   getLanguage(): Promise<string>
   saveProfile(name: string, body: Record<string, unknown>): Promise<void>
   saveLanguage(language: string): Promise<void>
+  listCredentials(): Promise<unknown>
+  saveLlm(input: LlmCredentialInput): Promise<unknown>
+  saveCredential(name: string, value: string): Promise<unknown>
+  deleteLlm(): Promise<void>
+  deleteCredential(name: string): Promise<void>
+  testCredential(name: string): Promise<CredentialTestOutcome>
   readCountsSeen(): boolean
   writeCountsSeen(): void
 }
+
+/** A settings call the API refused; `status` decides what the panel explains. */
+export class SettingsRequestError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'SettingsRequestError'
+    this.status = status
+  }
+}
+
+/** Keys panel row to the credential name its PUT writes. */
+export const CREDENTIAL_NAME_BY_KEY: Partial<Record<keyof KeysDraft, string>> = {
+  github: 'GITHUB_TOKEN',
+  hf: 'HUGGINGFACE_TOKEN',
+  zhihu: 'ZHIHU_ACCESS_SECRET',
+  bilibiliSessdata: 'BILIBILI_SESSDATA',
+  bilibiliBiliJct: 'BILIBILI_BILI_JCT',
+  bilibiliBuvid3: 'BILIBILI_BUVID3',
+}
+
+const EMPTY_CREDENTIALS: CredentialsVm = { readOnly: false, rows: {}, llmUnreadable: false }
 
 function asLanguage(value: string): OutputLanguage {
   if (value === 'en' || value === 'zh-CN' || value === 'source_default') {
@@ -77,6 +124,11 @@ export function createSettingsController(deps: SettingsDeps) {
     tab: 'sources' as 'sources' | 'keys',
     focus: null as string | null,
     countsSeen: deps.readCountsSeen(),
+    credentials: { ...EMPTY_CREDENTIALS } as CredentialsVm,
+    keysDraft: { ...EMPTY_KEYS_DRAFT } as KeysDraft,
+    keysMessage: {} as Record<string, string>,
+    testResults: {} as Record<string, CredentialTestOutcome>,
+    testing: null as string | null,
   })
   let saved: SettingsDraft = cloneDraft(state.draft)
 
@@ -90,6 +142,15 @@ export function createSettingsController(deps: SettingsDeps) {
       saved = cloneDraft(state.draft)
     } catch (error) {
       state.loadError = error instanceof Error ? error.message : 'Could not load settings.'
+    }
+    await loadCredentials()
+  }
+
+  async function loadCredentials(): Promise<void> {
+    try {
+      state.credentials = toCredentialsVm(await deps.listCredentials())
+    } catch {
+      state.credentials = { ...EMPTY_CREDENTIALS }
     }
   }
 
@@ -121,6 +182,97 @@ export function createSettingsController(deps: SettingsDeps) {
     state.saved = true
   }
 
+  /**
+   * Record a refused write. A 409 means the backend has no encryption key, so
+   * every write switches to read-only; anything else keeps the panel usable.
+   */
+  function refuseWrite(key: string, error: unknown, fallback: string): void {
+    if (error instanceof SettingsRequestError && error.status === 409) {
+      state.credentials = { ...state.credentials, readOnly: true }
+    }
+    state.keysMessage[key] =
+      error instanceof Error && error.message !== '' ? error.message : fallback
+  }
+
+  async function saveLlm(): Promise<void> {
+    const draft = state.keysDraft
+    state.keysMessage = {}
+    // The API requires a key on every LLM write and never returns the stored one,
+    // so the panel cannot reuse it; the user re-enters it.
+    if (draft.llmKey.trim() === '') {
+      state.keysMessage.llm =
+        'Enter the API key to save the LLM settings. Saving never reuses the stored key.'
+      return
+    }
+    try {
+      state.credentials = toCredentialsVm(
+        await deps.saveLlm({
+          apiKey: draft.llmKey,
+          baseUrl: draft.llmUrl.trim() === '' ? null : draft.llmUrl.trim(),
+          model: draft.llmModel.trim() === '' ? null : draft.llmModel.trim(),
+        }),
+      )
+    } catch (error) {
+      refuseWrite('llm', error, 'Could not save the LLM settings.')
+      return
+    }
+    state.keysDraft.llmKey = ''
+    state.keysDraft.llmUrl = ''
+    state.keysDraft.llmModel = ''
+    state.keysMessage.llm = 'Saved.'
+  }
+
+  /** Save one source credential; saving never reads the stored value back. */
+  async function saveCredential(key: keyof KeysDraft): Promise<void> {
+    const name = CREDENTIAL_NAME_BY_KEY[key]
+    if (name === undefined) {
+      return
+    }
+    state.keysMessage = {}
+    // An empty value would store an empty secret over a working one.
+    if (state.keysDraft[key].trim() === '') {
+      state.keysMessage[key] = 'Enter a new value to save this credential.'
+      return
+    }
+    try {
+      state.credentials = toCredentialsVm(await deps.saveCredential(name, state.keysDraft[key]))
+    } catch (error) {
+      refuseWrite(key, error, 'Could not save this credential.')
+      return
+    }
+    state.keysDraft[key] = ''
+    state.keysMessage[key] = 'Saved.'
+  }
+
+  /** Drop the saved LLM override so the environment value applies again. */
+  async function clearLlmOverride(): Promise<void> {
+    state.keysMessage = {}
+    try {
+      await deps.deleteLlm()
+    } catch (error) {
+      refuseWrite('llm', error, 'Could not clear the saved key.')
+      return
+    }
+    await loadCredentials()
+    state.keysMessage.llm = 'Cleared the saved key.'
+  }
+
+  /** Test one credential. The result replaces any earlier one for that name. */
+  async function testCredential(name: string): Promise<void> {
+    const rest = { ...state.testResults }
+    delete rest[name]
+    state.testResults = rest
+    state.keysMessage = { ...state.keysMessage, [name]: '' }
+    state.testing = name
+    try {
+      state.testResults = { ...state.testResults, [name]: await deps.testCredential(name) }
+    } catch (error) {
+      refuseWrite(name, error, 'Could not test this credential.')
+    } finally {
+      state.testing = null
+    }
+  }
+
   function dismissCounts(): void {
     deps.writeCountsSeen()
     state.countsSeen = true
@@ -148,11 +300,21 @@ export function createSettingsController(deps: SettingsDeps) {
   return Object.assign(state, {
     load,
     save,
+    saveLlm,
+    saveCredential,
+    clearLlmOverride,
+    testCredential,
     open,
     close,
     dismissCounts,
     updateProfile,
   })
+}
+
+/** Turn an API refusal into the error the controller explains inline. */
+function refusal(error: unknown, status: number, fallback: string): SettingsRequestError {
+  const detail = (error as { detail?: unknown } | undefined)?.detail
+  return new SettingsRequestError(typeof detail === 'string' ? detail : fallback, status)
 }
 
 /** Production dependencies wired to the generated settings client. */
@@ -187,6 +349,53 @@ export function defaultSettingsDeps(): SettingsDeps {
               : 'Could not save this source.',
         )
       }
+    },
+    async listCredentials(): Promise<unknown> {
+      const result = await listCredentialsApiV1SettingsCredentialsGet()
+      if (result.data === undefined) {
+        throw new SettingsRequestError('Could not load credentials.', (result.response?.status ?? 0))
+      }
+      return result.data
+    },
+    async saveLlm(input): Promise<unknown> {
+      const result = await saveLlmCredentialsApiV1SettingsCredentialsLlmPut({
+        body: { api_key: input.apiKey, base_url: input.baseUrl, model: input.model },
+      })
+      if (result.data === undefined) {
+        throw refusal(result.error, (result.response?.status ?? 0), 'Could not save the LLM settings.')
+      }
+      return result.data
+    },
+    async saveCredential(name, value): Promise<unknown> {
+      const result = await saveCredentialApiV1SettingsCredentialsNamePut({
+        path: { name },
+        body: { value },
+      })
+      if (result.data === undefined) {
+        throw refusal(result.error, (result.response?.status ?? 0), 'Could not save this credential.')
+      }
+      return result.data
+    },
+    async deleteLlm(): Promise<void> {
+      const result = await deleteLlmCredentialsApiV1SettingsCredentialsLlmDelete()
+      if ((result.response?.status ?? 0) >= 400) {
+        throw refusal(result.error, (result.response?.status ?? 0), 'Could not clear the saved key.')
+      }
+    },
+    async deleteCredential(name): Promise<void> {
+      const result = await deleteCredentialApiV1SettingsCredentialsNameDelete({ path: { name } })
+      if ((result.response?.status ?? 0) >= 400) {
+        throw refusal(result.error, (result.response?.status ?? 0), 'Could not clear the saved key.')
+      }
+    },
+    async testCredential(name): Promise<CredentialTestOutcome> {
+      const result = await testCredentialApiV1SettingsCredentialsNameTestPost({
+        path: { name },
+      })
+      if (result.data === undefined) {
+        throw refusal(result.error, (result.response?.status ?? 0), 'Could not test this credential.')
+      }
+      return { result: result.data.result, reason: result.data.reason }
     },
     async saveLanguage(language): Promise<void> {
       await saveOutputLanguageApiV1SettingsLanguagePut({

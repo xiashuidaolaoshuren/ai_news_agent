@@ -9,8 +9,14 @@ function vm(overrides: Partial<ComposerVmInput> = {}) {
   return toComposerVm({
     text: '',
     sources: [
-      { name: 'juya', label: 'Juya', kind: 'juya', default: true },
-      { name: 'github', label: 'GitHub', kind: 'github', default: false },
+      { name: 'juya', label: 'Juya', kind: 'juya', default: true, health: 'unchecked' },
+      {
+        name: 'github',
+        label: 'GitHub',
+        kind: 'github',
+        default: false,
+        health: 'unchecked',
+      },
     ],
     selected: ['juya'],
     count: '5',
@@ -131,5 +137,48 @@ describe('composer busy state', () => {
     )
 
     expect(wrapper.get('[data-od-id="validation-errors"]').findAll('.err-msg')).toHaveLength(2)
+  })
+})
+
+describe('composer source health', () => {
+  function healthVm(githubHealth: 'auth_error' | 'stale' | 'ok') {
+    return vm({
+      sources: [
+        { name: 'juya', label: 'Juya', kind: 'juya', default: true, health: 'unchecked' },
+        { name: 'github', label: 'GitHub', kind: 'github', default: false, health: githubHealth },
+      ],
+    })
+  }
+
+  it('marks the source whose last check failed and explains it', () => {
+    const wrapper = mount(Composer, { props: { vm: healthVm('auth_error') } })
+
+    const github = wrapper.get('[data-src="github"]').element.closest('.src-item')
+    expect(github?.querySelector('.pip')).not.toBeNull()
+    expect(github?.querySelector('.tip')?.textContent).toContain(
+      'Last check: authentication error.',
+    )
+    const juya = wrapper.get('[data-src="juya"]').element.closest('.src-item')
+    expect(juya?.querySelector('.pip')).toBeNull()
+    expect(wrapper.get('[data-src="github"]').attributes('aria-describedby')).toBe(
+      'src-tip-github',
+    )
+  })
+
+  it('says health is unchecked since the credential changed', () => {
+    const wrapper = mount(Composer, { props: { vm: healthVm('stale') } })
+
+    expect(
+      wrapper.get('[data-src="github"]').element.closest('.src-item')?.querySelector('.tip')
+        ?.textContent,
+    ).toContain('Not checked since update.')
+  })
+
+  it('shows no pip when the health is ok', () => {
+    const wrapper = mount(Composer, { props: { vm: healthVm('ok') } })
+
+    expect(
+      wrapper.get('[data-src="github"]').element.closest('.src-item')?.querySelector('.pip'),
+    ).toBeNull()
   })
 })

@@ -15,7 +15,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useThemeStore } from '@/stores/theme'
 import { useThreadStore } from '@/stores/thread'
 import type { OutputLanguage } from '@/stores/settings'
-import type { SourceProfileVm } from '@/vm/settings'
+import type { KeyDraftKey, KeysVm, SourceProfileVm } from '@/vm/settings'
 import type { RefVm } from '@/vm/types'
 
 const themeStore = useThemeStore()
@@ -28,6 +28,34 @@ const history = useHistoryStore()
 const shell = useTemplateRef<InstanceType<typeof AppShell>>('shell')
 const composerField = useTemplateRef<InstanceType<typeof Composer>>('composerField')
 const threadView = useTemplateRef<InstanceType<typeof Thread>>('threadView')
+
+/** The Keys panel reads the store's credential state; health comes from the catalog. */
+const keysVm = computed<KeysVm>(() => ({
+  readOnly: settings.credentials.readOnly,
+  llmUnreadable: settings.credentials.llmUnreadable,
+  draft: settings.keysDraft,
+  rows: settings.credentials.rows,
+  messages: settings.keysMessage,
+  results: settings.testResults,
+  testing: settings.testing,
+  githubAuthError:
+    composer.vm.sources.find((source) => source.name === 'github')?.health === 'auth_error',
+}))
+
+/** Any credential change can change a source's health; reload the catalog after it. */
+async function afterCredentialChange(action: Promise<unknown>): Promise<void> {
+  await action
+  await composer.load()
+}
+
+function onKeysDraft(key: KeyDraftKey, value: string): void {
+  settings.keysDraft[key] = value
+}
+
+function openSourceSection(name: string): void {
+  settings.tab = 'sources'
+  settings.focus = name
+}
 
 /** An open inline edit in the sidebar takes Escape before the shell closes overlays. */
 const inlineEditOpen = computed(
@@ -183,11 +211,19 @@ onUnmounted(() => {
       saved: settings.saved,
       loadError: settings.loadError,
       focus: settings.focus,
+      keys: keysVm,
     }"
     @close="settings.close()"
     @save="settings.save()"
     @retry="settings.load()"
+    @set-tab="settings.tab = $event"
     @update-language="settings.draft.language = $event as OutputLanguage"
     @update-profile="settings.updateProfile($event as SourceProfileVm)"
+    @update-keys-draft="onKeysDraft"
+    @save-llm="afterCredentialChange(settings.saveLlm())"
+    @save-key="afterCredentialChange(settings.saveCredential($event))"
+    @test="afterCredentialChange(settings.testCredential($event))"
+    @clear-override="afterCredentialChange(settings.clearLlmOverride())"
+    @goto-source="openSourceSection($event)"
   />
 </template>

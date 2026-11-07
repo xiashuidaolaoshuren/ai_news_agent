@@ -86,7 +86,7 @@ Visual source is the current prototype: anchors, chip text, settings dialog, key
 
 ### U1 — Entry actions and reference chips
 
-- [ ] **Do:** Replace the pasted follow-up sentence with the prototype's Deep dive, Ask about this, chip, reply link, and Related chip.
+- [x] **Do:** Replace the pasted follow-up sentence with the prototype's Deep dive, Ask about this, chip, reply link, and Related chip.
 - **Consumes:** Backend **B1** and **B2**. Prototype `entryActs`, `refChip`, `reply-ref-link`, `rel-chip`, and the Hugging Face actions cell.
 - **Produces:** Deep dive sends `followup_target` and `deep_dive` immediately. Ask about this shows the removable composer chip and sends `ask`. Table buttons use `aria-label="Deep dive: {title}"` and `aria-label="Ask about this: {title}"`. Chip text is `↳ d{id} #{rank}` plus the title. Remove control label is `Remove reference to d{id} #{rank}`. Placeholder is `Ask about d{id} #{rank}…` while the chip is present. User bubbles restore `message-ref-chip`. Assistant labels show `re: #{rank}` and scroll to `data-ref="d{id}-{rank}"`. Related shows only when `related_display_ranks` is non-empty.
 - **Acceptance:** Deep dive and Ask about this work from a block row and from a comparison-table row. Removing the chip sends a plain message. Reload restores the chip and the reply link. `re: #n` and Related scroll to that entry. Replies stay Markdown. A 400 for a missing entry shows "That entry is no longer available" and clears the chip. There is no research button.
@@ -99,7 +99,7 @@ Visual source is the current prototype: anchors, chip text, settings dialog, key
 
 ### U2 — Loading and collection states
 
-- [ ] **Do:** Show the prototype skeleton, load error, no-results suggestions, collection failure, and digest-foot Run again.
+- [x] **Do:** Show the prototype skeleton, load error, no-results suggestions, collection failure, and digest-foot Run again.
 - **Consumes:** Backend **B4**. `thread.opening` (first open and retry only; `thread.loading` also covers post-run reloads), `thread.loadError`. Prototype `renderSkeleton`, `renderNoResults`, `collection-failed`, and `digest-run-again`.
 - **Produces:** `conversation-loading` during the first messages request. `empty-conversation` only after a successful load with no messages. `conversation-load-failed` with `retry-load`. `no-eligible-results` with up to three `try-{source}` buttons. `collection-failed` with `retry-collection`. Partial digests keep their entries and name the failed source. `digest-run-again` sends `repeat_of_user_message_id` and shows the prototype help sentence.
 - **Acceptance:** A conversation that already has digests does not flash "Start a digest". The empty state appears only when loading has finished and there are no messages. A failed load shows Retry and does not wipe saved messages. No-results buttons state the topic and timeframe and send `replace_source`. Failure is not titled as no eligible results. Run again does not only refill the composer.
@@ -125,7 +125,7 @@ Visual source is the current prototype: anchors, chip text, settings dialog, key
 
 ### U4 — Keys
 
-- [ ] **Do:** Add the Keys tab from the prototype: status only, write-only inputs, read-only mode, and the unreadable state.
+- [x] **Do:** Add the Keys tab from the prototype: status only, write-only inputs, read-only mode, and the unreadable state.
 - **Consumes:** Backend **B9**, **B10**, and **B11**. Prototype `key-row-*`, `save-llm`, `keys-read-only`, `keys-unreadable-override`, and `github-auth-warning`.
 - **Produces:** Keys shows `status` and `last4`, never a stored value. LLM key, base URL, and model save together on `save-llm`. The test control says the LLM check may incur a small charge. A 409 write shows the read-only explanation. `unreadable` is distinct from unset and can be cleared. A health dot and tooltip on the composer chip follow the current credential version. "Not checked since update" shows after a change until a new observation exists. The GitHub auth link jumps to the GitHub key row.
 - **Acceptance:** The form never displays a secret returned by the API, because the API has none. Saving the LLM sends one PUT. A source test result is the sanitized reason. Read-only mode disables writes and explains the missing secret key. The health dot matches `GET /api/v1/sources` for the current version. Bilibili keys remain editable.

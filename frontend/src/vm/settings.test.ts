@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { toSourceProfilesVm } from '@/vm/settings'
+import { toCredentialsVm, toSourceProfilesVm } from '@/vm/settings'
 
 /** Shape of `GET /api/v1/settings/sources`, which the generated client types as unknown. */
 const PROFILES = {
@@ -54,5 +54,65 @@ describe('toSourceProfilesVm', () => {
       { name: 'zhihu', hidden: false, itemCount: 8 },
       { name: 'bilibili', hidden: true },
     ])
+  })
+})
+
+describe('toCredentialsVm', () => {
+  const PAYLOAD = {
+    secret_key_configured: true,
+    credentials: [
+      { name: 'OPENAI_API_KEY', status: 'ui', last4: 'a1b2', version: 'v1' },
+      { name: 'OPENAI_BASE_URL', status: 'env', last4: null, version: 'v1' },
+      { name: 'OPENAI_MODEL', status: 'unset', last4: null, version: null },
+      { name: 'GITHUB_TOKEN', status: 'env', last4: '9f3c', version: 'v1' },
+      { name: 'HUGGINGFACE_TOKEN', status: 'unset', last4: null, version: null },
+      { name: 'ZHIHU_ACCESS_SECRET', status: 'env', last4: '4d2e', version: 'v1' },
+      { name: 'BILIBILI_SESSDATA', status: 'unset', last4: null, version: null },
+      { name: 'BILIBILI_BILI_JCT', status: 'unset', last4: null, version: null },
+      { name: 'BILIBILI_BUVID3', status: 'unset', last4: null, version: null },
+    ],
+  }
+
+  it('maps each API status to the row state and keeps last4', () => {
+    const vm = toCredentialsVm(PAYLOAD)
+    expect(vm.rows.OPENAI_API_KEY).toEqual({
+      status: 'app',
+      last4: 'a1b2',
+      version: 'v1',
+    })
+    expect(vm.rows.OPENAI_BASE_URL).toEqual({
+      status: 'env',
+      last4: null,
+      version: 'v1',
+    })
+    expect(vm.rows.OPENAI_MODEL).toEqual({
+      status: 'none',
+      last4: null,
+      version: null,
+    })
+  })
+
+  it('keeps an unreadable credential distinct from an unset one', () => {
+    const vm = toCredentialsVm({
+      secret_key_configured: true,
+      credentials: [
+        { name: 'OPENAI_API_KEY', status: 'unreadable', last4: null, version: 'v2' },
+        { name: 'GITHUB_TOKEN', status: 'unset', last4: null, version: null },
+      ],
+    })
+    expect(vm.rows.OPENAI_API_KEY?.status).toBe('bad')
+    expect(vm.rows.GITHUB_TOKEN?.status).toBe('none')
+    expect(vm.llmUnreadable).toBe(true)
+  })
+
+  it('reads the read-only flag from the missing secret key', () => {
+    expect(
+      toCredentialsVm({ secret_key_configured: false, credentials: [] }).readOnly,
+    ).toBe(true)
+  })
+
+  it('rejects a payload that is not a credential list', () => {
+    expect(() => toCredentialsVm(null)).toThrow(/credential/)
+    expect(() => toCredentialsVm({ credentials: 'nope' })).toThrow(/credential/)
   })
 })

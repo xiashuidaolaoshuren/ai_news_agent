@@ -206,9 +206,43 @@
   border-color: var(--danger-bd);
 }
 
-.src-pair {
+.src-item {
+  position: relative;
   display: inline-flex;
   align-items: stretch;
+}
+
+/* The prototype's warning pip on a source chip whose credential check failed. */
+.pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn-dot);
+  flex: none;
+}
+
+.tip {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  width: max-content;
+  max-width: 260px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--fg);
+  color: var(--surface);
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--d1) var(--ease);
+}
+
+.src-item:hover .tip,
+.src-item:focus-within .tip {
+  opacity: 1;
 }
 
 .src-gear {

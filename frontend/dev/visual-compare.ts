@@ -9,6 +9,7 @@ import '@/style.css'
 
 import Composer from '@/components/composer/Composer.vue'
 import HistoryPanel from '@/components/history/HistoryPanel.vue'
+import SettingsDialog from '@/components/settings/SettingsDialog.vue'
 import Thread from '@/components/thread/Thread.vue'
 
 import type {
@@ -18,6 +19,7 @@ import type {
 import type { HistoryPanelVm } from '@/vm'
 import { toHistoryMatchVm, toHistoryPanelVm } from '@/vm'
 import type { DigestVm, EntryVm, JuyaIssueVm, MessageVm, SectionVm } from '@/vm'
+import type { KeysVm } from '@/vm/settings'
 import { HF_FIXTURES, HIST_FIXTURES, JUYA_FIXTURES, GH_FIXTURES } from '@/vm/fixtures/prototype'
 import { toVmFromFixture } from '@/vm/fixtures/toVmFromFixture'
 import { toRequestStateVm, type RequestStateVm } from '@/vm/session'
@@ -88,6 +90,7 @@ juyaSection.juyaIssues = [juyaIssue]
 
 const digest: DigestVm = {
   ref: 'd15',
+  digestId: 15,
   generatedAt: '2026-10-01T20:04:00',
   itemCount: juya.length + hf.length + github.length,
   sourcesReturned: 3,
@@ -502,9 +505,50 @@ function composerVmFor(view: string): ComposerVm {
   }
 }
 
+const KEYS_DRAFT = {
+  llmKey: '',
+  llmUrl: '',
+  llmModel: '',
+  github: '',
+  hf: '',
+  zhihu: '',
+  bilibiliSessdata: '',
+  bilibiliBiliJct: '',
+  bilibiliBuvid3: '',
+}
+
+/** The Keys panel in its prototype states: normal, read-only, unreadable. */
+function keysVmFor(view: string): KeysVm {
+  const readOnly = view === 'keysro'
+  const bad = view === 'keysbad'
+  return {
+    readOnly,
+    llmUnreadable: bad,
+    draft: { ...KEYS_DRAFT },
+    rows: {
+      OPENAI_API_KEY: bad
+        ? { status: 'bad', last4: null, version: 'v2' }
+        : { status: 'app', last4: 'a1b2', version: 'v1' },
+      OPENAI_BASE_URL: { status: 'env', last4: null, version: 'v1' },
+      OPENAI_MODEL: { status: 'none', last4: null, version: null },
+      GITHUB_TOKEN: { status: 'env', last4: '9f3c', version: 'v1' },
+      HUGGINGFACE_TOKEN: { status: 'none', last4: null, version: null },
+      ZHIHU_ACCESS_SECRET: { status: 'app', last4: '4d2e', version: 'v1' },
+      BILIBILI_SESSDATA: { status: 'none', last4: null, version: null },
+      BILIBILI_BILI_JCT: { status: 'none', last4: null, version: null },
+      BILIBILI_BUVID3: { status: 'none', last4: null, version: null },
+    },
+    messages: {},
+    results: {},
+    testing: null,
+    githubAuthError: true,
+  }
+}
+
 /** `?state=empty` still opens the empty conversation, as it did before the toolbar. */
 function initialView(): string {
-  return new URLSearchParams(window.location.search).get('state') === 'empty' ? 'empty' : 'digest'
+  const state = new URLSearchParams(window.location.search).get('state')
+  return state === 'empty' || state?.startsWith('keys') ? state : 'digest'
 }
 
 function PrototypeStateBar(onSelect: (id: string) => void, active: string) {
@@ -543,8 +587,23 @@ function PrototypeStateBar(onSelect: (id: string) => void, active: string) {
 createApp({
   setup() {
     const view = ref(initialView())
-    return () =>
-      h('div', { class: 'compare' }, [
+    return () => {
+      if (view.value.startsWith('keys')) {
+        return h(SettingsDialog, {
+          vm: {
+            open: true,
+            tab: 'keys',
+            language: 'source_default',
+            profiles: [],
+            fieldErrors: {},
+            saved: false,
+            loadError: null,
+            focus: null,
+            keys: keysVmFor(view.value),
+          },
+        })
+      }
+      return h('div', { class: 'compare' }, [
         PrototypeStateBar((next) => {
           view.value = next
         }, view.value),
@@ -583,5 +642,6 @@ createApp({
             : []),
         ]),
       ])
+    }
   },
 }).mount('#app')

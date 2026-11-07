@@ -169,20 +169,30 @@ defineExpose({
           data-od-id="source-checkboxes"
         >
           <legend>Sources</legend>
-          <span v-for="source in props.vm.sources" :key="source.name" class="src-pair">
+          <span v-for="source in props.vm.sources" :key="source.name" class="src-item">
             <label class="src-chk">
               <input
                 type="checkbox"
                 :data-src="source.name"
                 :checked="source.checked"
                 :disabled="props.vm.busy"
+                :aria-describedby="source.healthHint ? `src-tip-${source.name}` : undefined"
                 @change="emit('toggleSource', source.name)"
               />
               <span>
                 <i class="box"><AppIcon name="check" /></i>
                 <SourceLogo v-if="source.kind !== null" :kind="source.kind" />{{ source.label }}
+                <i v-if="source.healthHint" class="pip" aria-hidden="true" />
               </span>
             </label>
+            <span
+              v-if="source.healthHint"
+              :id="`src-tip-${source.name}`"
+              class="tip"
+              role="tooltip"
+            >
+              {{ source.healthHint }}
+            </span>
             <button
               type="button"
               class="src-gear"

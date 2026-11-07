@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { createSettingsController, type SettingsDeps } from '@/stores/settings'
+import {
+  SettingsRequestError,
+  createSettingsController,
+  type SettingsDeps,
+} from '@/stores/settings'
 
 const PROFILES = {
   sources: [
@@ -20,6 +24,21 @@ const PROFILES = {
   ],
 }
 
+const CREDENTIALS = {
+  secret_key_configured: true,
+  credentials: [
+    { name: 'OPENAI_API_KEY', status: 'env', last4: 'a1b2', version: 'v1' },
+    { name: 'OPENAI_BASE_URL', status: 'unset', last4: null, version: null },
+    { name: 'OPENAI_MODEL', status: 'unset', last4: null, version: null },
+    { name: 'GITHUB_TOKEN', status: 'ui', last4: '9f3c', version: 'v1' },
+    { name: 'HUGGINGFACE_TOKEN', status: 'unset', last4: null, version: null },
+    { name: 'ZHIHU_ACCESS_SECRET', status: 'env', last4: '4d2e', version: 'v1' },
+    { name: 'BILIBILI_SESSDATA', status: 'unset', last4: null, version: null },
+    { name: 'BILIBILI_BILI_JCT', status: 'unset', last4: null, version: null },
+    { name: 'BILIBILI_BUVID3', status: 'unset', last4: null, version: null },
+  ],
+}
+
 function deps(overrides: Partial<SettingsDeps> = {}): SettingsDeps {
   return {
     listProfiles: async () => PROFILES,
@@ -28,6 +47,12 @@ function deps(overrides: Partial<SettingsDeps> = {}): SettingsDeps {
     saveLanguage: async () => {},
     readCountsSeen: () => false,
     writeCountsSeen: () => {},
+    listCredentials: async () => CREDENTIALS,
+    saveLlm: async () => CREDENTIALS,
+    saveCredential: async () => CREDENTIALS,
+    deleteLlm: async () => {},
+    deleteCredential: async () => {},
+    testCredential: async () => ({ result: 'ok', reason: '' }),
     ...overrides,
   }
 }
@@ -155,5 +180,185 @@ describe('createSettingsController', () => {
     controller.dismissCounts()
     expect(seen).toBe(true)
     expect(controller.countsSeen).toBe(true)
+  })
+})
+
+describe('createSettingsController keys', () => {
+  it('fills the Keys rows from the credential statuses', async () => {
+    const controller = createSettingsController(deps())
+
+    await controller.load()
+
+    expect(controller.credentials.rows.GITHUB_TOKEN).toEqual({
+      status: 'app',
+      last4: '9f3c',
+      version: 'v1',
+    })
+    expect(controller.credentials.readOnly).toBe(false)
+    expect(controller.keysDraft.github).toBe('')
+  })
+
+  it('saves the LLM key, base URL and model in one PUT and clears the fields', async () => {
+    const calls: unknown[] = []
+    const controller = createSettingsController(
+      deps({
+        saveLlm: async (input) => {
+          calls.push(input)
+          return CREDENTIALS
+        },
+      }),
+    )
+    await controller.load()
+    controller.keysDraft.llmKey = 'sk-new'
+    controller.keysDraft.llmUrl = 'https://api.example.com/v1'
+    controller.keysDraft.llmModel = 'openai/gpt-x'
+
+    await controller.saveLlm()
+
+    expect(calls).toEqual([
+      { apiKey: 'sk-new', baseUrl: 'https://api.example.com/v1', model: 'openai/gpt-x' },
+    ])
+    expect(controller.keysDraft.llmKey).toBe('')
+    expect(controller.keysDraft.llmUrl).toBe('')
+    expect(controller.keysDraft.llmModel).toBe('')
+    expect(controller.keysMessage.llm).toBe('Saved.')
+  })
+
+  it('clears the saved LLM key and reloads the statuses', async () => {
+    let payload = {
+      ...CREDENTIALS,
+      credentials: CREDENTIALS.credentials.map((row) =>
+        row.name === 'OPENAI_API_KEY' ? { ...row, status: 'unreadable' } : row,
+      ),
+    }
+    let cleared = 0
+    const controller = createSettingsController(
+      deps({
+        listCredentials: async () => payload,
+        deleteLlm: async () => {
+          cleared += 1
+          payload = CREDENTIALS
+        },
+      }),
+    )
+    await controller.load()
+    expect(controller.credentials.llmUnreadable).toBe(true)
+
+    await controller.clearLlmOverride()
+
+    expect(cleared).toBe(1)
+    expect(controller.credentials.llmUnreadable).toBe(false)
+    expect(controller.keysMessage.llm).toBe('Cleared the saved key.')
+  })
+
+  it('saves one source credential with its own PUT and clears the input', async () => {
+    const saves: [string, string][] = []
+    const controller = createSettingsController(
+      deps({
+        saveCredential: async (name, value) => {
+          saves.push([name, value])
+          return CREDENTIALS
+        },
+      }),
+    )
+    await controller.load()
+    controller.keysDraft.github = 'ghp_new'
+
+    await controller.saveCredential('github')
+
+    expect(saves).toEqual([['GITHUB_TOKEN', 'ghp_new']])
+    expect(controller.keysDraft.github).toBe('')
+    expect(controller.keysMessage.github).toBe('Saved.')
+  })
+
+  it('refuses to save an empty source credential', async () => {
+    let calls = 0
+    const controller = createSettingsController(
+      deps({
+        saveCredential: async () => {
+          calls += 1
+          return CREDENTIALS
+        },
+      }),
+    )
+    await controller.load()
+    controller.keysDraft.github = '   '
+
+    await controller.saveCredential('github')
+
+    expect(calls).toBe(0)
+    expect(controller.keysMessage.github).toBe(
+      'Enter a new value to save this credential.',
+    )
+  })
+
+  it('records the sanitized result of one credential test', async () => {
+    const tested: string[] = []
+    const controller = createSettingsController(
+      deps({
+        testCredential: async (name) => {
+          tested.push(name)
+          return { result: 'auth_error', reason: 'GitHub rejected the token (401).' }
+        },
+      }),
+    )
+    await controller.load()
+
+    await controller.testCredential('GITHUB_TOKEN')
+
+    expect(tested).toEqual(['GITHUB_TOKEN'])
+    expect(controller.testResults.GITHUB_TOKEN).toEqual({
+      result: 'auth_error',
+      reason: 'GitHub rejected the token (401).',
+    })
+    expect(controller.testing).toBe(null)
+  })
+
+  it('refuses to save the LLM group without a new key', async () => {
+    let calls = 0
+    const controller = createSettingsController(
+      deps({
+        saveLlm: async () => {
+          calls += 1
+          return CREDENTIALS
+        },
+      }),
+    )
+    await controller.load()
+    controller.keysDraft.llmModel = 'openai/gpt-x'
+
+    await controller.saveLlm()
+
+    expect(calls).toBe(0)
+    expect(controller.keysMessage.llm).toBe(
+      'Enter the API key to save the LLM settings. Saving never reuses the stored key.',
+    )
+  })
+
+  it('switches the panel to read-only when a write is refused with 409', async () => {
+    const controller = createSettingsController(
+      deps({
+        saveLlm: async () => {
+          throw new SettingsRequestError('Encryption is not enabled on this backend.', 409)
+        },
+      }),
+    )
+    await controller.load()
+    controller.keysDraft.llmKey = 'sk-new'
+
+    await controller.saveLlm()
+
+    expect(controller.credentials.readOnly).toBe(true)
+    expect(controller.keysMessage.llm).toBe('Encryption is not enabled on this backend.')
+  })
+
+  it('marks the panel read-only when the backend has no secret key', async () => {
+    const controller = createSettingsController(
+      deps({ listCredentials: async () => ({ ...CREDENTIALS, secret_key_configured: false }) }),
+    )
+
+    await controller.load()
+
+    expect(controller.credentials.readOnly).toBe(true)
   })
 })

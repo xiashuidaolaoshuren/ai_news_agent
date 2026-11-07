@@ -9,17 +9,58 @@ export const COUNT_MAX = 20
 /** Count shown before the session carries its own preference. */
 export const DEFAULT_ITEMS_PER_SOURCE = 5
 
+/** Credential health for the current credential version, as `GET /sources` reports it. */
+export type SourceHealth =
+  | 'ok'
+  | 'auth_error'
+  | 'unavailable'
+  | 'rate_limited'
+  | 'timeout'
+  | 'stale'
+  | 'unchecked'
+
 /** One connector the composer can select, as `GET /sources` describes it. */
 export interface SourceOption {
   name: string
   label: string
   kind: EntryKind | null
   default: boolean
+  health: SourceHealth
+}
+
+/** The tooltip a chip shows; ok and unchecked carry no warning. */
+export function healthHint(health: SourceHealth): string | null {
+  switch (health) {
+    case 'auth_error':
+      return 'Last check: authentication error.'
+    case 'stale':
+      return 'Not checked since update.'
+    case 'unavailable':
+      return 'Last check: source unavailable.'
+    case 'rate_limited':
+      return 'Last check: rate limited.'
+    case 'timeout':
+      return 'Last check: timed out.'
+    default:
+      return null
+  }
+}
+
+function readHealth(value: unknown): SourceHealth {
+  if (!isRecord(value)) {
+    return 'unchecked'
+  }
+  if (typeof value.current === 'string') {
+    return value.current as SourceHealth
+  }
+  return value.stale === true ? 'stale' : 'unchecked'
 }
 
 /** One source checkbox row. */
 export interface ComposerSourceVm extends SourceOption {
   checked: boolean
+  /** Tooltip for a source whose credential health is not ok. */
+  healthHint: string | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -45,6 +86,7 @@ export function parseSources(raw: unknown): SourceOption[] {
       label: kind === null ? item.name : sourceLabel(kind),
       kind,
       default: item.default === true,
+      health: readHealth(item.health),
     })
   }
   return options
@@ -163,6 +205,7 @@ export function toComposerVm(input: ComposerVmInput): ComposerVm {
     sources: input.sources.map((source) => ({
       ...source,
       checked: input.selected.includes(source.name),
+      healthHint: healthHint(source.health),
     })),
     count: input.count,
     busy: input.busy,
