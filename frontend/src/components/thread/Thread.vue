@@ -339,22 +339,30 @@ defineExpose({ gotoRef })
             v-if="message.juyaConfirm"
             class="section"
             role="group"
+            :aria-labelledby="`cf-${message.id}`"
             data-od-id="juya-all-confirm"
           >
             <div class="section-head">
-              <h3>Confirm a large Juya request</h3>
+              <span class="tile"><SourceLogo kind="juya" /></span>
+              <h3 :id="`cf-${message.id}`">Confirm a large Juya request</h3>
+              <span class="sub">AI 早报 {{ message.juyaConfirm.issue }} · No. {{ message.juyaConfirm.issueNumber }}</span>
             </div>
             <div class="set-body">
-              <p>
+              <p style="margin: 0">
                 This request would include
                 <b class="num">{{ message.juyaConfirm.storyCount }} stories</b>
                 from <b>{{ message.juyaConfirm.issue }}</b>, issue
                 {{ message.juyaConfirm.issueNumber }}. Requests over 20 stories need your
                 confirmation before the digest is written.
               </p>
-              <div class="seg">
+              <p class="help">
+                Juya is set to All in Settings. Cancel to edit the request, or set a number for
+                Juya in Settings.
+              </p>
+              <div class="seg" style="justify-content: flex-end">
                 <button
                   type="button"
+                  class="btn btn-sm"
                   data-od-id="juya-confirm-cancel"
                   @click="emit('confirmJuya', { messageId: message.id, action: 'cancel' })"
                 >
@@ -362,6 +370,7 @@ defineExpose({ gotoRef })
                 </button>
                 <button
                   type="button"
+                  class="btn btn-sm btn-primary"
                   data-od-id="juya-confirm-continue"
                   @click="emit('confirmJuya', { messageId: message.id, action: 'continue' })"
                 >

@@ -148,8 +148,11 @@ class SessionService:
     def juya_confirmation_projection(
         self, session_id: str
     ) -> dict[int, dict[str, object]]:
+        """The pending confirmation, so a settled request stops asking."""
         out: dict[int, dict[str, object]] = {}
         for request in self._store.list_requests(session_id):
+            if not is_pending_juya_confirmation(request):
+                continue
             payload = (request.interpretation or {}).get("juya_confirmation")
             if not isinstance(payload, dict):
                 continue

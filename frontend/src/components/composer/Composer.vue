@@ -34,7 +34,6 @@ function errorList(): { id: string; message: string }[] {
   return [
     { id: 'err-text', message: errors.text },
     { id: 'err-sources', message: errors.sources },
-    { id: 'err-n', message: errors.count },
     { id: 'err-send', message: errors.send },
     { id: 'err-prefs', message: errors.prefs },
   ].filter((item): item is { id: string; message: string } => item.message !== undefined)

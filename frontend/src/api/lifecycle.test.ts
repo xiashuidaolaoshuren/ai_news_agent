@@ -96,6 +96,41 @@ function digestEvent(
 }
 
 describe('createRequestLifecycle streaming', () => {
+  it('continues a Juya confirmation as a live run with progress and a digest', async () => {
+    const requested: { sessionId: string; requestId: string }[] = []
+    const lifecycle = makeLifecycle({
+      continueJuya: async (sessionId, requestId) => {
+        requested.push({ sessionId, requestId })
+        return events([
+          started,
+          { event: 'progress', data: { stage: 'Calling juya…', source: 'juya', status: 'running' } },
+          digestEvent(),
+          { event: 'done', data: { request_id: 'r1', message_id: 2, run_id: 4, path: 'digest' } },
+        ])
+      },
+    })
+
+    const settling = lifecycle.continueJuya('s1', 'r1')
+    await when(lifecycle, (snapshot) => snapshot.state === 'succeeded')
+
+    expect(requested).toEqual([{ sessionId: 's1', requestId: 'r1' }])
+    expect(lifecycle.state.requestId).toBe('r1')
+    expect(lifecycle.state.progress).toHaveLength(1)
+    expect(lifecycle.state.digest?.digest_id).toBe(12)
+    await settling
+  })
+
+  it('surfaces a refused continue instead of waiting for a stream', async () => {
+    const lifecycle = makeLifecycle({
+      continueJuya: async () => {
+        throw new SseHttpError(404, null, 'request not found')
+      },
+    })
+
+    await expect(lifecycle.continueJuya('s1', 'old')).rejects.toBeInstanceOf(SseHttpError)
+    expect(lifecycle.state.state).toBe('idle')
+  })
+
   it('tracks requestId, appends progress, and replaces cumulative delta text', async () => {
     const hold = deferred()
     const lifecycle = makeLifecycle({

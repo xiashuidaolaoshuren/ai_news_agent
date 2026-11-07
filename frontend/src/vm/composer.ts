@@ -2,13 +2,6 @@ import { sourceLabel } from '@/vm/digest'
 import { sourceKind } from '@/vm/run'
 import type { EntryKind, RefVm } from '@/vm/types'
 
-/** Stepper bounds from the spec (1-20), not the prototype's narrower demo range. */
-export const COUNT_MIN = 1
-export const COUNT_MAX = 20
-
-/** Count shown before the session carries its own preference. */
-export const DEFAULT_ITEMS_PER_SOURCE = 5
-
 /** Credential health for the current credential version, as `GET /sources` reports it. */
 export type SourceHealth =
   | 'ok'
@@ -95,18 +88,16 @@ export function parseSources(raw: unknown): SourceOption[] {
 /** The preferences the composer edits, as raw UI state. */
 export interface ComposerPrefs {
   selected: string[]
-  count: string
 }
 
 /** The subset of `SessionOut` the composer preferences come from. */
 export interface PrefsSession {
   connector_names: string[] | null
-  items_per_source: number | null
 }
 
 /**
  * Preferences to show for one session. Until the first PATCH the session stores
- * nothing, so the catalog defaults and a count of 5 stand in.
+ * nothing, so the catalog defaults stand in.
  */
 export function prefsFor(
   session: PrefsSession | null,
@@ -115,14 +106,12 @@ export function prefsFor(
   return {
     selected:
       session?.connector_names ?? sources.filter((item) => item.default).map((item) => item.name),
-    count: String(session?.items_per_source ?? DEFAULT_ITEMS_PER_SOURCE),
   }
 }
 
 /** Error copy, aligned with the backend's 400s so the client can check first. */
 export const TEXT_REQUIRED = 'Type a question or topic first.'
 export const SOURCE_REQUIRED = 'Select at least one source.'
-export const COUNT_INVALID = `Items per source must be a whole number from ${COUNT_MIN} to ${COUNT_MAX}.`
 
 /** Shown when the send call itself fails, or when a preference PATCH is refused. */
 export const SEND_FAILED = 'Could not send this message.'
@@ -134,7 +123,6 @@ export const REPEAT_UNAVAILABLE = 'That request can’t be repeated.'
 export interface ComposerErrors {
   text?: string
   sources?: string
-  count?: string
   send?: string
   prefs?: string
 }
@@ -143,21 +131,16 @@ export interface ComposerErrors {
 export interface ComposerDraft {
   text: string
   selected: string[]
-  count: string
 }
 
 /** Reject a draft the backend would answer with a 400. */
 export function validateComposer(draft: ComposerDraft): ComposerErrors {
   const errors: ComposerErrors = {}
-  const count = Number(draft.count)
   if (draft.text.trim() === '') {
     errors.text = TEXT_REQUIRED
   }
   if (draft.selected.length === 0) {
     errors.sources = SOURCE_REQUIRED
-  }
-  if (!Number.isInteger(count) || count < COUNT_MIN || count > COUNT_MAX) {
-    errors.count = COUNT_INVALID
   }
   return errors
 }
@@ -169,7 +152,6 @@ export interface ComposerVmInput {
   text: string
   sources: SourceOption[]
   selected: string[]
-  count: string
   errors: ComposerErrors
   busy: boolean
   notice: ComposerNotice
@@ -182,7 +164,6 @@ export interface ComposerVmInput {
 export interface ComposerVm {
   text: string
   sources: ComposerSourceVm[]
-  count: string
   busy: boolean
   notice: ComposerNotice
   errors: ComposerErrors
@@ -207,7 +188,6 @@ export function toComposerVm(input: ComposerVmInput): ComposerVm {
       checked: input.selected.includes(source.name),
       healthHint: healthHint(source.health),
     })),
-    count: input.count,
     busy: input.busy,
     notice: input.notice,
     errors: input.errors,

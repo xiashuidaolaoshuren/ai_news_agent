@@ -112,7 +112,7 @@ Visual source is the current prototype: anchors, chip text, settings dialog, key
 
 ### U3 — Sources settings
 
-- [ ] **Do:** Open the prototype Settings dialog on Sources, remove the composer stepper, and confirm large Juya requests.
+- [x] **Do:** Open the prototype Settings dialog on Sources, remove the composer stepper, and confirm large Juya requests.
 - **Consumes:** Backend **B6**, **B7**, and **B8**. Prototype settings dialog, source gears, `source-count-notice`, and `juya-all-confirm`.
 - **Produces:** `settings-button` opens `settings-dialog` on the Sources tab. Each source section matches `settings-source-{k}`, including Bilibili labelled "Hidden from source selection" and the OpenRouter profile fields. Output language is `settings-output-language`. A gear (`source-settings-{k}`) opens that section. The composer stepper is gone and sends no shared count. Source checkboxes remain. The one-time `source-count-notice` says new requests use the global source counts from Settings, initially 5 per source. `juya-all-confirm` offers Cancel and Continue. Invalid profile fields show the API's field message inline. Saved settings apply to the next request.
 - **Acceptance:** The panel lists profiles from `GET /settings/sources` and saves with PUT, including a hidden source. The gear opens the matching section. The composer has no count stepper. The notice shows once per browser. More than 20 Juya stories shows the confirm panel and does not start the digest until Continue. Cancel leaves no digest. Entry text already generated in `en` or `zh-CN` is shown as returned; this task does not translate the English chrome the prototype keeps.
@@ -171,3 +171,5 @@ Per subtask, obey **`TDD suitable`**. **`partial`** tests behavior and checks th
 |---|---|---|
 | 2026-10-30 | Split from `2026-10-20-targeted-followups-plan.md`. Follow-up UI is U1–U2. Settings, Keys, and sign-in from the settings spec and the current prototype are U3–U5. | material |
 | 2026-11-06 | U2 file map names the four collection-state components, `App.vue`, and `thread.opening`. Verification adds the session, composer, and digest tests. | equivalent |
+| 2026-11-07 | U3 reopened after an acceptance audit and closed as U3b: the gear focus handoff, the dismissible count notice, the GitHub and Hugging Face profile fields, the Juya All warning, and the Sources GitHub auth warning were missing; Continue buffered the whole digest stream; reloading a pending confirmation resumed it into a false failure. | material |
+| 2026-11-07 | The Settings dialog could not open in the real app: its controller returned one reactive object, which a Pinia setup store copies field by field, so `isOpen`, `tab`, and `focus` never reached the store. `toSettingsStore` now binds them as refs, with a Pinia-layer regression test. | material |

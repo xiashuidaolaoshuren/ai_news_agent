@@ -99,6 +99,7 @@ function makeComposer(overrides: Partial<ComposerDeps> = {}): Harness {
     loadSources: async () => CATALOG,
     hiddenSources: async () => ['bilibili'],
     countsSeen: () => true,
+    writeCountsSeen: () => {},
     session: () => session.value,
     draft,
     snapshot: () => snapshot.value,
@@ -199,19 +200,18 @@ describe('composer send', () => {
     expect(marked).toEqual([
       {
         text: 'What shipped this week?',
-        sources: { names: ['juya', 'github'], perSource: 5 },
+        sources: { names: ['juya', 'github'], perSource: null },
       },
     ])
   })
 
-  it('sends the session sources without a composer count', async () => {
+  it('sends the session sources without a count of its own', async () => {
     const { controller, marked, draft } = await ready()
-    await controller.commitCount('8')
     draft.value = 'What shipped this week?'
 
     controller.send()
 
-    expect(marked[0]?.sources).toEqual({ names: ['juya'], perSource: 5 })
+    expect(marked[0]?.sources).toEqual({ names: ['juya'], perSource: null })
   })
 })
 
@@ -455,20 +455,28 @@ describe('composer prefill', () => {
   })
 })
 
-describe('composer count preferences', () => {
-  it('does not patch the session when a typed count is committed', async () => {
-    const { controller, patches } = await ready()
+describe('composer count notice', () => {
+  it('hides the notice the moment it is dismissed and remembers it', async () => {
+    let seen = false
+    const { controller } = await ready({
+      countsSeen: () => seen,
+      writeCountsSeen: () => {
+        seen = true
+      },
+    })
 
-    await controller.commitCount('8')
+    expect(controller.vm.value.countsSeen).toBe(false)
+    controller.dismissCounts()
 
-    expect(patches).toEqual([])
+    expect(controller.vm.value.countsSeen).toBe(true)
+    expect(seen).toBe(true)
   })
 
-  it('does not patch the session from a stepper step', async () => {
-    const { controller, patches } = await ready()
+  it('hands the caret back to the composer after dismissing', async () => {
+    const { controller } = await ready()
 
-    await controller.stepCount(-1)
+    controller.dismissCounts()
 
-    expect(patches).toEqual([])
+    expect(controller.focusToken.value).toBe(1)
   })
 })

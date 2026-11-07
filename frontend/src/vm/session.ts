@@ -24,7 +24,8 @@ const FAILED_ASSISTANT_MESSAGES = [WORKFLOW_FAILED_MESSAGE, REQUEST_FAILED_MESSA
 /** What the composer knows about the question it is sending. */
 export interface SentSourcesInput {
   names: string[]
-  perSource: number
+  /** The count the run used; null until the resolved request reports one. */
+  perSource: number | null
 }
 
 /** The chip row under a question: one chip per source, plus the count chip. */

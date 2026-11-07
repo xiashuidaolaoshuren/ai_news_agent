@@ -57,6 +57,12 @@ function openSourceSection(name: string): void {
   settings.focus = name
 }
 
+/** The Sources GitHub warning jumps to the token row on the Keys tab. */
+function openKeysSection(): void {
+  settings.tab = 'keys'
+  settings.focus = 'github'
+}
+
 /** An open inline edit in the sidebar takes Escape before the shell closes overlays. */
 const inlineEditOpen = computed(
   () => sessions.renamingId !== null || sessions.deleteId !== null,
@@ -182,7 +188,7 @@ onUnmounted(() => {
         @toggle-source="composer.toggleSource($event)"
         @remove-ref="composer.removeRef()"
         @open-settings="settings.open('sources', $event)"
-        @dismiss-counts="settings.dismissCounts()"
+        @dismiss-counts="composer.dismissCounts()"
       />
     </template>
 
@@ -225,5 +231,7 @@ onUnmounted(() => {
     @test="afterCredentialChange(settings.testCredential($event))"
     @clear-override="afterCredentialChange(settings.clearLlmOverride())"
     @goto-source="openSourceSection($event)"
+    @goto-keys="openKeysSection()"
+    @focus-done="settings.focus = null"
   />
 </template>

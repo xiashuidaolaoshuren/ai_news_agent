@@ -11,7 +11,7 @@ import {
   listMessagesApiV1SessionsSessionIdMessagesGet,
 } from '@/api/generated/sdk.gen'
 import type { SseEvent } from '@/api/sse'
-import { SseHttpError, postMessageStream } from '@/api/sse'
+import { SseHttpError, continueJuyaStream, postMessageStream } from '@/api/sse'
 import { setupApiClient } from '@/api/setupClient'
 
 /** Lifecycle states from the web frontend spec. */
@@ -59,6 +59,8 @@ export interface RequestSnapshot {
 
 export interface LifecycleDeps {
   post(sessionId: string, body: PostMessageBody): Promise<AsyncIterable<SseEvent>>
+  /** Continue a pending Juya confirmation; it streams the same chat events. */
+  continueJuya?(sessionId: string, requestId: string): Promise<AsyncIterable<SseEvent>>
   getRequest(sessionId: string, requestId: string): Promise<RequestOut>
   cancel(sessionId: string, requestId: string): Promise<number>
   reloadMessages(sessionId: string): Promise<unknown>
@@ -69,6 +71,7 @@ export interface LifecycleDeps {
 export interface RequestLifecycle {
   readonly state: RequestSnapshot
   send(sessionId: string, body: PostMessageBody): Promise<void>
+  continueJuya(sessionId: string, requestId: string): Promise<void>
   cancel(): Promise<void>
   resume(sessionId: string, requestId: string): Promise<void>
   subscribe(listener: (snapshot: RequestSnapshot) => void): () => void
@@ -159,7 +162,14 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
     body: PostMessageBody,
     token: number,
   ): Promise<void> {
-    const stream = await deps.post(sessionId, body)
+    await pumpEvents(sessionId, await deps.post(sessionId, body), token)
+  }
+
+  async function pumpEvents(
+    sessionId: string,
+    stream: AsyncIterable<SseEvent>,
+    token: number,
+  ): Promise<void> {
     for await (const event of stream) {
       if (isSuperseded(token)) {
         return
@@ -298,6 +308,39 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
     }
   }
 
+  /**
+   * Continue a pending Juya confirmation as a live run. The digest streams like a
+   * send, so progress steps and Cancel work while it runs. A refused continue (for
+   * example a stale panel) leaves the lifecycle idle for the caller to reload.
+   */
+  async function continueJuya(sessionId: string, requestId: string): Promise<void> {
+    const open = deps.continueJuya
+    if (open === undefined) {
+      await resume(sessionId, requestId)
+      return
+    }
+    currentSessionId = sessionId
+    const token = beginRun()
+    emit({ ...idleRequestSnapshot(), sessionId, requestId, state: 'streaming' })
+    try {
+      await pumpEvents(sessionId, await open(sessionId, requestId), token)
+    } catch (error) {
+      if (
+        error instanceof SseHttpError &&
+        (error.status === 404 || error.status === 409) &&
+        !isSuperseded(token)
+      ) {
+        emit({ ...idleRequestSnapshot() })
+        throw error
+      }
+      if (!isSuperseded(token) && snapshot.requestId !== null) {
+        await reconnect(sessionId, 1, token)
+        return
+      }
+      throw error
+    }
+  }
+
   async function cancel(): Promise<void> {
     const requestId = snapshot.requestId
     const sessionId = currentSessionId
@@ -325,6 +368,7 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
       return snapshot
     },
     send,
+    continueJuya,
     cancel,
     resume,
     subscribe,
@@ -336,6 +380,7 @@ export function defaultLifecycleDeps(): LifecycleDeps {
   setupApiClient()
   return {
     post: (sessionId, body) => postMessageStream(sessionId, body),
+    continueJuya: (sessionId, requestId) => continueJuyaStream(sessionId, requestId),
     async getRequest(sessionId, requestId): Promise<RequestOut> {
       const result = await getRequestStatusApiV1SessionsSessionIdRequestsRequestIdGet({
         path: { session_id: sessionId, request_id: requestId },

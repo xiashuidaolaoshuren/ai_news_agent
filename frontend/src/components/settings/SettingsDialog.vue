@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { nextTick, onMounted, useTemplateRef, watch } from 'vue'
+
 import AppIcon from '@/components/ui/AppIcon.vue'
 import KeysPanel from '@/components/settings/KeysPanel.vue'
 import SourceSettings from '@/components/settings/SourceSettings.vue'
@@ -18,9 +20,9 @@ export interface SettingsDialogVm {
   keys: KeysVm
 }
 
-defineProps<{ vm: SettingsDialogVm }>()
+const props = defineProps<{ vm: SettingsDialogVm }>()
 
-defineEmits<{
+const emit = defineEmits<{
   close: []
   save: []
   retry: []
@@ -33,12 +35,75 @@ defineEmits<{
   test: [name: string]
   clearOverride: []
   gotoSource: [name: string]
+  gotoKeys: []
+  /** The dialog consumed the requested section, so the caller can clear it. */
+  focusDone: []
 }>()
+
+const dialog = useTemplateRef<HTMLElement>('dialog')
+
+/**
+ * Scroll to the section a gear or a Keys link asked for, flash it, and put the
+ * caret in it. The prototype drops `st.focus` once it has done so.
+ */
+async function settleFocus(): Promise<void> {
+  if (!props.vm.open) {
+    return
+  }
+  await nextTick()
+  const root = dialog.value
+  if (root === null) {
+    return
+  }
+  const name = props.vm.focus
+  if (name === null) {
+    // Land on the active tab when the dialog opened on its own. A click inside
+    // already holds focus, so switching tabs does not steal it back.
+    if (!root.contains(document.activeElement)) {
+      root.querySelector<HTMLElement>(`#tab-${props.vm.tab}`)?.focus({ preventScroll: true })
+    }
+    return
+  }
+  const onSources = props.vm.tab === 'sources'
+  const target = onSources
+    ? root.querySelector<HTMLElement>(`#set-${name}`)
+    : root.querySelector<HTMLElement>(`[data-od-id="key-row-${name}"]`)
+  // The profiles load after the dialog opens; a later watch run retries.
+  if (target === null) {
+    return
+  }
+  const body = root.querySelector<HTMLElement>('.modal-body')
+  if (body !== null) {
+    body.scrollTop += target.getBoundingClientRect().top - body.getBoundingClientRect().top - 16
+  }
+  target.classList.add('hl')
+  const warning = onSources && name === 'github' ? root.querySelector<HTMLElement>('#gh-auth') : null
+  const control =
+    (onSources ? warning : null) ??
+    (onSources
+      ? target.querySelector<HTMLElement>('input, button')
+      : target.querySelector<HTMLElement>(`#key-${name}`))
+  control?.focus({ preventScroll: true })
+  emit('focusDone')
+}
+
+watch(
+  () => [props.vm.open, props.vm.tab, props.vm.focus, props.vm.profiles.length] as const,
+  () => {
+    void settleFocus()
+  },
+  { flush: 'post' },
+)
+
+onMounted(() => {
+  void settleFocus()
+})
 </script>
 
 <template>
-  <div v-if="vm.open" class="modal-wrap">
+  <div v-if="vm.open" class="modal-wrap" @click.self="$emit('close')">
     <div
+      ref="dialog"
       class="modal"
       role="dialog"
       aria-modal="true"
@@ -86,8 +151,10 @@ defineEmits<{
           :language="vm.language"
           :profiles="vm.profiles"
           :field-errors="vm.fieldErrors"
+          :github-auth-error="vm.keys.githubAuthError"
           @update-language="$emit('updateLanguage', $event)"
           @update-profile="$emit('updateProfile', $event)"
+          @goto-keys="$emit('gotoKeys')"
         />
         <KeysPanel
           v-else

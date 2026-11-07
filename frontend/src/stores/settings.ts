@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { reactive } from 'vue'
+import { reactive, toRefs } from 'vue'
 
 import {
   deleteCredentialApiV1SettingsCredentialsNameDelete,
@@ -23,8 +23,6 @@ import {
   type KeysDraft,
   type SourceProfileVm,
 } from '@/vm/settings'
-
-const COUNTS_SEEN_KEY = 'anra-counts-seen'
 
 export type OutputLanguage = 'source_default' | 'en' | 'zh-CN'
 
@@ -52,8 +50,6 @@ export interface SettingsDeps {
   deleteLlm(): Promise<void>
   deleteCredential(name: string): Promise<void>
   testCredential(name: string): Promise<CredentialTestOutcome>
-  readCountsSeen(): boolean
-  writeCountsSeen(): void
 }
 
 /** A settings call the API refused; `status` decides what the panel explains. */
@@ -123,7 +119,6 @@ export function createSettingsController(deps: SettingsDeps) {
     isOpen: false,
     tab: 'sources' as 'sources' | 'keys',
     focus: null as string | null,
-    countsSeen: deps.readCountsSeen(),
     credentials: { ...EMPTY_CREDENTIALS } as CredentialsVm,
     keysDraft: { ...EMPTY_KEYS_DRAFT } as KeysDraft,
     keysMessage: {} as Record<string, string>,
@@ -273,16 +268,10 @@ export function createSettingsController(deps: SettingsDeps) {
     }
   }
 
-  function dismissCounts(): void {
-    deps.writeCountsSeen()
-    state.countsSeen = true
-  }
-
   function open(tab: 'sources' | 'keys' = 'sources', focus: string | null = null): void {
     state.tab = tab
     state.focus = focus
     state.isOpen = true
-    dismissCounts()
     void load()
   }
 
@@ -306,7 +295,6 @@ export function createSettingsController(deps: SettingsDeps) {
     testCredential,
     open,
     close,
-    dismissCounts,
     updateProfile,
   })
 }
@@ -402,23 +390,41 @@ export function defaultSettingsDeps(): SettingsDeps {
         body: { language: language as OutputLanguage },
       })
     },
-    readCountsSeen: () => {
-      try {
-        return localStorage.getItem(COUNTS_SEEN_KEY) === '1'
-      } catch {
-        return false
-      }
-    },
-    writeCountsSeen: () => {
-      try {
-        localStorage.setItem(COUNTS_SEEN_KEY, '1')
-      } catch {
-        // A private window that blocks storage still hides the notice for this page.
-      }
-    },
+  }
+}
+
+/**
+ * Bind the controller to a Pinia setup store. The controller returns one reactive
+ * object, but a setup store only keeps returned refs live: plain fields like
+ * `isOpen` would be copied once and never update. `toRefs` points each field at
+ * the controller, so the dialog, its tab and its focus follow the store.
+ */
+export function toSettingsStore(controller: ReturnType<typeof createSettingsController>) {
+  const {
+    load,
+    save,
+    saveLlm,
+    saveCredential,
+    clearLlmOverride,
+    testCredential,
+    open,
+    close,
+    updateProfile,
+  } = controller
+  return {
+    ...toRefs(controller),
+    load,
+    save,
+    saveLlm,
+    saveCredential,
+    clearLlmOverride,
+    testCredential,
+    open,
+    close,
+    updateProfile,
   }
 }
 
 export const useSettingsStore = defineStore('settings', () =>
-  createSettingsController(defaultSettingsDeps()),
+  toSettingsStore(createSettingsController(defaultSettingsDeps())),
 )

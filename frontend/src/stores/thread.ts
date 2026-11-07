@@ -379,6 +379,12 @@ export function createThreadController(deps: ThreadDeps) {
   const run = computed<RunVm | null>(() => toRunVm(runInput()))
   const cancelled = computed<CancelledVm | null>(() => toCancelledVm(runInput()))
 
+  /** A run owns the conversation while its stream is open or being polled. */
+  const runActive = computed(() => {
+    const state = snapshot.value.state
+    return state === 'streaming' || state === 'reconnecting'
+  })
+
   /**
    * The live outcome occupies the last reply slot. The row the backend persists for
    * the same outcome reloads into the transcript, so hide that copy while the live
@@ -407,7 +413,7 @@ export function createThreadController(deps: ThreadDeps) {
     const cancelledOutcome = cancelled.value !== null
     const outcome = cancelledOutcome ? null : (alert.value?.message ?? null)
     const digestRef = liveDigest.value?.ref ?? null
-    const rows = messages.value.map(withChips).filter((item) => {
+    const rows = messages.value.map(withChips).map(withoutAnsweredConfirm).filter((item) => {
       if (cancelledOutcome && item.kind === 'cancelled') {
         return false
       }
@@ -418,6 +424,18 @@ export function createThreadController(deps: ThreadDeps) {
     })
     return [...rows, ...pending]
   })
+
+  /**
+   * Once its run is live, the confirmation has been answered: the run card takes the
+   * panel's place until the reload brings the row back without it.
+   */
+  function withoutAnsweredConfirm(message: MessageVm): MessageVm {
+    if (!runActive.value || message.juyaConfirm === undefined) {
+      return message
+    }
+    const { juyaConfirm: _answered, ...rest } = message
+    return rest
+  }
 
   /** A question sent in this page session carries the sources it was sent with. */
   function withChips(message: MessageVm): MessageVm {
@@ -549,7 +567,11 @@ export function createThreadController(deps: ThreadDeps) {
     }
     await loadMessages(next.id, { opening: true })
     const active = next.active_request_id ?? null
-    if (active !== null) {
+    // A request that only waits for the Juya confirmation has no stream to rejoin;
+    // the transcript already shows the panel, so resuming would poll it into a
+    // failure over a healthy confirmation.
+    const awaitingConfirmation = messages.value.some((item) => item.juyaConfirm !== undefined)
+    if (active !== null && !awaitingConfirmation) {
       await deps.lifecycle.resume(next.id, active)
     }
   }
@@ -613,9 +635,16 @@ export function createThreadController(deps: ThreadDeps) {
     if (sessionId === undefined || requestId === null || messageId < 0) {
       return
     }
-    await deps.confirmJuya(sessionId, requestId, action)
     if (action === 'continue') {
-      await deps.lifecycle.resume(sessionId, requestId)
+      // Continue streams the digest, so the run card, progress and Cancel all work.
+      // A stale panel means the request already moved on; the reload says how.
+      try {
+        await deps.lifecycle.continueJuya(sessionId, requestId)
+      } catch {
+        // The transcript below is the source of truth.
+      }
+    } else {
+      await deps.confirmJuya(sessionId, requestId, action)
     }
     await loadMessages(sessionId)
   }

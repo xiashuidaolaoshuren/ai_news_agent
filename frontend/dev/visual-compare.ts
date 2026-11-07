@@ -19,7 +19,7 @@ import type {
 import type { HistoryPanelVm } from '@/vm'
 import { toHistoryMatchVm, toHistoryPanelVm } from '@/vm'
 import type { DigestVm, EntryVm, JuyaIssueVm, MessageVm, SectionVm } from '@/vm'
-import type { KeysVm } from '@/vm/settings'
+import type { KeysVm, SourceProfileVm } from '@/vm/settings'
 import { HF_FIXTURES, HIST_FIXTURES, JUYA_FIXTURES, GH_FIXTURES } from '@/vm/fixtures/prototype'
 import { toVmFromFixture } from '@/vm/fixtures/toVmFromFixture'
 import { toRequestStateVm, type RequestStateVm } from '@/vm/session'
@@ -190,6 +190,10 @@ const PROTOTYPE_VIEWS: PrototypeView[] = [
   { id: 'nomatch', label: 'No history matches', implemented: true },
   { id: 'historyerror', label: 'History failed search', implemented: true },
   { id: 'validation', label: 'Validation error', implemented: true },
+  { id: 'juya-confirm', label: 'Juya confirmation', implemented: true },
+  { id: 'settings', label: 'Settings sources', implemented: true },
+  { id: 'settingsauth', label: 'Settings GitHub auth', implemented: true },
+  { id: 'settingsfocus', label: 'Settings gear jump', implemented: true },
 ]
 
 /** The views that show the history panel beside the thread. */
@@ -447,6 +451,16 @@ function stateFor(view: string): ViewState {
         messages: [askMessage],
         alert: toRequestStateVm({ status: 'interrupted', error_code: null, error_message: null }),
       }
+    case 'juya-confirm':
+      return {
+        ...NO_STATE,
+        messages: [
+          {
+            ...askMessage,
+            juyaConfirm: { storyCount: 25, issue: '2026-06-16', issueNumber: 'juya-rss-1' },
+          },
+        ],
+      }
     default:
       return { ...NO_STATE, messages }
   }
@@ -475,7 +489,6 @@ function composerVmFor(view: string): ComposerVm {
     text: '',
     sources: CATALOG,
     selected: DEFAULT_SELECTED,
-    count: '5',
     errors: {},
     busy: false,
     notice: 'none',
@@ -497,8 +510,7 @@ function composerVmFor(view: string): ComposerVm {
         ...base,
         text: VALIDATION_TEXT,
         selected: [],
-        count: '0',
-        errors: validateComposer({ text: VALIDATION_TEXT, selected: [], count: '0' }),
+        errors: validateComposer({ text: VALIDATION_TEXT, selected: [] }),
       })
     default:
       return toComposerVm(base)
@@ -545,10 +557,30 @@ function keysVmFor(view: string): KeysVm {
   }
 }
 
+/** The prototype's source profile values, in host field names. */
+const SOURCE_PROFILES: SourceProfileVm[] = [
+  { name: 'juya', hidden: false, itemCount: 5 },
+  {
+    name: 'github',
+    hidden: false,
+    itemCount: 5,
+    keywords: ['agent', 'mcp'],
+    minStars: 50,
+    language: 'TypeScript',
+  },
+  { name: 'huggingface', hidden: false, itemCount: 5, pipelineTag: 'text-generation' },
+  { name: 'openrouter', hidden: false, itemCount: 5, freeOnly: true },
+  { name: 'zhihu', hidden: false, itemCount: 5 },
+  { name: 'bilibili', hidden: true },
+]
+
 /** `?state=empty` still opens the empty conversation, as it did before the toolbar. */
 function initialView(): string {
   const state = new URLSearchParams(window.location.search).get('state')
-  return state === 'empty' || state?.startsWith('keys') ? state : 'digest'
+  if (state !== null && PROTOTYPE_VIEWS.some((view) => view.id === state)) {
+    return state
+  }
+  return 'digest'
 }
 
 function PrototypeStateBar(onSelect: (id: string) => void, active: string) {
@@ -588,19 +620,24 @@ createApp({
   setup() {
     const view = ref(initialView())
     return () => {
-      if (view.value.startsWith('keys')) {
+      if (view.value.startsWith('keys') || view.value.startsWith('settings')) {
+        const onSources = view.value.startsWith('settings')
         return h(SettingsDialog, {
           vm: {
             open: true,
-            tab: 'keys',
+            tab: onSources ? 'sources' : 'keys',
             language: 'source_default',
-            profiles: [],
+            profiles: onSources ? SOURCE_PROFILES : [],
             fieldErrors: {},
             saved: false,
             loadError: null,
-            focus: null,
-            keys: keysVmFor(view.value),
+            focus: view.value === 'settingsfocus' ? 'github' : null,
+            keys: {
+              ...keysVmFor('keys'),
+              githubAuthError: view.value === 'settingsauth',
+            },
           },
+          onFocusDone: () => undefined,
         })
       }
       return h('div', { class: 'compare' }, [

@@ -696,6 +696,41 @@ def test_begin_request_replaces_pending_juya_confirmation(tmp_path: Path) -> Non
     assert old.status == "cancelled"
 
 
+def test_juya_confirmation_projection_drops_a_settled_request(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "pending-juya-projection.db"
+    DigestStore(db_path).init_schema()
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+    pending = service.begin_request(
+        created.id,
+        content="Digest juya all",
+        request_id="req-pending",
+    )
+    service.set_request_interpretation(
+        created.id,
+        pending.id,
+        {
+            "juya_confirmation": {
+                "story_count": 25,
+                "issue": "2026-06-16",
+                "issue_number": "juya-rss-1",
+            },
+        },
+    )
+
+    assert pending.user_message_id in service.juya_confirmation_projection(created.id)
+
+    service.cancel_request(created.id, pending.id)
+
+    assert service.juya_confirmation_projection(created.id) == {}
+
+
 def test_begin_request_raises_session_busy_for_different_active_id(
     tmp_path: Path,
 ) -> None:

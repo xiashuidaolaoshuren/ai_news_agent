@@ -1,5 +1,5 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import SettingsDialog from '@/components/settings/SettingsDialog.vue'
 import type { KeysVm, SourceProfileVm } from '@/vm/settings'
@@ -41,8 +41,24 @@ const PROFILES: SourceProfileVm[] = [
   { name: 'bilibili', hidden: true },
 ]
 
-function mountDialog(overrides: Partial<{ tab: 'sources' | 'keys' }> = {}) {
-  return mount(SettingsDialog, {
+/** Attached dialogs share one document, so each test releases its own. */
+const mounted: { unmount(): void }[] = []
+
+afterEach(() => {
+  for (const wrapper of mounted.splice(0)) {
+    wrapper.unmount()
+  }
+})
+
+function mountDialog(
+  overrides: Partial<{
+    tab: 'sources' | 'keys'
+    focus: string | null
+    githubAuthError: boolean
+  }> = {},
+) {
+  const wrapper = mount(SettingsDialog, {
+    attachTo: document.body,
     props: {
       vm: {
         open: true,
@@ -52,11 +68,13 @@ function mountDialog(overrides: Partial<{ tab: 'sources' | 'keys' }> = {}) {
         fieldErrors: {},
         saved: false,
         loadError: null,
-        focus: null,
-        keys: KEYS,
+        focus: overrides.focus ?? null,
+        keys: { ...KEYS, githubAuthError: overrides.githubAuthError ?? false },
       },
     },
   })
+  mounted.push(wrapper)
+  return wrapper
 }
 
 describe('SettingsDialog', () => {
@@ -94,5 +112,49 @@ describe('SettingsDialog', () => {
     expect(keys.find('[data-od-id="keys-llm-group"]').exists()).toBe(true)
     expect(keys.text()).toContain('Secrets are never shown after saving.')
     expect(keys.find('[data-od-id="save-sources"]').exists()).toBe(false)
+  })
+
+  it('scrolls to, flashes and focuses the source a gear asked for', async () => {
+    const wrapper = mountDialog({ focus: 'github' })
+    await flushPromises()
+
+    const section = wrapper.get('#set-github')
+    expect(section.classes()).toContain('hl')
+    expect((document.activeElement as HTMLElement | null)?.tagName).toBe('INPUT')
+    expect(section.get('input').element).toBe(document.activeElement)
+    expect(wrapper.emitted('focusDone')).toHaveLength(1)
+
+    wrapper.unmount()
+  })
+
+  it('focuses the key row a Keys jump asked for', async () => {
+    const wrapper = mountDialog({ tab: 'keys', focus: 'github' })
+    await flushPromises()
+
+    expect(wrapper.get('[data-od-id="key-row-github"]').classes()).toContain('hl')
+    expect((document.activeElement as HTMLElement | null)?.id).toBe('key-github')
+    expect(wrapper.emitted('focusDone')).toHaveLength(1)
+
+    wrapper.unmount()
+  })
+
+  it('jumps from the GitHub auth warning to the Keys row', async () => {
+    const wrapper = mountDialog({ githubAuthError: true })
+    await flushPromises()
+
+    const warning = wrapper.get('[data-od-id="github-auth-warning"]')
+    await warning.get('button').trigger('click')
+
+    expect(wrapper.emitted('gotoKeys')).toHaveLength(1)
+  })
+
+  it('puts focus on the open tab when no section is asked for', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+
+    expect(document.activeElement?.id).toBe('tab-sources')
+    expect(wrapper.emitted('focusDone')).toBeUndefined()
+
+    wrapper.unmount()
   })
 })

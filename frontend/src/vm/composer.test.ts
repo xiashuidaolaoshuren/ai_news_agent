@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  COUNT_INVALID,
   healthHint,
   parseSources,
   prefsFor,
@@ -94,20 +93,20 @@ describe('parseSources', () => {
 describe('prefsFor', () => {
   const options = parseSources(CATALOG)
 
-  it('shows the catalog defaults and a count of 5 before the first PATCH', () => {
-    expect(prefsFor(null, options)).toEqual({ selected: ['juya'], count: '5' })
+  it('shows the catalog defaults before the first PATCH', () => {
+    expect(prefsFor(null, options)).toEqual({ selected: ['juya'] })
   })
 
-  it('prefers the preferences the session already stores', () => {
-    const session = { connector_names: ['github', 'zhihu'], items_per_source: 8 }
-    expect(prefsFor(session, options)).toEqual({ selected: ['github', 'zhihu'], count: '8' })
+  it('prefers the sources the session already stores', () => {
+    const session = { connector_names: ['github', 'zhihu'] }
+    expect(prefsFor(session, options)).toEqual({ selected: ['github', 'zhihu'] })
   })
 })
 
 describe('validateComposer', () => {
-  const valid = { text: 'What shipped?', selected: ['juya'], count: '5' }
+  const valid = { text: 'What shipped?', selected: ['juya'] }
 
-  it('accepts a question with one source and a count in range', () => {
+  it('accepts a question with one source', () => {
     expect(validateComposer(valid)).toEqual({})
   })
 
@@ -119,20 +118,10 @@ describe('validateComposer', () => {
     expect(validateComposer({ ...valid, selected: [] })).toEqual({ sources: SOURCE_REQUIRED })
   })
 
-  it('rejects a count that is not a whole number from 1 to 20', () => {
-    expect(validateComposer({ ...valid, count: '' }).count).toBe(COUNT_INVALID)
-    expect(validateComposer({ ...valid, count: '0' }).count).toBe(COUNT_INVALID)
-    expect(validateComposer({ ...valid, count: '21' }).count).toBe(COUNT_INVALID)
-    expect(validateComposer({ ...valid, count: '3.5' }).count).toBe(COUNT_INVALID)
-    expect(validateComposer({ ...valid, count: 'abc' }).count).toBe(COUNT_INVALID)
-    expect(validateComposer({ ...valid, count: '20' })).toEqual({})
-  })
-
   it('reports every failing rule at once', () => {
-    expect(validateComposer({ text: '  ', selected: [], count: 'x' })).toEqual({
+    expect(validateComposer({ text: '  ', selected: [] })).toEqual({
       text: TEXT_REQUIRED,
       sources: SOURCE_REQUIRED,
-      count: COUNT_INVALID,
     })
   })
 })

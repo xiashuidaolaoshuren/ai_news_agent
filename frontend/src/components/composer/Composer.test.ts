@@ -19,7 +19,6 @@ function vm(overrides: Partial<ComposerVmInput> = {}) {
       },
     ],
     selected: ['juya'],
-    count: '5',
     errors: {},
     busy: false,
     notice: 'none',
@@ -130,7 +129,10 @@ describe('composer busy state', () => {
       {
         props: {
           vm: vm({
-            errors: { text: 'Type a question or topic first.', count: 'Items per source must be a whole number from 1 to 20.' },
+            errors: {
+              text: 'Type a question or topic first.',
+              sources: 'Select at least one source.',
+            },
           }),
         },
       },

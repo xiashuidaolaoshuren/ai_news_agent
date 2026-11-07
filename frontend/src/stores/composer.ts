@@ -12,7 +12,6 @@ import { setupApiClient } from '@/api/setupClient'
 import { useSessionsStore } from '@/stores/sessions'
 import { useThreadStore } from '@/stores/thread'
 import {
-  DEFAULT_ITEMS_PER_SOURCE,
   PREFS_FAILED,
   SEND_FAILED,
   FOLLOWUP_TARGET_UNAVAILABLE,
@@ -34,6 +33,7 @@ export interface ComposerDeps {
   loadSources(): Promise<SourceOption[]>
   hiddenSources(): Promise<string[]>
   countsSeen(): boolean
+  writeCountsSeen(): void
   session(): SessionOut | null
   draft: Ref<string>
   snapshot(): RequestSnapshot
@@ -44,6 +44,9 @@ export interface ComposerDeps {
   markUserSent(text: string, sources: SentSourcesInput, ref?: RefVm | null): void
   newId(): string
 }
+
+/** One-time notice: new requests use the global source counts from Settings. */
+const COUNTS_SEEN_KEY = 'anra-counts-seen'
 
 /** A UUID for `client_request_id`, with a fallback for older runtimes. */
 function randomId(): string {
@@ -81,9 +84,16 @@ export function defaultComposerDeps(): ComposerDeps {
     },
     countsSeen: () => {
       try {
-        return localStorage.getItem('anra-counts-seen') === '1'
+        return localStorage.getItem(COUNTS_SEEN_KEY) === '1'
       } catch {
         return false
+      }
+    },
+    writeCountsSeen: () => {
+      try {
+        localStorage.setItem(COUNTS_SEEN_KEY, '1')
+      } catch {
+        // A private window that blocks storage still hides the notice for this page.
       }
     },
     session: () => thread.session,
@@ -120,10 +130,12 @@ export function defaultComposerDeps(): ComposerDeps {
 export function createComposerController(deps: ComposerDeps) {
   const sources = ref<SourceOption[]>([])
   const selected = ref<string[]>([])
-  const count = ref(String(DEFAULT_ITEMS_PER_SOURCE))
   const errors = ref<ComposerErrors>({})
   /** Follow-up target for "Ask about this" messages; cleared after send. */
   const targetRef = ref<RefVm | null>(null)
+
+  /** The one-time count notice, reactive so a dismissal hides it at once. */
+  const countsSeen = ref(deps.countsSeen())
 
   /** Bumped whenever something outside the composer asks for the caret. */
   const focusToken = ref(0)
@@ -132,7 +144,6 @@ export function createComposerController(deps: ComposerDeps) {
   function syncPrefs(): void {
     const prefs = prefsFor(deps.session(), sources.value)
     selected.value = [...prefs.selected]
-    count.value = prefs.count
     errors.value = {}
     targetRef.value = null
   }
@@ -199,12 +210,11 @@ export function createComposerController(deps: ComposerDeps) {
       text: deps.draft.value,
       sources: sources.value,
       selected: selected.value,
-      count: count.value,
       errors: errors.value,
       busy: active.value,
       notice: notice.value,
       ref: targetRef.value,
-      countsSeen: deps.countsSeen(),
+      countsSeen: countsSeen.value,
     }),
   )
 
@@ -252,12 +262,6 @@ export function createComposerController(deps: ComposerDeps) {
     await persistPrefs()
   }
 
-  /** Counts are global settings now; the composer no longer writes one. */
-  async function commitCount(_raw: string): Promise<void> {}
-
-  /** The stepper is gone; a leftover step writes nothing. */
-  async function stepCount(_delta: number): Promise<void> {}
-
   function followupTargetPayload(ref: RefVm): NonNullable<PostMessageBody['followup_target']> {
     return { digest_id: ref.digestId, display_rank: ref.rank }
   }
@@ -301,7 +305,6 @@ export function createComposerController(deps: ComposerDeps) {
     const nextErrors = validateComposer({
       text: draftText,
       selected: selected.value,
-      count: count.value,
     })
     if (Object.keys(nextErrors).length > 0) {
       errors.value = nextErrors
@@ -330,7 +333,8 @@ export function createComposerController(deps: ComposerDeps) {
       content,
       {
         names: [...selected.value],
-        perSource: Number(count.value),
+        // The resolved request reports the global counts once the run starts.
+        perSource: null,
       },
       ref ?? undefined,
     )
@@ -362,7 +366,8 @@ export function createComposerController(deps: ComposerDeps) {
       content,
       {
         names: [...selected.value],
-        perSource: Number(count.value),
+        // The resolved request reports the global counts once the run starts.
+        perSource: null,
       },
       ref,
     )
@@ -399,7 +404,7 @@ export function createComposerController(deps: ComposerDeps) {
     }
     deps.markUserSent(input.text, {
       names: input.sources,
-      perSource: input.perSource ?? 0,
+      perSource: input.perSource,
     })
     void deps.lifecycle.send(sessionId, body).catch(handleSendFailure)
     return true
@@ -442,11 +447,17 @@ export function createComposerController(deps: ComposerDeps) {
     focusToken.value += 1
   }
 
+  /** Hide the one-time count notice for good and hand the caret back. */
+  function dismissCounts(): void {
+    deps.writeCountsSeen()
+    countsSeen.value = true
+    focusToken.value += 1
+  }
+
   return {
     vm,
     sources,
     selected,
-    count,
     errors,
     focusToken,
     targetRef,
@@ -460,9 +471,8 @@ export function createComposerController(deps: ComposerDeps) {
     setText,
     prefill,
     runAgain,
+    dismissCounts,
     toggleSource,
-    commitCount,
-    stepCount,
   }
 }
 

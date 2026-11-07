@@ -45,8 +45,6 @@ function deps(overrides: Partial<SettingsDeps> = {}): SettingsDeps {
     getLanguage: async () => 'source_default',
     saveProfile: async () => {},
     saveLanguage: async () => {},
-    readCountsSeen: () => false,
-    writeCountsSeen: () => {},
     listCredentials: async () => CREDENTIALS,
     saveLlm: async () => CREDENTIALS,
     saveCredential: async () => CREDENTIALS,
@@ -114,6 +112,42 @@ describe('createSettingsController', () => {
     ])
   })
 
+  it('sends the GitHub filters and the Hugging Face pipeline', async () => {
+    const saved: { name: string; body: Record<string, unknown> }[] = []
+    const controller = createSettingsController(
+      deps({
+        saveProfile: async (name, body) => {
+          saved.push({ name, body })
+        },
+      }),
+    )
+    await controller.load()
+    const github = controller.draft.profiles.find((profile) => profile.name === 'github')
+    const hf = controller.draft.profiles.find((profile) => profile.name === 'huggingface')
+    if (github?.name !== 'github' || hf?.name !== 'huggingface') {
+      throw new Error('expected github and huggingface drafts')
+    }
+    github.keywords = ['agent', 'mcp']
+    github.minStars = 50
+    github.language = 'TypeScript'
+    hf.pipelineTag = 'text-generation'
+
+    await controller.save()
+
+    expect(saved).toEqual([
+      {
+        name: 'github',
+        body: {
+          item_count: 5,
+          keywords: ['agent', 'mcp'],
+          min_stars: 50,
+          language: 'TypeScript',
+        },
+      },
+      { name: 'huggingface', body: { item_count: 5, pipeline_tag: 'text-generation' } },
+    ])
+  })
+
   it('sends zh-CN when the output language changes', async () => {
     const languages: string[] = []
     const controller = createSettingsController(
@@ -163,23 +197,6 @@ describe('createSettingsController', () => {
     expect(controller.isOpen).toBe(true)
     expect(controller.tab).toBe('sources')
     expect(controller.focus).toBe('github')
-  })
-
-  it('hides the count notice after it is dismissed once', () => {
-    let seen = false
-    const controller = createSettingsController(
-      deps({
-        readCountsSeen: () => seen,
-        writeCountsSeen: () => {
-          seen = true
-        },
-      }),
-    )
-
-    expect(controller.countsSeen).toBe(false)
-    controller.dismissCounts()
-    expect(seen).toBe(true)
-    expect(controller.countsSeen).toBe(true)
   })
 })
 
