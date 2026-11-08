@@ -151,15 +151,28 @@ Visual source is the current prototype: anchors, chip text, settings dialog, key
 
 ### U6 — Frontend contract check
 
-- [ ] **Do:** Regenerate the client and run the frontend suite against the finished backend contracts.
-- **Consumes:** U1–U5 and backend **B12**.
+- [x] **Do:** Regenerate the client and run the frontend suite against the finished backend contracts.
+- **Consumes:** U1–U5, **U7**, and backend **B12**.
 - **Produces:** An updated `frontend/src/api/generated/` that includes follow-up fields, settings routes, and credential routes.
 - **Acceptance:** The generated client compiles. `npm test -- --run` passes. A manual pass covers fake mode, a live settings save, and a remote-mode 401.
-- **Blocked by:** U1, U2, U3, U4, U5, B12
+- **Blocked by:** U1, U2, U3, U4, U5, U7, B12
 - **Plan mode:** skip
 - **TDD suitable:** partial
 - **TDD suitable reason:** the suite is the check; the manual pass is the remote-mode and fake-mode confirmation.
 - **Verification:** `npm test -- --run` from `frontend/`.
+
+### U7 — Prototype fidelity fixes
+
+- [x] **Do:** Close the gaps a read-only comparison found between the built app and `research-chat-prototype.html`: missing states, Settings focus and Escape handling, count validation, prototype copy and CSS.
+- **Consumes:** U1–U5. Prototype `research-chat-prototype.html` (project `ai-news-research-agent-28e5`).
+- **Produces:** Settings closes on Escape and returns focus; the shell is inert behind the dialog; Sources validates counts 1–50 with `aria-invalid`; the composer shows the load-failed, confirm-pending, and confirm-cancelled notices and offers Open Settings; connector warnings open that source's settings; the chat head names loading and load-failed; sign-in focuses the field on error; the reply link, Juya confirm panel, user bubble order, row anchors, thread CSS, and the prototype's Keys copy match.
+- **Acceptance:** Stage A behaviors pass their tests; Stage B and C items match the prototype in a browser compare at 1440, 1024, and 390 px.
+- **Compatibility:** Keys per-row Test buttons, the Bilibili Keys group, and the interrupted/failed/reload states stay; they are host extras the specs require.
+- **Blocked by:** U5
+- **Plan mode:** high
+- **TDD suitable:** partial
+- **TDD suitable reason:** states, validation, focus, and copy are testable; layout and CSS are checked against the prototype.
+- **Verification:** `npm test -- --run` from `frontend/`, then a browser compare with the prototype at three viewports.
 
 ## TDD note (Agent mode)
 
@@ -174,3 +187,5 @@ Per subtask, obey **`TDD suitable`**. **`partial`** tests behavior and checks th
 | 2026-11-07 | U3 reopened after an acceptance audit and closed as U3b: the gear focus handoff, the dismissible count notice, the GitHub and Hugging Face profile fields, the Juya All warning, and the Sources GitHub auth warning were missing; Continue buffered the whole digest stream; reloading a pending confirmation resumed it into a false failure. | material |
 | 2026-11-07 | The Settings dialog could not open in the real app: its controller returned one reactive object, which a Pinia setup store copies field by field, so `isOpen`, `tab`, and `focus` never reached the store. `toSettingsStore` now binds them as refs, with a Pinia-layer regression test. | material |
 | 2026-11-08 | U5 closed. Sign-in CSS lives in `settings.css` with the Keys rules, so the file map no longer lists `thread.css` for it. The sign-in brand block copies the sidebar's scoped brand rules, which an unscoped stylesheet cannot inherit. | equivalent |
+| 2026-11-08 | Added U7 (prototype fidelity fixes) from a read-only gap pass of thread, shell/composer/history and settings/keys/sign-in; U6 now waits for U7. | material |
+| 2026-11-08 | U6 and U7 closed. The contract was already in sync: regenerating produced no diff. Deliberate deviations from the prototype, spec-first: the History topic filter stays free-text because the API has no fixed topic vocabulary; the Keys test button stays disabled in read-only mode (U4 acceptance); the empty-state copy keeps the natural-language sentence; the `.dd-*` hub rules and the `data-d/r/k/t` hooks are dropped because the host has no matching markup or behavior. | equivalent |

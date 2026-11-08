@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import AppIcon from '@/components/ui/AppIcon.vue'
 import EntryRow from '@/components/thread/EntryRow.vue'
 import MarkdownReply from '@/components/thread/MarkdownReply.vue'
@@ -6,7 +8,11 @@ import SourceTag from '@/components/thread/SourceTag.vue'
 import type { HistoryFilters, HistoryMatchVm, HistoryPanelVm } from '@/vm'
 import type { RefVm } from '@/vm/types'
 
-const props = defineProps<{ vm: HistoryPanelVm }>()
+const props = defineProps<{
+  vm: HistoryPanelVm
+  /** The newest digest in this conversation, named by the opened-result note. */
+  conversationDigest?: string | null
+}>()
 
 const emit = defineEmits<{
   updateFilter: [patch: Partial<HistoryFilters>]
@@ -22,10 +28,13 @@ const emit = defineEmits<{
 
 /**
  * Opening is read-only. The prototype named the live digest that stayed
- * unchanged; the host app has no dependency on the thread here, so the note is
- * the spec's rule on its own.
+ * unchanged; without one the note is the spec's rule on its own.
  */
-const OPENED_NOTE = 'Opened from history. The current conversation is unchanged.'
+const openedNote = computed(() =>
+  props.conversationDigest
+    ? `Opened from history. This conversation's digest ${props.conversationDigest} is unchanged.`
+    : 'Opened from history. The current conversation is unchanged.',
+)
 
 /** The result actions are the prototype's row of buttons under the saved entry. */
 function text(event: Event): string {
@@ -153,7 +162,7 @@ function refFromMatch(match: HistoryMatchVm): RefVm {
     >
       <div class="opened-head">
         <AppIcon name="info" />
-        <span>{{ OPENED_NOTE }}</span>
+        <span>{{ openedNote }}</span>
         <span class="grow" />
         <button
           type="button"

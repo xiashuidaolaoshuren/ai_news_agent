@@ -56,6 +56,30 @@ describe('DigestReply', () => {
     expect(alerts[1]!.text()).toContain('Bilibili connector:')
   })
 
+  it('opens that connector settings from its warning', async () => {
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          warnings: [
+            warningVm(),
+            warningVm({ source: 'bilibili', label: 'Bilibili', code: 'timeout' }),
+          ],
+        }),
+      },
+    })
+
+    const github = wrapper.get('[data-od-id="connector-warning-github"]')
+    const button = github.get('button.act')
+    expect(button.text()).toBe('GitHub settings')
+    await button.trigger('click')
+
+    expect(wrapper.emitted('openSettings')).toEqual([['github']])
+    // Bilibili has no settings section, so its warning stays text only.
+    expect(
+      wrapper.get('[data-od-id="connector-warning-bilibili"]').find('button').exists(),
+    ).toBe(false)
+  })
+
   it('renders one section per digest section with its head range', () => {
     const wrapper = mount(DigestReply, {
       props: { digest: digestVm({ sections: [sectionVm({ count: 5, rangeStart: 1, rangeEnd: 5 })] }) },

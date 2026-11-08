@@ -25,13 +25,14 @@ function mountSettings(
     language: 'source_default' | 'en' | 'zh-CN'
     profiles: SourceProfileVm[]
     githubAuthError: boolean
+    fieldErrors: Record<string, string>
   }> = {},
 ) {
   return mount(SourceSettings, {
     props: {
       language: overrides.language ?? 'source_default',
       profiles: overrides.profiles ?? PROFILES,
-      fieldErrors: {},
+      fieldErrors: overrides.fieldErrors ?? {},
       githubAuthError: overrides.githubAuthError ?? false,
     },
   })
@@ -108,6 +109,40 @@ describe('SourceSettings GitHub fields', () => {
     expect(
       (wrapper.get('[data-od-id="github-keywords"]').element as HTMLInputElement).value,
     ).toBe('agent, mcp')
+  })
+
+  it('marks the count input a save rejected and describes the Juya help', () => {
+    const wrapper = mountSettings({
+      fieldErrors: { github: 'Item count must be a whole number from 1 to 50.' },
+    })
+
+    const github = wrapper.get('[data-od-id="count-github"]')
+    expect(github.attributes('aria-invalid')).toBe('true')
+
+    const juya = wrapper.get('[data-od-id="juya-count-5"]')
+    expect(juya.attributes('aria-describedby')).toBe('juya-n-help')
+    expect(wrapper.get('#juya-n-help').text()).toContain('1 to 50 stories')
+  })
+
+  it('keeps the stored Juya count visible while All is on', () => {
+    const wrapper = mountSettings({
+      profiles: [{ name: 'juya', hidden: false, itemCount: 'all' }, ...PROFILES.slice(1)],
+    })
+
+    const juya = wrapper.get('[data-od-id="juya-count-5"]')
+    expect((juya.element as HTMLInputElement).value).toBe('5')
+    expect(juya.attributes('disabled')).toBeDefined()
+  })
+
+  it('passes an unreadable count through instead of inventing 1', async () => {
+    const wrapper = mountSettings()
+
+    await wrapper.get('[data-od-id="count-github"]').setValue('')
+    expect(emittedProfile(wrapper, 'github')).toMatchObject({ itemCount: 0 })
+
+    // A number input blanks non-numeric text, which lands on the same invalid 0.
+    await wrapper.get('[data-od-id="count-github"]').setValue('abc')
+    expect(emittedProfile(wrapper, 'github')).toMatchObject({ itemCount: 0 })
   })
 
   it('sends keywords as a trimmed list and language any as null', async () => {

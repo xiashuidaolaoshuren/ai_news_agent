@@ -6,6 +6,7 @@ import {
   prefsFor,
   TEXT_REQUIRED,
   SOURCE_REQUIRED,
+  toComposerVm,
   validateComposer,
 } from '@/vm/composer'
 
@@ -123,5 +124,28 @@ describe('validateComposer', () => {
       text: TEXT_REQUIRED,
       sources: SOURCE_REQUIRED,
     })
+  })
+})
+
+describe('toComposerVm placeholder', () => {
+  const INPUT = {
+    text: '',
+    sources: [],
+    selected: [],
+    errors: {},
+    busy: false,
+    notice: 'none' as const,
+    ref: null,
+    countsSeen: true,
+  }
+
+  it('asks for a digest or a follow-up, as the prototype does', () => {
+    expect(toComposerVm(INPUT).placeholder).toBe('Ask for a digest or a follow-up…')
+  })
+
+  it('names the reference while a chip is attached', () => {
+    const ref = { digestId: 12, rank: 3, title: 'mattpocock/skills', source: 'github' }
+
+    expect(toComposerVm({ ...INPUT, ref }).placeholder).toBe('Ask about d12 #3…')
   })
 })

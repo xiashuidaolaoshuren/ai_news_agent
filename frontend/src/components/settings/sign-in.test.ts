@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
 import SignIn from '@/components/settings/SignIn.vue'
@@ -28,6 +28,21 @@ describe('SignIn', () => {
     expect(wrapper.get('[data-od-id="owner-token-input"]').attributes('aria-invalid')).toBe(
       'true',
     )
+  })
+
+  it('puts the caret back in the field when a submit is refused', async () => {
+    const wrapper = mount(SignIn, {
+      attachTo: document.body,
+      props: { error: null, busy: false },
+    })
+
+    await wrapper.setProps({ error: 'That token was rejected.' })
+    await flushPromises()
+
+    expect(document.activeElement).toBe(
+      wrapper.get('[data-od-id="owner-token-input"]').element,
+    )
+    wrapper.unmount()
   })
 
   it('submits the typed token and disables the button while busy', async () => {

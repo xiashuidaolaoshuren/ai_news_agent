@@ -64,6 +64,7 @@ function relatedRef(rank: number): RefVm {
           :class="{ rise: props.animate === true }"
           :style="rowStyle(index)"
           :data-ref="`d${props.digestId}-${entry.rank}`"
+          :data-od-id="`hf-row-${entry.rank}`"
         >
           <td class="mono muted">#{{ entry.rank }}</td>
           <td class="model">
@@ -120,6 +121,7 @@ function relatedRef(rank: number): RefVm {
               <button
                 type="button"
                 class="link-btn"
+                :data-od-id="`deepdive-hf-${entry.rank}`"
                 :aria-label="`Deep dive: ${rowRef(entry).title}`"
                 @click="emit('deepdive', rowRef(entry))"
               >
@@ -128,6 +130,7 @@ function relatedRef(rank: number): RefVm {
               <button
                 type="button"
                 class="link-btn"
+                :data-od-id="`followup-hf-${entry.rank}`"
                 :aria-label="`Ask about this: ${rowRef(entry).title}`"
                 @click="emit('ask', rowRef(entry))"
               >

@@ -43,6 +43,34 @@ const emit = defineEmits<{
 const dialog = useTemplateRef<HTMLElement>('dialog')
 
 /**
+ * The prototype puts focus back on the Settings button when the dialog closes.
+ * Remember what held focus as it opened, and restore it on close.
+ */
+let opener: HTMLElement | null = null
+
+watch(
+  () => props.vm.open,
+  async (open) => {
+    if (open) {
+      opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      return
+    }
+    const target = opener
+    opener = null
+    if (target === null) {
+      return
+    }
+    // The shell behind the dialog is inert while it is open; wait for that to lift
+    // or the browser refuses the focus call.
+    await nextTick()
+    if (document.contains(target)) {
+      target.focus({ preventScroll: true })
+    }
+  },
+  { immediate: true },
+)
+
+/**
  * Scroll to the section a gear or a Keys link asked for, flash it, and put the
  * caret in it. The prototype drops `st.focus` once it has done so.
  */
@@ -98,10 +126,41 @@ watch(
 onMounted(() => {
   void settleFocus()
 })
+
+/**
+ * Escape closes the dialog, unless focus is in a field the user is still
+ * editing: the prototype treats the dialog as the top of its Escape chain.
+ */
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape') {
+    return
+  }
+  event.stopPropagation()
+  emit('close')
+}
+
+const TABS = ['sources', 'keys'] as const
+
+/**
+ * A tablist moves with the arrow keys: the prototype switches to the other tab
+ * and puts focus on it, so the roving tabindex is not a dead end.
+ */
+async function onTabKeydown(event: KeyboardEvent): Promise<void> {
+  if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') {
+    return
+  }
+  event.preventDefault()
+  const index = TABS.indexOf(props.vm.tab)
+  const step = event.key === 'ArrowRight' ? 1 : -1
+  const next = TABS[(index + step + TABS.length) % TABS.length]
+  emit('setTab', next)
+  await nextTick()
+  dialog.value?.querySelector<HTMLElement>(`#tab-${next}`)?.focus({ preventScroll: true })
+}
 </script>
 
 <template>
-  <div v-if="vm.open" class="modal-wrap" @click.self="$emit('close')">
+  <div v-if="vm.open" class="modal-wrap" @click.self="$emit('close')" @keydown="onKeydown">
     <div
       ref="dialog"
       class="modal"
@@ -119,7 +178,7 @@ onMounted(() => {
           <AppIcon name="close" />
         </button>
       </div>
-      <div class="tabs" role="tablist" aria-label="Settings sections">
+      <div class="tabs" role="tablist" aria-label="Settings sections" @keydown="onTabKeydown">
         <button
           v-for="tab in (['sources', 'keys'] as const)"
           :id="`tab-${tab}`"
@@ -143,8 +202,9 @@ onMounted(() => {
         :aria-labelledby="`tab-${vm.tab}`"
       >
         <div v-if="vm.loadError" class="alert alert-danger" role="alert">
+          <AppIcon name="alert" />
           <p>{{ vm.loadError }}</p>
-          <button type="button" @click="$emit('retry')">Retry</button>
+          <button type="button" class="btn btn-sm act" @click="$emit('retry')">Retry</button>
         </div>
         <SourceSettings
           v-if="vm.tab === 'sources'"

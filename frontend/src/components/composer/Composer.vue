@@ -14,7 +14,7 @@ const emit = defineEmits<{
   updateText: [text: string]
   toggleSource: [name: string]
   removeRef: []
-  openSettings: [name: string]
+  openSettings: [name: string | null]
   dismissCounts: []
 }>()
 
@@ -108,6 +108,9 @@ defineExpose({
     >
       <AppIcon name="info" />
       <p>New requests use the global source counts from Settings, initially 5 per source.</p>
+      <button type="button" class="link-btn" @click="emit('openSettings', null)">
+        Open Settings
+      </button>
       <button type="button" class="icon-btn" aria-label="Dismiss notice" @click="emit('dismissCounts')">
         <AppIcon name="close" />
       </button>
@@ -135,6 +138,30 @@ defineExpose({
         data-od-id="busy-notice"
       >
         <AppIcon name="load" class="spin" />{{ NOTICE_COPY[props.vm.notice] }}
+      </div>
+      <div
+        v-else-if="props.vm.loadFailed"
+        class="c-notice warn"
+        role="status"
+        data-od-id="load-failed-notice"
+      >
+        <AppIcon name="alert" />This conversation didn't load. Retry above before sending.
+      </div>
+      <div
+        v-else-if="props.vm.confirmPending"
+        class="c-notice warn"
+        role="alert"
+        data-od-id="confirm-pending-notice"
+      >
+        <AppIcon name="alert" />Not sent. Continue or cancel the Juya request above first.
+      </div>
+      <div
+        v-else-if="props.vm.confirmCancelled !== null"
+        class="c-notice info"
+        role="status"
+        data-od-id="confirm-cancelled-notice"
+      >
+        <AppIcon name="info" />{{ props.vm.confirmCancelled }}
       </div>
 
       <div v-if="props.vm.ref !== null" class="c-refs">
@@ -196,6 +223,7 @@ defineExpose({
               type="button"
               class="src-gear"
               :aria-label="`${source.label} settings`"
+              :title="source.name === 'github' ? undefined : `${source.label} settings`"
               :data-od-id="`source-settings-${source.name}`"
               @click="emit('openSettings', source.name)"
             >
@@ -217,7 +245,8 @@ defineExpose({
           <button
             type="submit"
             class="btn btn-primary"
-            :disabled="props.vm.busy"
+            :disabled="props.vm.busy || props.vm.loadFailed"
+            :aria-disabled="props.vm.busy || props.vm.loadFailed ? 'true' : undefined"
             data-od-id="send-button"
           >
             <AppIcon name="up" />Send

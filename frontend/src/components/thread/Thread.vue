@@ -64,6 +64,8 @@ const emit = defineEmits<{
   revealDone: []
   /** Continue or cancel a pending large Juya request. */
   confirmJuya: [payload: { messageId: number; action: 'continue' | 'cancel' }]
+  /** Open one source's section in Settings, from a connector warning. */
+  openSettings: [name: string]
 }>()
 
 /**
@@ -315,28 +317,33 @@ defineExpose({ gotoRef })
           :class="{ rise: message.id === PENDING_MESSAGE_ID }"
           data-od-id="user-message"
         >
+          <RefChip
+            v-if="message.ref"
+            :ref-vm="message.ref"
+            od-id="message-ref-chip"
+          />
           <div class="bubble">{{ message.text }}</div>
-          <div
-            v-if="message.ref || message.chips"
-            class="req-meta"
-            data-od-id="user-message-meta"
-          >
-            <RefChip v-if="message.ref" :ref-vm="message.ref" od-id="message-ref-chip" />
-            <template v-if="message.chips">
-              <span
-                v-for="source in message.chips.sources"
-                :key="source.kind"
-                class="chip"
-              >
-                <SourceLogo :kind="source.kind" />{{ source.label }}
-              </span>
-              <span v-if="message.chips.perSource !== null" class="chip mono">{{
-                message.chips.perSource
-              }}/source</span>
-            </template>
+          <div v-if="message.chips" class="req-meta" data-od-id="user-message-meta">
+            <span
+              v-for="source in message.chips.sources"
+              :key="source.kind"
+              class="chip"
+            >
+              <SourceLogo :kind="source.kind" />{{ source.label }}
+            </span>
+            <span v-if="message.chips.perSource !== null" class="chip mono">{{
+              message.chips.perSource
+            }}/source</span>
           </div>
+        </div>
+
+        <div
+          v-if="message.juyaConfirm"
+          class="msg-ai"
+          data-od-id="juya-confirm-reply"
+        >
+          <div class="ai-label"><b>Agent</b></div>
           <section
-            v-if="message.juyaConfirm"
             class="section"
             role="group"
             :aria-labelledby="`cf-${message.id}`"
@@ -351,7 +358,7 @@ defineExpose({ gotoRef })
               <p style="margin: 0">
                 This request would include
                 <b class="num">{{ message.juyaConfirm.storyCount }} stories</b>
-                from <b>{{ message.juyaConfirm.issue }}</b>, issue
+                from 橘鸦 AI 早报 <b>{{ message.juyaConfirm.issue }}</b>, issue
                 {{ message.juyaConfirm.issueNumber }}. Requests over 20 stories need your
                 confirmation before the digest is written.
               </p>
@@ -381,27 +388,30 @@ defineExpose({ gotoRef })
           </section>
         </div>
 
+        <!-- The confirmation is its own agent message, as the prototype renders it,
+             so it is not nested in the user bubble. -->
         <div
-          v-else
+          v-else-if="message.kind !== 'user'"
           class="msg-ai"
           :class="{ 'fade-in': isFresh(message) && message.kind !== 'digest' }"
           :data-od-id="message.kind === 'digest' ? 'digest-reply' : undefined"
         >
           <div class="ai-label">
             <b>Agent</b>
-            <button
-              v-if="message.replyRef"
-              type="button"
-              class="re link-btn"
-              data-od-id="reply-ref-link"
-              :aria-label="`Go to entry #${message.replyRef.rank}`"
-              @click="gotoRef(message.replyRef)"
-            >
-              re: #{{ message.replyRef.rank }}
-            </button>
             <span v-if="formatClock(message.createdAt)" class="mono">{{
               formatClock(message.createdAt)
             }}</span>
+            <a
+              v-if="message.replyRef"
+              href="#"
+              class="re"
+              data-od-id="reply-ref-link"
+              :data-ref="dataRefAttr(message.replyRef)"
+              :aria-label="`In reply to d${message.replyRef.digestId} #${message.replyRef.rank}`"
+              @click.prevent="gotoRef(message.replyRef)"
+            >
+              re: #{{ message.replyRef.rank }}
+            </a>
           </div>
           <DigestReply
             v-if="message.kind === 'digest' && message.digest"
@@ -412,6 +422,7 @@ defineExpose({ gotoRef })
             @ask="emit('ask', $event)"
             @goto-related="gotoRef($event)"
             @repeat="emit('repeat', $event)"
+            @open-settings="emit('openSettings', $event)"
           />
           <NoEligibleResults
             v-else-if="message.kind === 'noresults' && message.collection"
@@ -479,6 +490,7 @@ defineExpose({ gotoRef })
             @deepdive="emit('deepdive', $event)"
             @ask="emit('ask', $event)"
             @goto-related="gotoRef($event)"
+            @open-settings="emit('openSettings', $event)"
           />
         </div>
 

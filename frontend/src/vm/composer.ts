@@ -158,6 +158,12 @@ export interface ComposerVmInput {
   /** Optional follow-up target; drives placeholder and chip. */
   ref: RefVm | null
   countsSeen: boolean
+  /** The transcript failed to load, so the prototype refuses a send. */
+  loadFailed?: boolean
+  /** A send was refused because a Juya confirmation is still unanswered. */
+  confirmPending?: boolean
+  /** The note shown after the user cancels a Juya confirmation. */
+  confirmCancelled?: string | null
 }
 
 /** Everything the composer renders; the component reads no other state. */
@@ -170,11 +176,14 @@ export interface ComposerVm {
   ref: RefVm | null
   placeholder: string
   countsSeen: boolean
+  loadFailed: boolean
+  confirmPending: boolean
+  confirmCancelled: string | null
 }
 
 function placeholderFor(ref: RefVm | null): string {
   if (ref === null) {
-    return 'Ask anything about your sources'
+    return 'Ask for a digest or a follow-up…'
   }
   return `Ask about d${ref.digestId} #${ref.rank}…`
 }
@@ -194,5 +203,8 @@ export function toComposerVm(input: ComposerVmInput): ComposerVm {
     ref: input.ref,
     placeholder: placeholderFor(input.ref),
     countsSeen: input.countsSeen,
+    loadFailed: input.loadFailed === true,
+    confirmPending: input.confirmPending === true,
+    confirmCancelled: input.confirmCancelled ?? null,
   }
 }

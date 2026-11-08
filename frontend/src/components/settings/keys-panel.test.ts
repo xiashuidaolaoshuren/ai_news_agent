@@ -108,6 +108,21 @@ describe('KeysPanel', () => {
     expect(wrapper.text()).toContain('Test failed: The provider rejected the key.')
   })
 
+  it('replaces the test hint with the result, as the prototype does', () => {
+    const before = mount(KeysPanel, { props: { vm: keysVm() } })
+    expect(before.text()).toContain(
+      'Sends one short request to the model. The check may incur a small charge.',
+    )
+
+    const after = mount(KeysPanel, {
+      props: {
+        vm: keysVm({ results: { OPENAI_API_KEY: { result: 'ok', reason: '' } } }),
+      },
+    })
+    expect(after.text()).toContain('Connection OK. The model replied.')
+    expect(after.text()).not.toContain('Sends one short request to the model.')
+  })
+
   it('saves each source credential on its own and keeps Bilibili editable', async () => {
     const wrapper = mount(KeysPanel, { props: { vm: keysVm() } })
 

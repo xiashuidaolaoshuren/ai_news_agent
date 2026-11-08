@@ -736,7 +736,7 @@ tr.hl,
 .table-wrap table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 780px;
+  min-width: 1040px;
   font-size: 13px;
 }
 
@@ -879,6 +879,13 @@ tr.hl,
 .md h3 {
   font: 600 15px/1.35 var(--font-display);
   margin: 0 0 6px;
+}
+
+/* Smaller headings: the prototype sizes h4 apart from h3. */
+.md h4 {
+  margin: 14px 0 4px;
+  font: 600 12.5px/1.4 var(--font-display);
+  color: var(--muted);
 }
 
 .md p {

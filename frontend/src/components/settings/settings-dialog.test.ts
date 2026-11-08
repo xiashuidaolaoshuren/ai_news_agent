@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import SettingsDialog from '@/components/settings/SettingsDialog.vue'
+import SettingsDialog, { type SettingsDialogVm } from '@/components/settings/SettingsDialog.vue'
 import type { KeysVm, SourceProfileVm } from '@/vm/settings'
 
 const KEYS: KeysVm = {
@@ -50,6 +50,21 @@ afterEach(() => {
   }
 })
 
+function dialogVm(overrides: Partial<SettingsDialogVm> = {}): SettingsDialogVm {
+  return {
+    open: true,
+    tab: 'sources',
+    language: 'source_default',
+    profiles: PROFILES,
+    fieldErrors: {},
+    saved: false,
+    loadError: null,
+    focus: null,
+    keys: { ...KEYS },
+    ...overrides,
+  }
+}
+
 function mountDialog(
   overrides: Partial<{
     tab: 'sources' | 'keys'
@@ -78,6 +93,49 @@ function mountDialog(
 }
 
 describe('SettingsDialog', () => {
+  it('returns focus to whatever opened it when it closes', async () => {
+    const opener = document.createElement('button')
+    opener.id = 'settings-btn'
+    document.body.append(opener)
+    opener.focus()
+
+    const wrapper = mount(SettingsDialog, {
+      attachTo: document.body,
+      props: { vm: { ...dialogVm(), open: true } },
+    })
+    mounted.push(wrapper)
+    await flushPromises()
+
+    await wrapper.setProps({ vm: { ...dialogVm(), open: false } })
+    await flushPromises()
+
+    expect(document.activeElement).toBe(opener)
+    opener.remove()
+  })
+
+  it('switches tabs with the arrow keys', async () => {
+    const wrapper = mountDialog()
+
+    const sources = wrapper.get('[data-od-id="settings-tab-sources"]')
+    sources.element.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+    )
+    await flushPromises()
+
+    expect(wrapper.emitted('setTab')).toEqual([['keys']])
+  })
+
+  it('closes on Escape from inside the dialog', async () => {
+    const wrapper = mountDialog()
+
+    wrapper.get('[data-od-id="settings-dialog"]').element.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    )
+    await flushPromises()
+
+    expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
   it('lists every source on the Sources tab, including hidden Bilibili', () => {
     const wrapper = mountDialog()
 

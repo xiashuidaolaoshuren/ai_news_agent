@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useTemplateRef, watch } from 'vue'
+
 import AppIcon from '@/components/ui/AppIcon.vue'
 
 const props = defineProps<{ error: string | null; busy: boolean }>()
@@ -6,6 +8,18 @@ const props = defineProps<{ error: string | null; busy: boolean }>()
 const emit = defineEmits<{ submit: [token: string] }>()
 
 const token = defineModel<string>('token', { default: '' })
+
+const field = useTemplateRef<HTMLInputElement>('field')
+
+/** The prototype puts the caret back in the field after a refused submit. */
+watch(
+  () => props.error,
+  (error) => {
+    if (error !== null) {
+      field.value?.focus()
+    }
+  },
+)
 
 function onSubmit(): void {
   if (!props.busy) {
@@ -28,6 +42,7 @@ function onSubmit(): void {
       <label class="set-field">
         Owner access token
         <input
+          ref="field"
           v-model="token"
           class="input"
           id="owner-token"

@@ -69,6 +69,17 @@ function openKeysSection(): void {
   settings.focus = 'github'
 }
 
+/** The newest digest in this conversation, for the history panel's opened note. */
+const lastDigestRef = computed<string | null>(() => {
+  for (let index = thread.visibleMessages.length - 1; index >= 0; index -= 1) {
+    const ref = thread.visibleMessages[index]?.digest?.ref
+    if (ref !== undefined && ref !== null) {
+      return ref
+    }
+  }
+  return null
+})
+
 /** An open inline edit in the sidebar takes Escape before the shell closes overlays. */
 const inlineEditOpen = computed(
   () => sessions.renamingId !== null || sessions.deleteId !== null,
@@ -163,13 +174,25 @@ function onHistoryGotoRelated(ref: RefVm): void {
   threadView.value?.gotoRef(ref)
 }
 
+/** Cancelling a Juya confirmation leaves the prototype's note in the composer. */
+function onConfirmJuya(payload: { messageId: number; action: 'continue' | 'cancel' }): void {
+  if (payload.action === 'cancel') {
+    composer.noteConfirmCancelled()
+  }
+  void thread.confirmJuya(payload.messageId, payload.action)
+}
+
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
 })
 </script>
 
 <template>
-  <AppShell ref="shell" :escape-guard="inlineEditOpen" :inert="auth.locked">
+  <AppShell
+    ref="shell"
+    :escape-guard="inlineEditOpen"
+    :inert="auth.locked || settings.isOpen"
+  >
     <template #sidebar>
       <Sidebar @open-settings="settings.open('sources')" />
     </template>
@@ -177,6 +200,8 @@ onUnmounted(() => {
     <template #header>
       <ChatHead
         :hist-open="shell?.histOpen ?? false"
+        :loading="thread.opening"
+        :load-failed="thread.loadError !== null"
         @open-sidebar="shell?.openSidebar()"
         @toggle-history="shell?.toggleHistory()"
       />
@@ -205,7 +230,8 @@ onUnmounted(() => {
         @ask="composer.askAbout($event)"
         @suggest="composer.prefill($event)"
         @reveal-done="thread.revealFinished()"
-        @confirm-juya="thread.confirmJuya($event.messageId, $event.action)"
+        @confirm-juya="onConfirmJuya($event)"
+        @open-settings="settings.open('sources', $event)"
       />
     </template>
 
@@ -226,6 +252,7 @@ onUnmounted(() => {
     <template #history>
       <HistoryPanel
         :vm="history.vm"
+        :conversation-digest="lastDigestRef"
         @update-filter="history.setFilters($event)"
         @clear="history.clearFilters()"
         @retry="history.retry()"

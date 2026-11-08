@@ -116,6 +116,47 @@ describe('composer busy state', () => {
     )
   })
 
+  it('says the conversation did not load, and disables Send', () => {
+    const wrapper = mount(Composer, { props: { vm: vm({ loadFailed: true }) } })
+
+    const notice = wrapper.get('[data-od-id="load-failed-notice"]')
+    expect(notice.attributes('role')).toBe('status')
+    expect(notice.text()).toContain("This conversation didn't load. Retry above before sending.")
+
+    const send = wrapper.get('[data-od-id="send-button"]')
+    expect(send.attributes('disabled')).toBeDefined()
+    expect(send.attributes('aria-disabled')).toBe('true')
+  })
+
+  it('names the Juya confirmation when a send waits on it', () => {
+    const wrapper = mount(Composer, { props: { vm: vm({ confirmPending: true }) } })
+
+    const notice = wrapper.get('[data-od-id="confirm-pending-notice"]')
+    expect(notice.attributes('role')).toBe('alert')
+    expect(notice.text()).toContain(
+      'Not sent. Continue or cancel the Juya request above first.',
+    )
+  })
+
+  it('reports that a cancelled confirmation left nothing behind', () => {
+    const note = 'Cancelled. No digest was written, and your request is back in the composer.'
+    const wrapper = mount(Composer, { props: { vm: vm({ confirmCancelled: note }) } })
+
+    const notice = wrapper.get('[data-od-id="confirm-cancelled-notice"]')
+    expect(notice.attributes('role')).toBe('status')
+    expect(notice.text()).toContain(note)
+    expect(notice.find('.ic').exists()).toBe(true)
+  })
+
+  it('offers Settings from the counts notice', async () => {
+    const wrapper = mount(Composer, { props: { vm: vm({ countsSeen: false }) } })
+
+    const note = wrapper.get('[data-od-id="source-count-notice"]')
+    await note.get('button.link-btn').trigger('click')
+
+    expect(wrapper.emitted('openSettings')).toEqual([[null]])
+  })
+
   it('shows the blocked notice with no Cancel when the send was refused', () => {
     const wrapper = mount(Composer, { props: { vm: vm({ notice: 'blocked' }) } })
 

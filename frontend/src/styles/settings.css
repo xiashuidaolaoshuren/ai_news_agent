@@ -68,6 +68,10 @@
   border-bottom-color: var(--fg);
 }
 
+.tab:hover {
+  color: var(--fg);
+}
+
 .set-body {
   padding: 12px 14px;
   display: grid;

@@ -96,6 +96,7 @@ const showsBackground = computed(
     :class="{ rise: rises }"
     :style="riseStyle(props.rise)"
     :data-ref="`d${props.digestId}-${props.entry.rank}`"
+    :data-od-id="`entry-${props.entry.kind}-${props.entry.rank}`"
   >
     <div class="rank">#{{ props.entry.rank }}</div>
     <div>
@@ -178,7 +179,7 @@ const showsBackground = computed(
         <button
           type="button"
           class="link-btn"
-          :data-od-id="`deepdive-${props.entry.key}`"
+          :data-od-id="`deepdive-${props.entry.kind}-${props.entry.rank}`"
           @click="emit('deepdive', refForEntry())"
         >
           <AppIcon name="layers" />Deep dive
@@ -186,7 +187,7 @@ const showsBackground = computed(
         <button
           type="button"
           class="link-btn"
-          :data-od-id="`followup-${props.entry.key}`"
+          :data-od-id="`followup-${props.entry.kind}-${props.entry.rank}`"
           @click="emit('ask', refForEntry())"
         >
           <AppIcon name="reply" />Ask about this

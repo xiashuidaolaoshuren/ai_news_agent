@@ -53,6 +53,14 @@ describe('EntryRow', () => {
     expect(withoutPreview.get('h4 a').attributes('data-preview')).toBeUndefined()
   })
 
+  it('anchors the row and its actions as the prototype does', () => {
+    const wrapper = mount(EntryRow, { props: { entry: githubEntry(), digestId: DIGEST_ID } })
+
+    expect(wrapper.get('li').attributes('data-od-id')).toBe('entry-github-1')
+    expect(wrapper.find('[data-od-id="deepdive-github-1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-od-id="followup-github-1"]').exists()).toBe(true)
+  })
+
   it('renders Deep dive and Ask about this actions', () => {
     const wrapper = mount(EntryRow, { props: { entry: githubEntry(), digestId: DIGEST_ID } })
     const footButtons = wrapper.findAll('.entry-foot .link-btn')

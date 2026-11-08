@@ -34,6 +34,10 @@ export interface ComposerDeps {
   hiddenSources(): Promise<string[]>
   countsSeen(): boolean
   writeCountsSeen(): void
+  /** The transcript failed to load, so a send is refused. */
+  loadFailed(): boolean
+  /** A Juya request is waiting for Continue or Cancel. */
+  confirmPending(): boolean
   session(): SessionOut | null
   draft: Ref<string>
   snapshot(): RequestSnapshot
@@ -96,6 +100,9 @@ export function defaultComposerDeps(): ComposerDeps {
         // A private window that blocks storage still hides the notice for this page.
       }
     },
+    loadFailed: () => thread.loadError !== null,
+    confirmPending: () =>
+      thread.visibleMessages.some((message) => message.juyaConfirm !== undefined),
     session: () => thread.session,
     draft,
     snapshot: () => thread.snapshot,
@@ -170,11 +177,30 @@ export function createComposerController(deps: ComposerDeps) {
 
   const sendBlocked = ref(false)
 
+  /** Set when a send hits an unanswered Juya confirmation. */
+  const confirmBlocked = ref(false)
+
+  /** The prototype's note after Cancel; cleared by the next send. */
+  const confirmCancelled = ref<string | null>(null)
+
   /** A request owns this conversation while its stream is open or being polled. */
   const active = computed(() => {
     const state = deps.snapshot().state
     return state === 'streaming' || state === 'reconnecting'
   })
+
+  const confirmPending = computed(() => deps.confirmPending())
+
+  // The confirmation was answered (or the conversation changed), so the refusal note goes.
+  watch(
+    confirmPending,
+    (pending) => {
+      if (!pending) {
+        confirmBlocked.value = false
+      }
+    },
+    { flush: 'sync' },
+  )
 
   /** The notice above the textarea; a blocked send outranks the running notice. */
   const notice = computed<ComposerNotice>(() => {
@@ -215,6 +241,9 @@ export function createComposerController(deps: ComposerDeps) {
       notice: notice.value,
       ref: targetRef.value,
       countsSeen: countsSeen.value,
+      loadFailed: deps.loadFailed(),
+      confirmPending: confirmPending.value && confirmBlocked.value,
+      confirmCancelled: confirmCancelled.value,
     }),
   )
 
@@ -301,6 +330,13 @@ export function createComposerController(deps: ComposerDeps) {
       sendBlocked.value = true
       return false
     }
+    if (deps.loadFailed()) {
+      return false
+    }
+    if (confirmPending.value) {
+      confirmBlocked.value = true
+      return false
+    }
     const draftText = deps.draft.value
     const nextErrors = validateComposer({
       text: draftText,
@@ -316,6 +352,7 @@ export function createComposerController(deps: ComposerDeps) {
     }
     errors.value = {}
     sendBlocked.value = false
+    confirmCancelled.value = null
     const content = draftText.trim()
     deps.draft.value = ''
     const ref = targetRef.value
@@ -454,6 +491,15 @@ export function createComposerController(deps: ComposerDeps) {
     focusToken.value += 1
   }
 
+  /**
+   * The user cancelled the Juya confirmation. Say so in the composer, as the
+   * prototype does; the next send clears the note.
+   */
+  function noteConfirmCancelled(): void {
+    confirmCancelled.value =
+      'Cancelled. No digest was written, and your request is back in the composer.'
+  }
+
   return {
     vm,
     sources,
@@ -472,6 +518,7 @@ export function createComposerController(deps: ComposerDeps) {
     prefill,
     runAgain,
     dismissCounts,
+    noteConfirmCancelled,
     toggleSource,
   }
 }

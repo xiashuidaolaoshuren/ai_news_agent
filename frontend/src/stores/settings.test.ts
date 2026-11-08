@@ -112,6 +112,66 @@ describe('createSettingsController', () => {
     ])
   })
 
+  it('refuses a count outside 1 to 50 before any request, and points at the section', async () => {
+    const saved: string[] = []
+    const controller = createSettingsController(
+      deps({
+        saveProfile: async (name) => {
+          saved.push(name)
+        },
+      }),
+    )
+    await controller.load()
+    const juya = controller.draft.profiles.find((profile) => profile.name === 'juya')
+    const github = controller.draft.profiles.find((profile) => profile.name === 'github')
+    if (juya?.name !== 'juya' || github?.name !== 'github') {
+      throw new Error('expected juya and github drafts')
+    }
+    // Juya keeps its stored count while All is on, so only the other sources are checked.
+    juya.itemCount = 'all'
+    github.itemCount = 51
+
+    await controller.save()
+
+    expect(saved).toEqual([])
+    expect(controller.fieldErrors.github).toBe(
+      'Item count must be a whole number from 1 to 50.',
+    )
+    expect(controller.fieldErrors.juya).toBeUndefined()
+    expect(controller.saved).toBe(false)
+    expect(controller.focus).toBe('github')
+  })
+
+  it('refuses a fractional or unreadable count', async () => {
+    const saved: string[] = []
+    const controller = createSettingsController(
+      deps({
+        saveProfile: async (name) => {
+          saved.push(name)
+        },
+      }),
+    )
+    await controller.load()
+    const zhihu = controller.draft.profiles.find((profile) => profile.name === 'zhihu')
+    if (zhihu?.name !== 'zhihu') {
+      throw new Error('expected a zhihu draft')
+    }
+
+    zhihu.itemCount = Number.NaN
+    await controller.save()
+    expect(saved).toEqual([])
+    expect(controller.fieldErrors.zhihu).toBe(
+      'Item count must be a whole number from 1 to 50.',
+    )
+
+    zhihu.itemCount = 2.5
+    await controller.save()
+    expect(saved).toEqual([])
+    expect(controller.fieldErrors.zhihu).toBe(
+      'Item count must be a whole number from 1 to 50.',
+    )
+  })
+
   it('sends the GitHub filters and the Hugging Face pipeline', async () => {
     const saved: { name: string; body: Record<string, unknown> }[] = []
     const controller = createSettingsController(
@@ -182,7 +242,8 @@ describe('createSettingsController', () => {
     if (juya?.name !== 'juya') {
       throw new Error('expected a juya draft')
     }
-    juya.itemCount = 0
+    // A count the client accepts, so the refusal comes from the API as intended.
+    juya.itemCount = 7
 
     await controller.save()
 
@@ -238,7 +299,7 @@ describe('createSettingsController keys', () => {
     expect(controller.keysDraft.llmKey).toBe('')
     expect(controller.keysDraft.llmUrl).toBe('')
     expect(controller.keysDraft.llmModel).toBe('')
-    expect(controller.keysMessage.llm).toBe('Saved.')
+    expect(controller.keysMessage.llm).toBe('Saved in app.')
   })
 
   it('clears the saved LLM key and reloads the statuses', async () => {
@@ -265,7 +326,9 @@ describe('createSettingsController keys', () => {
 
     expect(cleared).toBe(1)
     expect(controller.credentials.llmUnreadable).toBe(false)
-    expect(controller.keysMessage.llm).toBe('Cleared the saved key.')
+    expect(controller.keysMessage.llm).toBe(
+      'Saved key cleared. Using LLM_API_KEY from the environment.',
+    )
   })
 
   it('saves one source credential with its own PUT and clears the input', async () => {
@@ -285,7 +348,9 @@ describe('createSettingsController keys', () => {
 
     expect(saves).toEqual([['GITHUB_TOKEN', 'ghp_new']])
     expect(controller.keysDraft.github).toBe('')
-    expect(controller.keysMessage.github).toBe('Saved.')
+    expect(controller.keysMessage.github).toBe(
+      'Saved in app. The value won’t be shown again.',
+    )
   })
 
   it('refuses to save an empty source credential', async () => {
@@ -305,7 +370,7 @@ describe('createSettingsController keys', () => {
 
     expect(calls).toBe(0)
     expect(controller.keysMessage.github).toBe(
-      'Enter a new value to save this credential.',
+      'Enter a value to save.',
     )
   })
 

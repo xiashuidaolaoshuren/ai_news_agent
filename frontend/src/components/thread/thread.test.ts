@@ -52,6 +52,69 @@ function assistantMessage(over: Partial<MessageOut> = {}): MessageOut {
 }
 
 describe('Thread', () => {
+  it('links an assistant reply to its reference as the prototype does', () => {
+    const [user, reply] = toMessages(
+      [
+        assistantMessage({
+          id: 1,
+          sequence: 1,
+          role: 'user',
+          content: 'What is this?',
+          digest: null,
+          digest_id: null,
+          warnings: [],
+          followup_target: { digest_id: 12, display_rank: 3 },
+        }),
+        assistantMessage({
+          id: 2,
+          sequence: 2,
+          content: 'It is a runtime.',
+          digest: null,
+          digest_id: null,
+          warnings: [],
+          created_at: '2026-10-01T20:14:00',
+        }),
+      ],
+    )
+    const wrapper = mount(Thread, { props: { messages: [user!, reply!] } })
+
+    const link = wrapper.get('[data-od-id="reply-ref-link"]')
+    expect(link.element.tagName).toBe('A')
+    expect(link.attributes('aria-label')).toBe('In reply to d12 #3')
+    expect(link.attributes('data-ref')).toBe('d12-3')
+
+    // The clock comes before the link, as in the prototype's label.
+    const label = wrapper.get('.msg-ai .ai-label')
+    expect(label.element.firstElementChild?.textContent).toBe('Agent')
+    const parts = Array.from(label.element.children).map((child) => child.className)
+    expect(parts).toEqual(['', 'mono', 're'])
+  })
+
+  it('shows a pending confirmation as an agent message, naming the issue publisher', () => {
+    const [user] = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        role: 'user',
+        content: 'Summarize this issue',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        juya_confirmation: {
+          story_count: 24,
+          issue: '2026-10',
+          issue_number: '42',
+        },
+      }),
+    ])
+    const wrapper = mount(Thread, { props: { messages: [user!] } })
+
+    const panel = wrapper.get('[data-od-id="juya-all-confirm"]')
+    expect(panel.element.closest('.msg-ai')).not.toBeNull()
+    expect(panel.element.closest('.msg-user')).toBeNull()
+    expect(panel.text()).toContain('from 橘鸦 AI 早报')
+  })
+
   it('asks before a large Juya request and does not show a digest until Continue', async () => {
     const [user] = toMessages([
       assistantMessage({
@@ -334,6 +397,41 @@ describe('Thread', () => {
     expect(wrapper.get('.live-slot .digest-reply .ref').text()).toBe('d15')
     expect(wrapper.find('[data-od-id="streaming-progress"]').exists()).toBe(false)
     expect(wrapper.find('.empty').exists()).toBe(false)
+  })
+
+  it('puts the reference chip above the bubble and the source chips below it', () => {
+    const [user] = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        role: 'user',
+        content: 'What is this?',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        followup_target: { digest_id: 12, display_rank: 3 },
+      }),
+    ])
+    const wrapper = mount(Thread, {
+      props: {
+        messages: [
+          {
+            ...user!,
+            chips: toSentSourcesVm({ names: ['juya'], perSource: 5 }),
+          },
+        ],
+      },
+    })
+
+    const order = Array.from(wrapper.get('.msg-user').element.children).map(
+      (child) =>
+        child.classList.contains('ref-chip')
+          ? 'chip'
+          : child.classList.contains('bubble')
+            ? 'bubble'
+            : 'sources',
+    )
+    expect(order).toEqual(['chip', 'bubble', 'sources'])
   })
 
   it('shows the source chips on a question sent in this page session', () => {

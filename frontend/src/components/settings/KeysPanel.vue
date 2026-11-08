@@ -81,6 +81,14 @@ function testNote(name: string): string {
     : `Test failed: ${result.reason || 'the saved credential cannot be used.'}`
 }
 
+/** The prototype swaps its hint for the result rather than showing both. */
+function testHelp(name: string): string {
+  const note = testNote(name)
+  return note === ''
+    ? 'Sends one short request to the model. The check may incur a small charge.'
+    : note
+}
+
 function onInput(key: KeyDraftKey, event: Event): void {
   emit('updateDraft', key, (event.target as HTMLInputElement).value)
 }
@@ -114,7 +122,7 @@ function onInput(key: KeyDraftKey, event: Event): void {
     </p>
     <button
       type="button"
-      class="btn btn-sm btn-cancel"
+      class="btn btn-sm btn-cancel act"
       data-od-id="clear-override"
       @click="emit('clearOverride')"
     >
@@ -184,8 +192,7 @@ function onInput(key: KeyDraftKey, event: Event): void {
         {{ testLabel('OPENAI_API_KEY') }}
       </button>
       <p class="help" role="status">
-        {{ [props.vm.messages.llm, testNote('OPENAI_API_KEY')].filter(Boolean).join(' ') }}
-        Sends one short request to the model. The check may incur a small charge.
+        {{ [props.vm.messages.llm, testHelp('OPENAI_API_KEY')].filter(Boolean).join(' ') }}
       </p>
     </div>
   </section>

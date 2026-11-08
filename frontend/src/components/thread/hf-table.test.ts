@@ -28,6 +28,14 @@ const withVariant = hfEntry({
 const DIGEST_ID = 15
 
 describe('HfTable', () => {
+  it('anchors each row and its actions as the prototype does', () => {
+    const wrapper = mount(HfTable, { props: { entries: [hfEntry()], digestId: DIGEST_ID } })
+
+    expect(wrapper.get('tbody tr').attributes('data-od-id')).toBe('hf-row-2')
+    expect(wrapper.find('[data-od-id="deepdive-hf-2"]').exists()).toBe(true)
+    expect(wrapper.find('[data-od-id="followup-hf-2"]').exists()).toBe(true)
+  })
+
   it('names the nine comparison columns including Actions', () => {
     const wrapper = mount(HfTable, { props: { entries: [hfEntry()], digestId: DIGEST_ID } })
     const headers = wrapper.findAll('thead th').map((th) => th.text())

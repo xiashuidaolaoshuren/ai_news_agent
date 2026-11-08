@@ -16,7 +16,19 @@ const emit = defineEmits<{
   ask: [ref: RefVm]
   'goto-related': [ref: RefVm]
   repeat: [repeat: RepeatVm]
+  openSettings: [name: string]
 }>()
+
+/** Connectors with a Settings section; every source except hidden Bilibili. */
+const SETTINGS_SOURCES = new Set(['juya', 'huggingface', 'github', 'zhihu', 'openrouter'])
+
+/**
+ * The prototype puts a settings button on a warning only for a connector that
+ * has a section, so the button and `settings.focus` agree.
+ */
+function settingsSource(source: string): string | null {
+  return SETTINGS_SOURCES.has(source) ? source : null
+}
 
 const when = computed(() => formatDigestWhen(props.digest.generatedAt))
 
@@ -66,9 +78,18 @@ function warningStyle(index: number): string | undefined {
       :class="{ rise: props.animate === true }"
       :style="warningStyle(index)"
       role="alert"
+      :data-od-id="`connector-warning-${warning.source.toLowerCase()}`"
     >
       <AppIcon name="alert" />
       <p><b>{{ warning.label }} connector:</b> {{ warning.message }}</p>
+      <button
+        v-if="settingsSource(warning.source) !== null"
+        type="button"
+        class="btn btn-sm act"
+        @click="emit('openSettings', warning.source)"
+      >
+        {{ warning.label }} settings
+      </button>
     </div>
 
     <DigestSection

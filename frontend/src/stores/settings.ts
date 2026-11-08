@@ -108,6 +108,36 @@ function profileBody(profile: SourceProfileVm): Record<string, unknown> {
   }
 }
 
+/** Item counts are whole stories per source; the prototype's range and message. */
+export const COUNT_MIN = 1
+export const COUNT_MAX = 50
+export const COUNT_MESSAGE = `Item count must be a whole number from ${COUNT_MIN} to ${COUNT_MAX}.`
+
+/** Sources whose draft carries an item count. Bilibili has none. */
+function hasCount(profile: SourceProfileVm): boolean {
+  return 'itemCount' in profile
+}
+
+/**
+ * The first source with an unusable count, or null. Juya is exempt while All is
+ * on: its input keeps the stored number but the request takes the whole issue.
+ */
+function firstBadCount(profiles: SourceProfileVm[]): string | null {
+  for (const profile of profiles) {
+    if (!hasCount(profile) || profile.name === 'bilibili') {
+      continue
+    }
+    if (profile.name === 'juya' && profile.itemCount === 'all') {
+      continue
+    }
+    const count = profile.itemCount
+    if (typeof count !== 'number' || !Number.isInteger(count) || count < COUNT_MIN || count > COUNT_MAX) {
+      return profile.name
+    }
+  }
+  return null
+}
+
 /** Settings dialog state. The draft is what the form edits. */
 export function createSettingsController(deps: SettingsDeps) {
   const state = reactive({
@@ -152,6 +182,13 @@ export function createSettingsController(deps: SettingsDeps) {
   async function save(): Promise<void> {
     state.fieldErrors = {}
     state.saved = false
+    const bad = firstBadCount(state.draft.profiles)
+    if (bad !== null) {
+      state.fieldErrors[bad] = COUNT_MESSAGE
+      // The dialog opens on that section, so the message is not off screen.
+      state.focus = bad
+      return
+    }
     let rejected = false
     for (const profile of state.draft.profiles) {
       const before = saved.profiles.find((item) => item.name === profile.name)
@@ -214,7 +251,7 @@ export function createSettingsController(deps: SettingsDeps) {
     state.keysDraft.llmKey = ''
     state.keysDraft.llmUrl = ''
     state.keysDraft.llmModel = ''
-    state.keysMessage.llm = 'Saved.'
+    state.keysMessage.llm = 'Saved in app.'
   }
 
   /** Save one source credential; saving never reads the stored value back. */
@@ -226,7 +263,7 @@ export function createSettingsController(deps: SettingsDeps) {
     state.keysMessage = {}
     // An empty value would store an empty secret over a working one.
     if (state.keysDraft[key].trim() === '') {
-      state.keysMessage[key] = 'Enter a new value to save this credential.'
+      state.keysMessage[key] = 'Enter a value to save.'
       return
     }
     try {
@@ -236,7 +273,7 @@ export function createSettingsController(deps: SettingsDeps) {
       return
     }
     state.keysDraft[key] = ''
-    state.keysMessage[key] = 'Saved.'
+    state.keysMessage[key] = 'Saved in app. The value won’t be shown again.'
   }
 
   /** Drop the saved LLM override so the environment value applies again. */
@@ -249,7 +286,7 @@ export function createSettingsController(deps: SettingsDeps) {
       return
     }
     await loadCredentials()
-    state.keysMessage.llm = 'Cleared the saved key.'
+    state.keysMessage.llm = 'Saved key cleared. Using LLM_API_KEY from the environment.'
   }
 
   /** Test one credential. The result replaces any earlier one for that name. */

@@ -58,7 +58,7 @@ function trySource(name: string): void {
           match <b>{{ props.collection.topic }}</b></template
         >.
       </p>
-      <div v-if="suggestions.length > 0">
+      <div>
         <p class="help" style="margin-bottom: 8px">
           Try another source. It runs
           <template v-if="props.collection.topic"> <b>{{ props.collection.topic }}</b></template>

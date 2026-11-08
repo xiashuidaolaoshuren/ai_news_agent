@@ -100,6 +100,8 @@ function makeComposer(overrides: Partial<ComposerDeps> = {}): Harness {
     hiddenSources: async () => ['bilibili'],
     countsSeen: () => true,
     writeCountsSeen: () => {},
+    loadFailed: () => false,
+    confirmPending: () => false,
     session: () => session.value,
     draft,
     snapshot: () => snapshot.value,
@@ -309,6 +311,42 @@ describe('composer busy and blocked', () => {
 
     expect(controller.vm.value.notice).toBe('none')
     expect(controller.vm.value.busy).toBe(false)
+  })
+
+  it('refuses a send while a Juya confirmation waits for an answer', async () => {
+    const { controller, sends, draft } = await ready({ confirmPending: () => true })
+    draft.value = 'Another question'
+
+    expect(controller.send()).toBe(false)
+
+    expect(sends).toEqual([])
+    expect(controller.vm.value.confirmPending).toBe(true)
+    expect(draft.value).toBe('Another question')
+  })
+
+  it('refuses a send when the transcript failed to load', async () => {
+    const { controller, sends, draft } = await ready({ loadFailed: () => true })
+    draft.value = 'What shipped this week?'
+
+    expect(controller.send()).toBe(false)
+
+    expect(sends).toEqual([])
+    expect(controller.vm.value.loadFailed).toBe(true)
+  })
+
+  it('notes a cancelled confirmation until the next send', async () => {
+    const { controller, draft } = await ready()
+
+    controller.noteConfirmCancelled()
+
+    expect(controller.vm.value.confirmCancelled).toBe(
+      'Cancelled. No digest was written, and your request is back in the composer.',
+    )
+
+    draft.value = 'What shipped this week?'
+    controller.send()
+
+    expect(controller.vm.value.confirmCancelled).toBeNull()
   })
 
   it('cancels the running request', async () => {

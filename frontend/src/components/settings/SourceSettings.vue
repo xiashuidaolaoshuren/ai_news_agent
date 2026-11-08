@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
 import SourceLogo from '@/components/thread/SourceLogo.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -89,9 +89,32 @@ function replace(profile: SourceProfileVm, patch: Record<string, unknown>): void
   emit('updateProfile', { ...profile, ...patch } as SourceProfileVm)
 }
 
-function numberOr(count: number): number {
-  return Number.isFinite(count) ? count : 1
+/** A count the user cleared or mistyped stays invalid, so Save can name it. */
+function countOf(event: Event): number {
+  return Number((event.target as HTMLInputElement).value)
 }
+
+/** Minimum stars is not range-checked; a blank or unreadable value falls back to 0. */
+function starsOr(value: number): number {
+  return Number.isFinite(value) ? value : 0
+}
+
+/**
+ * The prototype keeps Juya's count and its All flag apart, so the number stays
+ * visible and editable-again while All is on. The API stores only `all`, so the
+ * last number seen here stands in, starting from the prototype's default of 5.
+ */
+const juyaCount = ref(5)
+
+watch(
+  () => props.profiles.find((profile) => profile.name === 'juya'),
+  (profile) => {
+    if (profile?.name === 'juya' && typeof profile.itemCount === 'number') {
+      juyaCount.value = profile.itemCount
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -144,7 +167,7 @@ function numberOr(count: number): number {
           <b>Last check: authentication error.</b> GitHub rejected the token (401). GitHub
           requests fail until the token is replaced.
         </p>
-        <button type="button" class="btn btn-sm btn-cancel" @click="emit('gotoKeys')">
+        <button type="button" class="btn btn-sm btn-cancel act" @click="emit('gotoKeys')">
           Open Keys
         </button>
       </div>
@@ -161,8 +184,14 @@ function numberOr(count: number): number {
                 max="50"
                 inputmode="numeric"
                 :disabled="profile.itemCount === 'all'"
-                :value="profile.itemCount === 'all' ? '' : profile.itemCount"
-                @change="replace(profile, { itemCount: numberOr(Number(($event.target as HTMLInputElement).value)) })"
+                :value="profile.itemCount === 'all' ? juyaCount : profile.itemCount"
+                :aria-invalid="props.fieldErrors.juya !== undefined"
+                aria-describedby="juya-n-help"
+                data-od-id="juya-count-5"
+                @change="
+                  juyaCount = countOf($event);
+                  replace(profile, { itemCount: countOf($event) })
+                "
               />
               <button
                 type="button"
@@ -176,7 +205,7 @@ function numberOr(count: number): number {
             </div>
           </div>
         </div>
-        <p class="help">1 to 50 stories, or All for every story in the issue.</p>
+        <p class="help" id="juya-n-help">1 to 50 stories, or All for every story in the issue.</p>
         <div
           v-if="profile.itemCount === 'all'"
           class="alert alert-warn"
@@ -208,7 +237,8 @@ function numberOr(count: number): number {
               inputmode="numeric"
               :data-od-id="`count-${profile.name}`"
               :value="'itemCount' in profile ? profile.itemCount : ''"
-              @change="replace(profile, { itemCount: numberOr(Number(($event.target as HTMLInputElement).value)) })"
+              :aria-invalid="props.fieldErrors[profile.name] !== undefined"
+              @change="replace(profile, { itemCount: countOf($event) })"
             />
           </label>
           <template v-if="profile.name === 'github'">
@@ -222,7 +252,7 @@ function numberOr(count: number): number {
                 inputmode="numeric"
                 data-od-id="github-min-stars"
                 :value="profile.minStars"
-                @change="replace(profile, { minStars: numberOr(Number(($event.target as HTMLInputElement).value)) })"
+                @change="replace(profile, { minStars: starsOr(Number(($event.target as HTMLInputElement).value)) })"
               />
             </label>
             <label class="set-field">
@@ -263,6 +293,9 @@ function numberOr(count: number): number {
             @input="onKeywords(profile, $event)"
           />
         </label>
+        <p v-if="profile.name === 'openrouter' && props.fieldErrors.openrouter" class="err-msg">
+          <AppIcon name="alert" />{{ props.fieldErrors.openrouter }}
+        </p>
         <button
           v-if="profile.name === 'openrouter'"
           type="button"
@@ -279,7 +312,7 @@ function numberOr(count: number): number {
           <span class="track" aria-hidden="true" />
         </button>
       </template>
-      <p v-if="props.fieldErrors[profile.name]" class="err-msg">
+      <p v-if="profile.name !== 'openrouter' && props.fieldErrors[profile.name]" class="err-msg">
         <AppIcon name="alert" />{{ props.fieldErrors[profile.name] }}
       </p>
     </div>
