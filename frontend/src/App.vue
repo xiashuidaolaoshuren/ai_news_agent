@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, useTemplateRef, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 
 import Sidebar from '@/components/sidebar/Sidebar.vue'
 import AppShell from '@/components/shell/AppShell.vue'
@@ -8,6 +8,8 @@ import Composer from '@/components/composer/Composer.vue'
 import HistoryPanel from '@/components/history/HistoryPanel.vue'
 import Thread from '@/components/thread/Thread.vue'
 import SettingsDialog from '@/components/settings/SettingsDialog.vue'
+import SignIn from '@/components/settings/SignIn.vue'
+import { useAuthStore } from '@/stores/auth'
 import { useComposerStore } from '@/stores/composer'
 import { useHistoryStore } from '@/stores/history'
 import { useSessionsStore } from '@/stores/sessions'
@@ -23,7 +25,11 @@ const sessions = useSessionsStore()
 const thread = useThreadStore()
 const composer = useComposerStore()
 const settings = useSettingsStore()
+const auth = useAuthStore()
 const history = useHistoryStore()
+
+/** The typed owner token while the sign-in screen is up; masked after a rejection. */
+const signInToken = ref('')
 
 const shell = useTemplateRef<InstanceType<typeof AppShell>>('shell')
 const composerField = useTemplateRef<InstanceType<typeof Composer>>('composerField')
@@ -99,12 +105,37 @@ watch(
   },
 )
 
-onMounted(() => {
-  themeStore.initFromDocument()
-  document.addEventListener('keydown', onKeydown)
+/** Everything the shell needs from the API. Run on mount and again after sign-in. */
+function loadAll(): void {
   void sessions.loadSessions()
   void sessions.loadHealth()
   void composer.load()
+}
+
+function onSignIn(token: string): void {
+  void auth.submit(token)
+}
+
+/**
+ * A 401 anywhere locks the app; accepting the owner token unlocks it and loads
+ * the shell again. Closing Settings on lock keeps the dialog from reappearing
+ * over the sign-in screen.
+ */
+watch(
+  () => auth.locked,
+  (locked) => {
+    if (locked) {
+      settings.close()
+      return
+    }
+    loadAll()
+  },
+)
+
+onMounted(() => {
+  themeStore.initFromDocument()
+  document.addEventListener('keydown', onKeydown)
+  loadAll()
 })
 
 // A suggestion, a follow-up, or Run again puts text in the dock and returns the caret.
@@ -138,7 +169,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <AppShell ref="shell" :escape-guard="inlineEditOpen">
+  <AppShell ref="shell" :escape-guard="inlineEditOpen" :inert="auth.locked">
     <template #sidebar>
       <Sidebar @open-settings="settings.open('sources')" />
     </template>
@@ -207,7 +238,15 @@ onUnmounted(() => {
       />
     </template>
   </AppShell>
+  <SignIn
+    v-if="auth.locked"
+    v-model:token="signInToken"
+    :error="auth.error"
+    :busy="auth.busy"
+    @submit="onSignIn"
+  />
   <SettingsDialog
+    v-if="!auth.locked"
     :vm="{
       open: settings.isOpen,
       tab: settings.tab,

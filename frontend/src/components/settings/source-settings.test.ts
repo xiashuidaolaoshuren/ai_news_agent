@@ -114,10 +114,10 @@ describe('SourceSettings GitHub fields', () => {
     const wrapper = mountSettings()
 
     await wrapper.get('[data-od-id="github-keywords"]').setValue(' agent ,  mcp ,, tools ')
-    expect(emittedProfile(wrapper, 'github')?.keywords).toEqual(['agent', 'mcp', 'tools'])
+    expect(emittedProfile(wrapper, 'github')).toMatchObject({ keywords: ['agent', 'mcp', 'tools'] })
 
     await wrapper.get('[data-od-id="github-language"]').setValue('any')
-    expect(emittedProfile(wrapper, 'github')?.language).toBeNull()
+    expect(emittedProfile(wrapper, 'github')).toMatchObject({ language: null })
   })
 
   it('sends minimum stars as a number', async () => {

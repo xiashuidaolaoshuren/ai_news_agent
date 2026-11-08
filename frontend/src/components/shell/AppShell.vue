@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 
-const props = defineProps<{ escapeGuard?: boolean }>()
+const props = defineProps<{ escapeGuard?: boolean; inert?: boolean }>()
 
 const histOpen = ref(typeof window !== 'undefined' && window.innerWidth >= 1280)
 const sbOpen = ref(false)
@@ -76,6 +76,7 @@ onUnmounted(() => {
     class="app"
     :class="{ 'hist-open': histOpen, 'sb-open': sbOpen }"
     id="app-shell"
+    :inert="props.inert === true"
   >
     <aside class="sidebar" aria-label="Conversations">
       <slot name="sidebar" />

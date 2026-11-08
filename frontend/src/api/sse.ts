@@ -1,3 +1,4 @@
+import { authHeader, notifyUnauthorized } from '@/api/auth'
 import { API_BASE_URL } from '@/api/config'
 import type {
   DeltaPayload,
@@ -138,6 +139,7 @@ async function postSseStream(
   const response = await doFetch(url, {
     method: 'POST',
     headers: {
+      ...authHeader(),
       Accept: 'text/event-stream',
       'Content-Type': 'application/json',
     },
@@ -146,6 +148,9 @@ async function postSseStream(
   })
 
   if (!response.ok) {
+    if (response.status === 401) {
+      notifyUnauthorized()
+    }
     let code: string | null = null
     try {
       code = extractDetailCode(await response.json())

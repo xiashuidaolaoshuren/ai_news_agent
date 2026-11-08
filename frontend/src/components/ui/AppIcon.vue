@@ -12,6 +12,7 @@ import {
   Info,
   Layers,
   LoaderCircle,
+  Lock,
   Menu,
   Moon,
   Pencil,
@@ -55,6 +56,7 @@ const props = defineProps<{
     | 'down'
     | 'stop'
     | 'gear'
+    | 'lock'
   }>()
 
 const ICONS = {
@@ -83,6 +85,7 @@ const ICONS = {
   down: ArrowDown,
   stop: Square,
   gear: Settings,
+  lock: Lock,
 } as const
 
 const icon = computed(() => ICONS[props.name])

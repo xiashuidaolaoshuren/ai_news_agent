@@ -63,8 +63,8 @@ Visual source is the current prototype: anchors, chip text, settings dialog, key
 | `frontend/src/api/client.ts` | modify | Attach `Authorization` on HTTP and SSE | existing client setup | verified path; filename provisional if the attach point lives in `api/config.ts` |
 | `frontend/src/components/composer/Composer.vue` | modify | Remove the stepper; add source gears; one-time notice | `source-settings-*`, `source-count-notice` | verified |
 | `frontend/src/components/thread/Thread.vue` | modify | Juya confirmation panel | `juya-all-confirm` | verified |
-| `frontend/src/styles/settings.css` | create | Dialog rules copied from the prototype (not `thread.css`; the dialog is not thread UI) | CSS | verified |
-| `frontend/src/styles/thread.css` | modify | Keys and sign-in rules copied from the prototype | CSS | verified |
+| `frontend/src/styles/settings.css` | create | Dialog rules copied from the prototype (not `thread.css`; the dialog is not thread UI). Sign-in rules live here too | CSS | verified |
+| `frontend/src/styles/thread.css` | modify | Thread rules copied from the prototype | CSS | verified |
 
 ### Blast radius
 
@@ -138,7 +138,7 @@ Visual source is the current prototype: anchors, chip text, settings dialog, key
 
 ### U5 — Sign-in
 
-- [ ] **Do:** Lock the app on 401 and attach the owner token from `sessionStorage`.
+- [x] **Do:** Lock the app on 401 and attach the owner token from `sessionStorage`.
 - **Consumes:** Backend **B11**. Prototype `sign-in-screen` and `sign-in-button`. Generated auth helper.
 - **Produces:** A missing or rejected token shows the sign-in screen and leaves the rest of the app unreachable. The token is stored in `sessionStorage` and sent as `Authorization: Bearer` on API requests and SSE. Closing the tab clears it. A rejected token stays masked and shows `That token was rejected.` There is no Remember-me control.
 - **Acceptance:** A 401 from any `/api/v1` route except a successful `/health` opens sign-in. After a successful token, Settings and chat load. A wrong token keeps the screen up and does not flash the conversation. SSE sends the same header. Reloading the tab keeps the token; closing it does not. Local mode without a 401 never shows sign-in.
@@ -173,3 +173,4 @@ Per subtask, obey **`TDD suitable`**. **`partial`** tests behavior and checks th
 | 2026-11-06 | U2 file map names the four collection-state components, `App.vue`, and `thread.opening`. Verification adds the session, composer, and digest tests. | equivalent |
 | 2026-11-07 | U3 reopened after an acceptance audit and closed as U3b: the gear focus handoff, the dismissible count notice, the GitHub and Hugging Face profile fields, the Juya All warning, and the Sources GitHub auth warning were missing; Continue buffered the whole digest stream; reloading a pending confirmation resumed it into a false failure. | material |
 | 2026-11-07 | The Settings dialog could not open in the real app: its controller returned one reactive object, which a Pinia setup store copies field by field, so `isOpen`, `tab`, and `focus` never reached the store. `toSettingsStore` now binds them as refs, with a Pinia-layer regression test. | material |
+| 2026-11-08 | U5 closed. Sign-in CSS lives in `settings.css` with the Keys rules, so the file map no longer lists `thread.css` for it. The sign-in brand block copies the sidebar's scoped brand rules, which an unscoped stylesheet cannot inherit. | equivalent |

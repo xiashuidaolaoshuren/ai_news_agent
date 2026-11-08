@@ -1,4 +1,5 @@
 import { client } from '@/api/generated/client.gen'
+import { installAuth } from '@/api/auth'
 import { API_BASE_URL } from '@/api/config'
 
 let configured = false
@@ -9,5 +10,6 @@ export function setupApiClient(): void {
     return
   }
   client.setConfig({ baseUrl: API_BASE_URL })
+  installAuth(client)
   configured = true
 }

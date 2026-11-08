@@ -207,3 +207,76 @@
     display: contents;
   }
 }
+
+/* Sign-in: the prototype's locked screen. Values copied from its stylesheet. */
+.signin-wrap {
+  position: fixed;
+  inset: 40px 0 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.signin {
+  width: min(400px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.signin h2 {
+  font: 600 18px/1.3 var(--font-display);
+  margin: 0 0 4px;
+}
+
+.signin p {
+  margin: 0;
+}
+
+.signin .help {
+  display: flex;
+  gap: 6px;
+}
+
+.signin .help .ic {
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  flex: none;
+}
+
+/* The sidebar's scoped brand rules do not reach this screen; same values. */
+.signin .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.signin .brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--fg);
+  color: var(--surface);
+  display: grid;
+  place-items: center;
+  font: 600 12px/1 var(--font-mono);
+}
+
+.signin .brand b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.signin .brand span {
+  font-size: 11.5px;
+  color: var(--muted);
+}
