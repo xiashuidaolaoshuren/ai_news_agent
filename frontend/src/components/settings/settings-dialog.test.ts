@@ -136,19 +136,17 @@ describe('SettingsDialog', () => {
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
-  it('lists every source on the Sources tab, including hidden Bilibili', () => {
+  it('lists every visible source on the Sources tab and leaves the hidden one out', () => {
     const wrapper = mountDialog()
 
     expect(wrapper.get('[data-od-id="settings-dialog"]').attributes('role')).toBe('dialog')
     expect(wrapper.get('[data-od-id="settings-tab-sources"]').attributes('aria-selected')).toBe(
       'true',
     )
-    for (const name of ['juya', 'github', 'huggingface', 'openrouter', 'zhihu', 'bilibili']) {
+    for (const name of ['juya', 'github', 'huggingface', 'openrouter', 'zhihu']) {
       expect(wrapper.find(`[data-od-id="settings-source-${name}"]`).exists()).toBe(true)
     }
-    expect(wrapper.get('[data-od-id="settings-source-bilibili"]').text()).toContain(
-      'Hidden from source selection',
-    )
+    expect(wrapper.find('[data-od-id="settings-source-bilibili"]').exists()).toBe(false)
     expect(wrapper.find('[data-od-id="settings-output-language"]').exists()).toBe(true)
   })
 

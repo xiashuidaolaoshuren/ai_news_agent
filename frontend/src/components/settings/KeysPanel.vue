@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppIcon from '@/components/ui/AppIcon.vue'
+import { SHOW_BILIBILI } from '@/lib/features'
 import type {
   CredentialId,
   CredentialRowVm,
@@ -263,7 +264,7 @@ function onInput(key: KeyDraftKey, event: Event): void {
     </div>
   </section>
 
-  <section class="section" data-od-id="keys-bilibili-group">
+  <section v-if="SHOW_BILIBILI" class="section" data-od-id="keys-bilibili-group">
     <div class="section-head">
       <h3>Bilibili</h3>
       <span class="sub">Hidden from source selection</span>

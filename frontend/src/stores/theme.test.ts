@@ -205,6 +205,21 @@ describe('setTheme reveal', () => {
     delete document.startViewTransition
   })
 
+  it('leaves the snap to the transition callback, never before the capture', () => {
+    document.startViewTransition = (() => ({
+      ready: Promise.resolve(),
+      finished: Promise.resolve(),
+      skipTransition: vi.fn(),
+    })) as unknown as typeof document.startViewTransition
+    document.documentElement.classList.remove('theme-snap')
+
+    runSetTheme('dark', { user: true, point: [10, 10] })
+
+    // Adding the class here would recalculate the whole document before the
+    // browser has taken its picture of the old theme.
+    expect(document.documentElement.classList.contains('theme-snap')).toBe(false)
+  })
+
   it('animates grow to dark on new root pseudo', async () => {
     let captured: Record<string, unknown> | undefined
     let resolveFinished!: () => void
@@ -260,12 +275,15 @@ describe('setTheme reveal', () => {
     resolveFinished()
   })
 
-  it('holds the reactive theme until the transition update callback runs', async () => {
+  it('keeps the update callback synchronous and lets state follow the snapshot', async () => {
     let updateCallback: (() => unknown) | undefined
+    let resolveReady!: () => void
     document.startViewTransition = ((callback: () => unknown) => {
       updateCallback = callback
       return {
-        ready: Promise.resolve(),
+        ready: new Promise<void>((resolve) => {
+          resolveReady = resolve
+        }),
         finished: Promise.resolve(),
         skipTransition: vi.fn(),
       } as unknown as ViewTransition
@@ -279,10 +297,18 @@ describe('setTheme reveal', () => {
     expect(store.theme).toBe('light')
     expect(document.documentElement.dataset.theme).toBe('light')
 
-    await updateCallback?.()
+    // Nothing may be pending on this return value: an async callback leaves the
+    // old snapshot frozen until Vue has finished re-rendering.
+    const returned = updateCallback?.()
+
+    expect(returned).toBeUndefined()
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(store.theme).toBe('light')
+
+    resolveReady()
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(store.theme).toBe('dark')
-    expect(document.documentElement.dataset.theme).toBe('dark')
   })
 
   it('applies the reactive theme without animation when the reveal is skipped', () => {

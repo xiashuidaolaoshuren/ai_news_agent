@@ -1,8 +1,21 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import KeysPanel from '@/components/settings/KeysPanel.vue'
 import type { KeysVm } from '@/vm/settings'
+
+/** The hidden-source flag is read at render time, so a test can flip it. */
+const flags = vi.hoisted(() => ({ showBilibili: false }))
+
+vi.mock('@/lib/features', () => ({
+  get SHOW_BILIBILI() {
+    return flags.showBilibili
+  },
+}))
+
+afterEach(() => {
+  flags.showBilibili = false
+})
 
 function keysVm(overrides: Partial<KeysVm> = {}): KeysVm {
   return {
@@ -123,7 +136,16 @@ describe('KeysPanel', () => {
     expect(after.text()).not.toContain('Sends one short request to the model.')
   })
 
+  it('leaves the hidden source group out of the panel', () => {
+    const wrapper = mount(KeysPanel, { props: { vm: keysVm() } })
+
+    expect(wrapper.find('[data-od-id="keys-bilibili-group"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-od-id^="key-row-bilibili"]')).toHaveLength(0)
+    expect(wrapper.findAll('input')).toHaveLength(6)
+  })
+
   it('saves each source credential on its own and keeps Bilibili editable', async () => {
+    flags.showBilibili = true
     const wrapper = mount(KeysPanel, { props: { vm: keysVm() } })
 
     await wrapper

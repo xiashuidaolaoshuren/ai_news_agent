@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import AppIcon from '@/components/ui/AppIcon.vue'
 import SourceLogo from '@/components/thread/SourceLogo.vue'
+import { SHOW_BILIBILI } from '@/lib/features'
 import type { EntryKind } from '@/vm'
 
 const emit = defineEmits<{ suggest: [text: string] }>()
 
-/** Source order of the prototype's orbit. */
-const ORBIT: EntryKind[] = ['juya', 'huggingface', 'github', 'zhihu', 'bilibili']
+/** Source order of the prototype's orbit, which a hidden source leaves. */
+const ALL_ORBIT: EntryKind[] = ['juya', 'huggingface', 'github', 'zhihu', 'bilibili']
+
+const ORBIT: EntryKind[] = SHOW_BILIBILI
+  ? ALL_ORBIT
+  : ALL_ORBIT.filter((kind) => kind !== 'bilibili')
 
 const SUGGESTIONS = [
   'What shipped in open-weight models this week?',
-  'Trending agent tooling on GitHub, 5 per source',
+  'Trending agent tooling on GitHub this week',
   'Summarize the latest Juya AI 早报 for a beginner',
 ]
 </script>

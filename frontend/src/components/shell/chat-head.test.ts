@@ -21,3 +21,14 @@ describe('ChatHead meta', () => {
     expect(mountHead().get('.meta').text()).toBe('Empty')
   })
 })
+
+describe('ChatHead theme toggle', () => {
+  it('draws both glyphs and lets the data-theme attribute pick one', () => {
+    // The prototype swaps moon and sun in CSS, so the new snapshot already has
+    // the right glyph and Vue never sits between the click and the reveal.
+    const button = mountHead().get('.theme-btn')
+
+    expect(button.find('.ic-moon').exists()).toBe(true)
+    expect(button.find('.ic-sun').exists()).toBe(true)
+  })
+})

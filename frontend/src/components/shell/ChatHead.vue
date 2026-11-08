@@ -44,9 +44,6 @@ const themeLabel = computed(() =>
   themeStore.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
 )
 
-/** Moon in light mode, sun in dark — same affordance as the prototype head toggle. */
-const themeIcon = computed(() => (themeStore.theme === 'dark' ? 'sun' : 'moon'))
-
 function onToggleTheme(event: MouseEvent): void {
   themeStore.toggleTheme(event, themeButton.value)
 }
@@ -82,7 +79,8 @@ function onToggleTheme(event: MouseEvent): void {
       data-od-id="theme-toggle"
       @click="onToggleTheme"
     >
-      <AppIcon :name="themeIcon" />
+      <AppIcon name="moon" class="ic-moon" />
+      <AppIcon name="sun" class="ic-sun" />
     </button>
     <button
       type="button"

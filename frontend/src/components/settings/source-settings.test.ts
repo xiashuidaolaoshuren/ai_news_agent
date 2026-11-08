@@ -1,8 +1,21 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import SourceSettings from '@/components/settings/SourceSettings.vue'
 import type { SourceProfileVm } from '@/vm/settings'
+
+/** The hidden-source flag is read at render time, so a test can flip it. */
+const flags = vi.hoisted(() => ({ showBilibili: false }))
+
+vi.mock('@/lib/features', () => ({
+  get SHOW_BILIBILI() {
+    return flags.showBilibili
+  },
+}))
+
+afterEach(() => {
+  flags.showBilibili = false
+})
 
 const PROFILES: SourceProfileVm[] = [
   { name: 'juya', hidden: false, itemCount: 5 },
@@ -58,11 +71,27 @@ describe('SourceSettings layout', () => {
       'settings-source-openrouter',
       'settings-source-github',
       'settings-source-zhihu',
-      'settings-source-bilibili',
     ])
   })
 
+  it('leaves a hidden source out of the list', () => {
+    const wrapper = mountSettings()
+
+    expect(wrapper.find('[data-od-id="settings-source-bilibili"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Bilibili')
+  })
+
+  it('shows the hidden source again when the flag is on', () => {
+    flags.showBilibili = true
+    const wrapper = mountSettings()
+
+    expect(wrapper.get('[data-od-id="settings-source-bilibili"]').text()).toContain(
+      'Not offered in the composer or the history source filter',
+    )
+  })
+
   it('explains the output language and the hidden Bilibili source', () => {
+    flags.showBilibili = true
     const wrapper = mountSettings()
 
     expect(wrapper.text()).toContain(

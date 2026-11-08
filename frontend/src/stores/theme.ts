@@ -111,21 +111,26 @@ export function runSetTheme(
   const grow = theme === 'dark'
   const points = [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`]
 
-  root.classList.add('theme-snap')
+  // No `theme-snap` here: it would force a full-document style recalc before the
+  // browser captures the old theme, which delays the reveal. The callback below
+  // adds it, inside the transition where the recalculation costs nothing extra.
   root.classList.add('vt-theme')
   root.classList.toggle('vt-shrink', !grow)
 
-  const vt = document.startViewTransition(async () => {
+  // The callback stays synchronous: returning a promise would hold the old
+  // snapshot on screen until Vue had re-rendered every theme consumer. Only the
+  // document attribute changes here; the new picture is taken straight away.
+  const vt = document.startViewTransition(() => {
     applyTheme(theme)
-    // Inside the callback so the icon and labels flip with the reveal instead of
-    // landing in the snapshot of the old theme.
-    await options.onApply?.()
   })
   themeViewTransition = vt
 
   void vt.ready
-    .then(() =>
-      root.animate(
+    .then(() => {
+      // State and labels catch up once the browser owns the new snapshot, so a
+      // Vue flush can no longer sit between the click and the reveal.
+      void options.onApply?.()
+      return root.animate(
         { clipPath: grow ? points : [...points].reverse() },
         {
           duration: REVEAL_MS,
@@ -135,8 +140,8 @@ export function runSetTheme(
             ? '::view-transition-new(root)'
             : '::view-transition-old(root)',
         },
-      ),
-    )
+      )
+    })
     .catch(() => {})
 
   void vt.finished.finally(() => {

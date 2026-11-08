@@ -445,7 +445,7 @@ describe('history idle state', () => {
     expect(controller.vm.value.notes).toEqual([])
   })
 
-  it('names every source kind and starts on all sources', () => {
+  it('names every visible source kind and starts on all sources', () => {
     const harness = makeHistory()
     const controller = createHistoryController(harness.deps)
 
@@ -456,7 +456,6 @@ describe('history idle state', () => {
       'huggingface',
       'github',
       'zhihu',
-      'bilibili',
     ])
   })
 })
