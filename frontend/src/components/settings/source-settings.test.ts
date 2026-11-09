@@ -71,36 +71,28 @@ describe('SourceSettings layout', () => {
       'settings-source-openrouter',
       'settings-source-github',
       'settings-source-zhihu',
+      'settings-source-bilibili',
     ])
   })
 
-  it('leaves a hidden source out of the list', () => {
+  it('shows the hidden Bilibili source with selection chip and editable fields', () => {
     const wrapper = mountSettings()
 
-    expect(wrapper.find('[data-od-id="settings-source-bilibili"]').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('Bilibili')
-  })
-
-  it('shows the hidden source again when the flag is on', () => {
-    flags.showBilibili = true
-    const wrapper = mountSettings()
-
+    expect(wrapper.get('[data-od-id="settings-source-bilibili"]').text()).toContain('Bilibili')
+    expect(wrapper.get('[data-od-id="settings-source-bilibili"]').text()).toContain(
+      'Hidden from source selection',
+    )
     expect(wrapper.get('[data-od-id="settings-source-bilibili"]').text()).toContain(
       'Not offered in the composer or the history source filter',
     )
   })
 
-  it('explains the output language and the hidden Bilibili source', () => {
-    flags.showBilibili = true
+  it('explains the output language', () => {
     const wrapper = mountSettings()
 
     expect(wrapper.text()).toContain(
       'Source default keeps each story in the language it was published in.',
     )
-    expect(wrapper.get('[data-od-id="settings-source-bilibili"]').text()).toContain(
-      'Not offered in the composer or the history source filter',
-    )
-    expect(wrapper.text()).toContain('Hidden from source selection')
   })
 
   it('warns that All can exceed 20 stories', () => {

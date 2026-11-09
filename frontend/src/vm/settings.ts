@@ -138,11 +138,12 @@ export function toCredentialsVm(raw: unknown): CredentialsVm {
     if (!isRecord(item) || typeof item.name !== 'string') {
       continue
     }
-    if (!CREDENTIAL_IDS.includes(item.name as CredentialId)) {
+    const rowId = item.name === 'llm' ? 'OPENAI_API_KEY' : item.name
+    if (!CREDENTIAL_IDS.includes(rowId as CredentialId)) {
       continue
     }
     const status = toCredentialState(item.status)
-    rows[item.name as CredentialId] = {
+    rows[rowId as CredentialId] = {
       status,
       last4: status === 'app' || status === 'env' ? (item.last4 as string | null) : null,
       version: (item.version as string | null) ?? null,

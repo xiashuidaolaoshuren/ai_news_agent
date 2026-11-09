@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import AppIcon from '@/components/ui/AppIcon.vue'
-import { SHOW_BILIBILI } from '@/lib/features'
 import type {
   CredentialId,
   CredentialRowVm,
@@ -118,7 +117,7 @@ function onInput(key: KeyDraftKey, event: Event): void {
     <AppIcon name="alert" />
     <p>
       <b>The saved LLM API key can’t be read.</b> It overrides
-      <span class="mono">LLM_API_KEY</span> from the environment, so the agent can’t reach the
+      <span class="mono">OPENAI_API_KEY</span> from the environment, so the agent can’t reach the
       model. Replace it, or clear the saved key to use the environment value.
     </p>
     <button
@@ -148,7 +147,7 @@ function onInput(key: KeyDraftKey, event: Event): void {
     >
       <div class="key-name">
         <label :for="`key-${item.key}`">{{ item.label }}</label>
-        <span class="chip">
+        <span v-if="item.name === 'OPENAI_API_KEY'" class="chip">
           <span class="dot" :class="STATUS[row(item.name).status].dot" />
           {{ STATUS[row(item.name).status].label }}
           <span v-if="row(item.name).last4" class="key-last4">…{{ row(item.name).last4 }}</span>
@@ -186,14 +185,14 @@ function onInput(key: KeyDraftKey, event: Event): void {
         type="button"
         class="btn"
         data-od-id="test-llm"
-        :disabled="props.vm.readOnly || props.vm.testing === 'OPENAI_API_KEY'"
-        @click="emit('test', 'OPENAI_API_KEY')"
+        :disabled="props.vm.readOnly || props.vm.testing === 'llm'"
+        @click="emit('test', 'llm')"
       >
-        <AppIcon v-if="props.vm.testing === 'OPENAI_API_KEY'" name="load" class="spin" />
-        {{ testLabel('OPENAI_API_KEY') }}
+        <AppIcon v-if="props.vm.testing === 'llm'" name="load" class="spin" />
+        {{ testLabel('llm') }}
       </button>
       <p class="help" role="status">
-        {{ [props.vm.messages.llm, testHelp('OPENAI_API_KEY')].filter(Boolean).join(' ') }}
+        {{ [props.vm.messages.llm, testHelp('llm')].filter(Boolean).join(' ') }}
       </p>
     </div>
   </section>
@@ -264,7 +263,7 @@ function onInput(key: KeyDraftKey, event: Event): void {
     </div>
   </section>
 
-  <section v-if="SHOW_BILIBILI" class="section" data-od-id="keys-bilibili-group">
+  <section class="section" data-od-id="keys-bilibili-group">
     <div class="section-head">
       <h3>Bilibili</h3>
       <span class="sub">Hidden from source selection</span>

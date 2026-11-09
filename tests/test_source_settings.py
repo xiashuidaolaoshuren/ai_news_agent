@@ -551,6 +551,28 @@ def test_finalize_public_counts_reports_shortfall() -> None:
     }
 
 
+def test_build_public_counts_labels_juya_all() -> None:
+    from ai_news_agent.request import DigestRequest
+    from ai_news_agent.source_settings import build_public_counts, finalize_public_counts
+
+    juya_only = DigestRequest(
+        connector_names=["juya"],
+        juya_item_count_all=True,
+    )
+    assert build_public_counts(juya_only) == {"juya": "all"}
+
+    mixed = DigestRequest(
+        connector_names=["juya", "github"],
+        juya_item_count_all=True,
+        source_item_counts={"github": 5},
+    )
+    assert build_public_counts(mixed) == {"juya": "all", "github": "5"}
+    assert finalize_public_counts(mixed, entry_counts={"github": 3, "juya": 24}) == {
+        "juya": "all",
+        "github": "3 of 5",
+    }
+
+
 def test_output_language_preference_defaults_and_round_trip(tmp_path: Path) -> None:
     from ai_news_agent.source_settings import SourceSettingsService, SourceSettingsValidationError
 

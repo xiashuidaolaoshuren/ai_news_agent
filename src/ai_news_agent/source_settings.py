@@ -413,14 +413,22 @@ class SourceSettingsService:
         )
 
 
+def _juya_all_label(request: DigestRequest, labels: dict[str, str]) -> dict[str, str]:
+    if request.juya_item_count_all and "juya" in (request.connector_names or []):
+        return {**labels, "juya": "all"}
+    return labels
+
+
 def build_public_counts(request: DigestRequest) -> dict[str, str]:
     """Pre-run resolved count labels for public request metadata."""
     if request.source_item_counts:
-        return {name: str(cap) for name, cap in request.source_item_counts.items()}
-    if request.items_per_source is not None:
+        labels = {name: str(cap) for name, cap in request.source_item_counts.items()}
+    elif request.items_per_source is not None:
         sources = list(request.connector_names or [])
-        return {name: str(request.items_per_source) for name in sources}
-    return {}
+        labels = {name: str(request.items_per_source) for name in sources}
+    else:
+        labels = {}
+    return _juya_all_label(request, labels)
 
 
 def public_per_source(request: DigestRequest) -> int | None:
@@ -452,7 +460,7 @@ def finalize_public_counts(
             labels[source] = f"{got} of {cap}"
         else:
             labels[source] = str(cap)
-    return labels
+    return _juya_all_label(request, labels)
 
 
 def juya_all_confirmation(

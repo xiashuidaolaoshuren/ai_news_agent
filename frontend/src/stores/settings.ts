@@ -286,7 +286,7 @@ export function createSettingsController(deps: SettingsDeps) {
       return
     }
     await loadCredentials()
-    state.keysMessage.llm = 'Saved key cleared. Using LLM_API_KEY from the environment.'
+    state.keysMessage.llm = 'Saved key cleared. Using OPENAI_API_KEY from the environment.'
   }
 
   /** Test one credential. The result replaces any earlier one for that name. */

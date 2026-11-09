@@ -63,6 +63,9 @@ StreamingWorkflowRunner = Callable[
 logger = get_logger("chat")
 
 _TARGETED_ASK_UNAVAILABLE = "Question-specific answering is unavailable."
+_LLM_UNCONFIGURED_MESSAGE = (
+    "Configure an LLM in Settings (API key) to generate digests."
+)
 
 _TERMINAL_REPLAY_STATUSES = frozenset(
     {"succeeded", "failed", "cancelled", "interrupted"}
@@ -290,12 +293,17 @@ class ChatService:
                 )
                 repeat_request = request_from_payload(stored)
                 if repeat_request is not None:
-                    if replace_source is not None:
+                    replaced = replace_source is not None
+                    if replaced:
                         repeat_request = replace(
                             repeat_request,
                             connector_names=[replace_source],
                             primary_source=replace_source,
                         )
+                        if self._source_settings_service is not None:
+                            repeat_request = self._source_settings_service.apply(
+                                repeat_request
+                            )
                     repeat_interpretation: dict[str, Any] = {
                         "intent": "digest",
                         "request": request_payload(repeat_request),
@@ -1039,7 +1047,17 @@ class ChatService:
                 )
                 return f"{card}\n\n{_TARGETED_ASK_UNAVAILABLE}"
             grounding = _build_targeted_grounding(ctx, display_rank)
-            return str(fn(question=message, grounding=grounding))
+            try:
+                return str(fn(question=message, grounding=grounding))
+            except ValueError as exc:
+                if str(exc) != _LLM_UNCONFIGURED_MESSAGE:
+                    raise
+                card = build_targeted_card(
+                    ctx,
+                    display_rank,
+                    saved_with_digest=not fetch_allowed,
+                )
+                return f"{card}\n\n{_TARGETED_ASK_UNAVAILABLE}"
 
         return build_targeted_card(
             ctx,

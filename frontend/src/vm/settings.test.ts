@@ -61,9 +61,7 @@ describe('toCredentialsVm', () => {
   const PAYLOAD = {
     secret_key_configured: true,
     credentials: [
-      { name: 'OPENAI_API_KEY', status: 'ui', last4: 'a1b2', version: 'v1' },
-      { name: 'OPENAI_BASE_URL', status: 'env', last4: null, version: 'v1' },
-      { name: 'OPENAI_MODEL', status: 'unset', last4: null, version: null },
+      { name: 'llm', status: 'ui', last4: 'a1b2', version: 'v1' },
       { name: 'GITHUB_TOKEN', status: 'env', last4: '9f3c', version: 'v1' },
       { name: 'HUGGINGFACE_TOKEN', status: 'unset', last4: null, version: null },
       { name: 'ZHIHU_ACCESS_SECRET', status: 'env', last4: '4d2e', version: 'v1' },
@@ -80,23 +78,15 @@ describe('toCredentialsVm', () => {
       last4: 'a1b2',
       version: 'v1',
     })
-    expect(vm.rows.OPENAI_BASE_URL).toEqual({
-      status: 'env',
-      last4: null,
-      version: 'v1',
-    })
-    expect(vm.rows.OPENAI_MODEL).toEqual({
-      status: 'none',
-      last4: null,
-      version: null,
-    })
+    expect(vm.rows.OPENAI_BASE_URL).toBeUndefined()
+    expect(vm.rows.OPENAI_MODEL).toBeUndefined()
   })
 
   it('keeps an unreadable credential distinct from an unset one', () => {
     const vm = toCredentialsVm({
       secret_key_configured: true,
       credentials: [
-        { name: 'OPENAI_API_KEY', status: 'unreadable', last4: null, version: 'v2' },
+        { name: 'llm', status: 'unreadable', last4: null, version: 'v2' },
         { name: 'GITHUB_TOKEN', status: 'unset', last4: null, version: null },
       ],
     })

@@ -480,5 +480,38 @@ describe('collection outcomes', () => {
         audience: null,
       }),
     ).toBe('Juya, GitHub · 5 per source · past week · English')
+    expect(
+      summarizeRequest({
+        sources: ['juya'],
+        per_source: null,
+        counts: {},
+        timeframe: 'latest',
+        topics: [],
+        language: null,
+        audience: null,
+      }),
+    ).not.toContain('all stories')
+    expect(
+      summarizeRequest({
+        sources: ['github'],
+        per_source: null,
+        counts: { github: '3 of 5' },
+        timeframe: null,
+        topics: [],
+        language: null,
+        audience: null,
+      }),
+    ).toContain('GitHub · 3 of 5')
+    expect(
+      summarizeRequest({
+        sources: ['juya'],
+        per_source: null,
+        counts: { juya: 'all' },
+        timeframe: null,
+        topics: [],
+        language: null,
+        audience: null,
+      }),
+    ).toBe('Juya · all stories')
   })
 })

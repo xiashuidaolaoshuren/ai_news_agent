@@ -3,7 +3,6 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import SourceLogo from '@/components/thread/SourceLogo.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
-import { SHOW_BILIBILI } from '@/lib/features'
 import type { OutputLanguage } from '@/stores/settings'
 import type { SourceProfileVm } from '@/vm/settings'
 
@@ -57,9 +56,7 @@ const PIPELINES = [
 const LANGUAGES = ['any', 'Python', 'TypeScript', 'JavaScript', 'Rust', 'Go']
 
 const ordered = computed(() =>
-  props.profiles
-    .filter((profile) => SHOW_BILIBILI || profile.name !== 'bilibili')
-    .sort((a, b) => ORDER.indexOf(a.name) - ORDER.indexOf(b.name)),
+  props.profiles.sort((a, b) => ORDER.indexOf(a.name) - ORDER.indexOf(b.name)),
 )
 
 /** Only the sources the app has artwork for get a head tile. */

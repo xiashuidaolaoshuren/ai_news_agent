@@ -309,19 +309,66 @@ const LANGUAGE_LABELS: Record<string, string> = {
   'zh-CN': '中文',
 }
 
+function formatResolvedCount(request: ResolvedRequestOut): string | null {
+  const counts = request.counts
+  if (counts !== undefined && Object.keys(counts).length > 0) {
+    const values = Object.values(counts)
+    const singleAll =
+      values.length === 1 && values[0] === 'all' && (request.sources ?? []).length === 1
+    if (singleAll) {
+      return 'all stories'
+    }
+    const perSource =
+      values.length > 0 &&
+      request.per_source !== null &&
+      request.per_source !== undefined &&
+      values.every((value) => value === String(request.per_source))
+    if (perSource) {
+      return `${request.per_source} per source`
+    }
+    return values.join(', ')
+  }
+  if (request.per_source === null || request.per_source === undefined) {
+    return null
+  }
+  return `${request.per_source} per source`
+}
+
 /** The prototype's request summary: sources, count, timeframe, and language. */
 export function summarizeRequest(request: ResolvedRequestOut): string {
-  const labels = (request.sources ?? [])
+  const sources = request.sources ?? []
+  const sourceLine = sources
     .map((name) => {
       const kind = sourceKindOf(name)
       return kind === null ? name : sourceLabel(kind)
     })
     .filter((label) => label !== '')
-  const count =
-    request.per_source === null || request.per_source === undefined
-      ? 'all stories'
-      : `${request.per_source} per source`
-  const parts = [labels.join(', '), count]
+    .join(', ')
+  const parts: string[] = []
+  const countText = formatResolvedCount(request)
+  const counts = request.counts
+  if (sources.length === 1 && countText !== null) {
+    const name = sourceLine
+    if (counts !== undefined && counts[sources[0] ?? ''] === 'all') {
+      parts.push(`${name} · all stories`)
+    } else if (
+      counts !== undefined &&
+      Object.keys(counts).length === 1 &&
+      sources[0] !== undefined
+    ) {
+      const label = counts[sources[0]]
+      parts.push(label !== undefined ? `${name} · ${label}` : name)
+    } else {
+      parts.push(`${name} · ${countText}`)
+    }
+  } else if (sourceLine !== '') {
+    parts.push(sourceLine)
+    if (countText !== null) {
+      parts.push(countText)
+    }
+  } else if (countText !== null) {
+    parts.push(countText)
+  }
   const timeframe = textOrNull(request.timeframe ?? null)
   if (timeframe !== null) {
     parts.push(timeframe)

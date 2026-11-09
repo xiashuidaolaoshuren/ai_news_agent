@@ -1152,6 +1152,296 @@ def test_targeted_ask_without_model_returns_card_and_unavailable_note(
     assert "Question-specific answering is unavailable." in deltas
 
 
+def test_targeted_ask_unconfigured_proxy_completes(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.credentials import CredentialsProvider
+    from ai_news_agent.services.composition import _LazyLlmProxy, _LlmConfigHolder
+
+    db_path = tmp_path / "targeted-ask-proxy.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _run_id, digest_id = _save_session_hf_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["ask-proxy"],
+        request_id="req-ask-proxy",
+        ensure_session=False,
+    )
+    holder = _LlmConfigHolder(CredentialsProvider(db_path))
+    svc = ChatService(
+        store=store,
+        workflow_runner=AsyncMock(),
+        session_service=session_service,
+        chat_model=_LazyLlmProxy(holder),
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "What is the download count?",
+            session_id=created.id,
+            request_id="req-ask-proxy-send",
+            followup_target={"digest_id": digest_id, "display_rank": 1},
+            followup_action="ask",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    deltas = "".join(e.text for e in events if isinstance(e, DeltaEvent))
+    assert "Question-specific answering is unavailable." in deltas
+    assert any(isinstance(e, DoneEvent) for e in events)
+    record = session_service.get_request(created.id, "req-ask-proxy-send")
+    assert record is not None
+    assert record.status == "succeeded"
+
+
+def test_targeted_ask_unexpected_value_error_leaves_request_active(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "targeted-ask-value-error.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _run_id, digest_id = _save_session_hf_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["ask-bad"],
+        request_id="req-ask-bad",
+        ensure_session=False,
+    )
+
+    class _RaisingModel:
+        def generate_followup_reply(self, *, question: str, grounding: dict) -> str:
+            del question, grounding
+            raise ValueError("unexpected failure")
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=AsyncMock(),
+        session_service=session_service,
+        chat_model=_RaisingModel(),
+    )
+
+    with pytest.raises(ValueError, match="unexpected failure"):
+        asyncio.run(
+            _collect_stream_events(
+                svc,
+                "Why?",
+                session_id=created.id,
+                request_id="req-ask-bad-send",
+                followup_target={"digest_id": digest_id, "display_rank": 1},
+                followup_action="ask",
+                chunk_size=1000,
+                chunk_delay_s=0,
+            )
+        )
+    record = session_service.get_request(created.id, "req-ask-bad-send")
+    assert record is not None
+    assert record.status == "active"
+
+
+def test_general_answer_delegates_through_lazy_proxy(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.composition import _LazyLlmProxy
+
+    db_path = tmp_path / "general-lazy-proxy.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+    _save_session_digest(
+        store,
+        SessionStore(db_path),
+        session_id=created.id,
+        topics=["ctx"],
+        request_id="req-ctx",
+        ensure_session=False,
+    )
+
+    class _Inner:
+        def generate_general_answer(self, *, question: str) -> str:
+            assert "Qwen" in question
+            return "Delegated answer."
+
+        def interpret_conversation(self, *args, **kwargs) -> dict:
+            del args, kwargs
+            return {
+                "intent": "general",
+                "question": "Tell me about Qwen",
+            }
+
+    holder = MagicMock()
+    holder.get.return_value = (_Inner(), None)
+    proxy = _LazyLlmProxy(holder)
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=AsyncMock(),
+        session_service=session_service,
+        conversation_model=proxy,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Tell me about Qwen",
+            session_id=created.id,
+            request_id="req-general-proxy",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    deltas = "".join(e.text for e in events if isinstance(e, DeltaEvent))
+    assert "Delegated answer." in deltas
+    assert "General knowledge" in deltas
+    record = session_service.get_request(created.id, "req-general-proxy")
+    assert record is not None
+    assert record.status == "succeeded"
+
+
+def test_general_answer_unconfigured_lazy_proxy_uses_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_news_agent.credentials import CredentialsProvider
+    from ai_news_agent.services import chat as chat_module
+    from ai_news_agent.services.composition import _LazyLlmProxy, _LlmConfigHolder
+    from ai_news_agent.services.conversation import ConversationDecision
+
+    db_path = tmp_path / "general-unconfigured-proxy.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+    _save_session_digest(
+        store,
+        SessionStore(db_path),
+        session_id=created.id,
+        topics=["ctx2"],
+        request_id="req-ctx2",
+        ensure_session=False,
+    )
+    holder = _LlmConfigHolder(CredentialsProvider(db_path))
+
+    def fake_interpret(*_args, **_kwargs):
+        return ConversationDecision(intent="general", question="What is RAG?")
+
+    monkeypatch.setattr(chat_module, "interpret_message", fake_interpret)
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=AsyncMock(),
+        session_service=session_service,
+        conversation_model=_LazyLlmProxy(holder),
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "What is RAG?",
+            session_id=created.id,
+            request_id="req-general-fallback",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+    deltas = "".join(e.text for e in events if isinstance(e, DeltaEvent))
+    assert "general knowledge" in deltas.lower()
+    assert "Configured" in deltas or "configured" in deltas
+    record = session_service.get_request(created.id, "req-general-fallback")
+    assert record is not None
+    assert record.status == "succeeded"
+
+
+def test_stream_events_repeat_replace_source_applies_destination_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_news_agent.services import chat as chat_module
+    from ai_news_agent.source_settings import SourceSettingsService
+
+    db_path = tmp_path / "stream-repeat-apply-cap.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    settings = SourceSettingsService(db_path)
+    settings.save_profile("huggingface", {"item_count": 7, "pipeline_tag": None})
+
+    stored_request = DigestRequest(
+        topics=["agents"],
+        timeframe="today",
+        connector_names=["github"],
+        source_item_counts={"github": 3},
+        output_language="en",
+    )
+    run_id = _save_session_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["agents"],
+        request_id="req-original-cap",
+        ensure_session=False,
+    )
+    from ai_news_agent.services.conversation import request_metadata, request_payload
+
+    original = session_store.get_request(created.id, "req-original-cap")
+    assert original is not None
+    session_service.set_request_interpretation(
+        created.id,
+        "req-original-cap",
+        {
+            "intent": "digest",
+            "request": request_payload(stored_request),
+            "public": request_metadata(stored_request),
+        },
+    )
+
+    def fail_interpret(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("repeat must not re-interpret the message")
+
+    monkeypatch.setattr(chat_module, "interpret_message", fail_interpret)
+
+    seen: list[DigestRequest] = []
+    svc = ChatService(
+        store=store,
+        workflow_runner=_repeat_streaming_runner(store, db_path, seen),
+        streaming_workflow_runner=_repeat_streaming_runner(store, db_path, seen),
+        session_service=session_service,
+        source_settings_service=settings,
+    )
+
+    asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Try Hugging Face instead",
+            session_id=created.id,
+            request_id="req-repeat-apply",
+            repeat_of_user_message_id=original.user_message_id,
+            replace_source="huggingface",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    assert len(seen) == 1
+    repeated = seen[0]
+    assert repeated.connector_names == ["huggingface"]
+    assert repeated.source_item_counts == {"huggingface": 7}
+    assert repeated.topics == ["agents"]
+    assert repeated.timeframe == "today"
+
+
 def test_stream_events_followup_uses_session_context_not_shared_or_other_session(
     tmp_path: Path,
 ) -> None:

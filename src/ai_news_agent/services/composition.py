@@ -115,6 +115,12 @@ class _LazyLlmProxy:
             raise ValueError(_LLM_UNCONFIGURED_MESSAGE)
         return model.generate_followup_reply(*args, **kwargs)
 
+    def generate_general_answer(self, *args: Any, **kwargs: Any) -> str:
+        model = self._model()
+        if model is None:
+            raise ValueError(_LLM_UNCONFIGURED_MESSAGE)
+        return model.generate_general_answer(*args, **kwargs)
+
     def interpret_conversation(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         model = self._model()
         if model is None:

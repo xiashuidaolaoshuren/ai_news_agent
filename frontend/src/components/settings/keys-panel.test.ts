@@ -103,8 +103,26 @@ describe('KeysPanel', () => {
     await wrapper.find('[data-od-id="test-llm"]').trigger('click')
 
     expect(wrapper.emitted('saveLlm')).toHaveLength(1)
-    expect(wrapper.emitted('test')).toEqual([['OPENAI_API_KEY']])
+    expect(wrapper.emitted('test')).toEqual([['llm']])
     expect(wrapper.text()).toContain('The check may incur a small charge')
+  })
+
+  it('shows OPENAI_API_KEY in the unreadable override alert', () => {
+    const wrapper = mount(KeysPanel, {
+      props: { vm: keysVm({ llmUnreadable: true }) },
+    })
+
+    expect(wrapper.text()).toContain('OPENAI_API_KEY')
+    expect(wrapper.text()).not.toContain('LLM_API_KEY')
+  })
+
+  it('shows no status chip on LLM base URL or model rows', () => {
+    const wrapper = mount(KeysPanel, { props: { vm: keysVm() } })
+
+    const urlRow = wrapper.get('[data-od-id="key-row-llmUrl"]')
+    const modelRow = wrapper.get('[data-od-id="key-row-llmModel"]')
+    expect(urlRow.find('.chip').exists()).toBe(false)
+    expect(modelRow.find('.chip').exists()).toBe(false)
   })
 
   it('shows a test result as the sanitized reason', () => {
@@ -112,7 +130,7 @@ describe('KeysPanel', () => {
       props: {
         vm: keysVm({
           results: {
-            OPENAI_API_KEY: { result: 'auth_error', reason: 'The provider rejected the key.' },
+            llm: { result: 'auth_error', reason: 'The provider rejected the key.' },
           },
         }),
       },
@@ -129,19 +147,20 @@ describe('KeysPanel', () => {
 
     const after = mount(KeysPanel, {
       props: {
-        vm: keysVm({ results: { OPENAI_API_KEY: { result: 'ok', reason: '' } } }),
+        vm: keysVm({ results: { llm: { result: 'ok', reason: '' } } }),
       },
     })
     expect(after.text()).toContain('Connection OK. The model replied.')
     expect(after.text()).not.toContain('Sends one short request to the model.')
   })
 
-  it('leaves the hidden source group out of the panel', () => {
+  it('keeps the Bilibili credential group visible while hidden from discovery', () => {
     const wrapper = mount(KeysPanel, { props: { vm: keysVm() } })
 
-    expect(wrapper.find('[data-od-id="keys-bilibili-group"]').exists()).toBe(false)
-    expect(wrapper.findAll('[data-od-id^="key-row-bilibili"]')).toHaveLength(0)
-    expect(wrapper.findAll('input')).toHaveLength(6)
+    expect(wrapper.find('[data-od-id="keys-bilibili-group"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-od-id^="key-row-bilibili"]')).toHaveLength(3)
+    expect(wrapper.text()).toContain('Hidden from source selection')
+    expect(wrapper.findAll('input')).toHaveLength(9)
   })
 
   it('saves each source credential on its own and keeps Bilibili editable', async () => {

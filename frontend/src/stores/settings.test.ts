@@ -27,9 +27,7 @@ const PROFILES = {
 const CREDENTIALS = {
   secret_key_configured: true,
   credentials: [
-    { name: 'OPENAI_API_KEY', status: 'env', last4: 'a1b2', version: 'v1' },
-    { name: 'OPENAI_BASE_URL', status: 'unset', last4: null, version: null },
-    { name: 'OPENAI_MODEL', status: 'unset', last4: null, version: null },
+    { name: 'llm', status: 'env', last4: 'a1b2', version: 'v1' },
     { name: 'GITHUB_TOKEN', status: 'ui', last4: '9f3c', version: 'v1' },
     { name: 'HUGGINGFACE_TOKEN', status: 'unset', last4: null, version: null },
     { name: 'ZHIHU_ACCESS_SECRET', status: 'env', last4: '4d2e', version: 'v1' },
@@ -306,7 +304,7 @@ describe('createSettingsController keys', () => {
     let payload = {
       ...CREDENTIALS,
       credentials: CREDENTIALS.credentials.map((row) =>
-        row.name === 'OPENAI_API_KEY' ? { ...row, status: 'unreadable' } : row,
+        row.name === 'llm' ? { ...row, status: 'unreadable' } : row,
       ),
     }
     let cleared = 0
@@ -327,7 +325,7 @@ describe('createSettingsController keys', () => {
     expect(cleared).toBe(1)
     expect(controller.credentials.llmUnreadable).toBe(false)
     expect(controller.keysMessage.llm).toBe(
-      'Saved key cleared. Using LLM_API_KEY from the environment.',
+      'Saved key cleared. Using OPENAI_API_KEY from the environment.',
     )
   })
 
