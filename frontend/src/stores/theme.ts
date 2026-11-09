@@ -125,12 +125,13 @@ export function runSetTheme(
   })
   themeViewTransition = vt
 
+  let reveal: Animation | undefined
   void vt.ready
     .then(() => {
       // State and labels catch up once the browser owns the new snapshot, so a
       // Vue flush can no longer sit between the click and the reveal.
       void options.onApply?.()
-      return root.animate(
+      reveal = root.animate(
         { clipPath: grow ? points : [...points].reverse() },
         {
           duration: REVEAL_MS,
@@ -145,6 +146,10 @@ export function runSetTheme(
     .catch(() => {})
 
   void vt.finished.finally(() => {
+    // `fill: 'both'` keeps a finished animation alive, and a leftover one on the
+    // same pseudo-element pushes every later reveal off the compositor. Release
+    // it even when a newer toggle cut this transition short.
+    reveal?.cancel()
     if (themeViewTransition !== vt) {
       return
     }

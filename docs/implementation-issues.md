@@ -11,6 +11,7 @@ Add an entry when something passes its tests and still does not do what it says.
 | # | Issue | Area |
 |---|---|---|
 | [1](#1-vue-scoped-css-silently-drops-the-rest-of-a-selector-containing-global) | Vue scoped CSS silently drops the rest of a selector containing `:global()` | frontend / CSS |
+| [2](#2-theme-reveal-lags-from-the-second-toggle-because-a-finished-fill-both-animation-is-never-cancelled) | Theme reveal lags from the second toggle because a finished `fill: 'both'` animation is never cancelled | frontend / View Transitions |
 
 ---
 
@@ -123,3 +124,77 @@ node --input-type=module -e "import { compileStyle } from '@vue/compiler-sfc'; c
 ```
 
 The command above prints `.a { color: red }`: the trailing `.b` is gone. If the output is a selector you did not write, the rule is not doing what you think.
+
+---
+
+## 2. Theme reveal lags from the second toggle because a finished fill: 'both' animation is never cancelled
+
+**When:** fidelity follow-up after U7, Nov 2026. Fixed in the working tree on `features/remaining-followup` (not committed when this entry was written).  
+**Area:** `frontend/src/stores/theme.ts` (`runSetTheme`, the circular clip-path reveal)  
+**Symptom:** With hardware acceleration on, the first theme switch was smooth and every later one lagged. The prototype served in the same Chrome behaved the same way. The OpenDesign desktop app stayed smooth.
+
+### What we saw
+
+An earlier pass blamed software rendering (Chrome was on "Microsoft Basic Render Driver"). That was a real problem, but turning acceleration on did not remove the lag, so it was not the whole story. The cheap code fixes from that pass (no `theme-snap` before the capture, a synchronous update callback, a CSS-driven icon) shortened the first frame and changed nothing for repeat toggles.
+
+The signal was invisible to the usual measurement. `requestAnimationFrame` pacing stayed smooth on every toggle, so main-thread frame timing showed nothing. A GPU-side trace did. On Chrome 159 with a clean profile (no extensions, RTX 3070 Ti, 1600×900 at DPR 1.5), counting `DrawFrame` events over each 800 ms window:
+
+| Toggle | Leftover animations before the click | `DrawFrame` per reveal |
+|---|---|---|
+| 1 | 0 | 39 to 40 |
+| 2 | 1 | 39 to 40 |
+| 3 | 2 | **6 to 7** |
+| 4 | 2 | **6 to 7** |
+
+Cancelling every pseudo-element animation by hand before each click gave 39 `DrawFrame` on all four toggles, in both the host and the prototype. That isolated the cause.
+
+### Root cause
+
+The reveal is started with:
+
+```ts
+root.animate(
+  { clipPath: [...] },
+  { duration: 600, easing: '...', fill: 'both',
+    pseudoElement: '::view-transition-new(root)' /* or old(root) */ },
+)
+```
+
+and the returned `Animation` was dropped. `fill: 'both'` keeps a finished animation alive and applying its end state, so each toggle left one more entry in `document.getAnimations()`, one per pseudo-element (`new(root)` for grow, `old(root)` for shrink). The page never went back to zero.
+
+Once a leftover animation targeted the same pseudo-element, Chrome stopped running the new reveal's clip-path on the compositor and drove it from the main thread instead. The reveal then drew about 6 frames in 600 ms. The next toggles inherit the leftovers, so the lag is permanent for the life of the page.
+
+The prototype ships the same code, so it has the same bug. OpenDesign's preview is smooth most likely because it reloads the document between runs and so drops the leftovers; this was not verified.
+
+### Fix
+
+Keep the animation and cancel it when its transition finishes, before the "is this still the current transition" guard, so a reveal cut short by a newer click is also released:
+
+```ts
+let reveal: Animation | undefined
+void vt.ready.then(() => { reveal = root.animate(...) })
+
+void vt.finished.finally(() => {
+  reveal?.cancel()
+  if (themeViewTransition !== vt) return
+  ...
+})
+```
+
+`fill: 'both'` stays. Without it the shrink flashes the old theme for one frame between the animation ending and the pseudo-elements being removed. Cancelling after `finished` is invisible because the pseudo-elements are already gone.
+
+After the fix, six toggles in a row each draw 39 `DrawFrame` with 0 leftover animations. Regression test: "cancels each reveal animation once its transition finishes" in `frontend/src/stores/theme.test.ts` (it failed before the change).
+
+### Lesson
+
+- An animation created with `Element.animate()` and `fill: 'forwards'` or `'both'` does not go away when it ends. Keep the handle and call `cancel()` (or `commitStyles()` then `cancel()`) once the end state is owned by something else.
+- A leftover animation can silently demote later animations on the same target from the compositor to the main thread. The visible result is jank with no error, and only some measurements see it.
+- Measure the thread the animation actually runs on. `requestAnimationFrame` deltas look at the main thread and said "smooth" while the GPU path was drawing a sixth of the frames. Use a trace (`DrawFrame`, `DroppedFrame`) or compare `document.getAnimations()` before and after each run.
+- Test repeat runs, not just the first. Every earlier check toggled once and passed.
+- "Works in the design tool, lags in the browser" was a hint that something stateful was being reset by the tool, not that the browser was slower. Ask what differs between a fresh and a long-lived document.
+
+Quick check in the console after a few toggles; the result should stay at 0:
+
+```js
+document.getAnimations().filter(a => a.effect?.pseudoElement).length
+```

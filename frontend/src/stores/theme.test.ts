@@ -220,6 +220,38 @@ describe('setTheme reveal', () => {
     expect(document.documentElement.classList.contains('theme-snap')).toBe(false)
   })
 
+  it('cancels each reveal animation once its transition finishes', async () => {
+    const cancels = [vi.fn(), vi.fn()]
+    let call = 0
+    vi.mocked(document.documentElement.animate).mockImplementation(
+      () => ({ cancel: cancels[call++] }) as unknown as Animation,
+    )
+    const resolvers: Array<() => void> = []
+    document.startViewTransition = (callback: () => void) => {
+      callback()
+      return {
+        ready: Promise.resolve(),
+        finished: new Promise<void>((resolve) => resolvers.push(resolve)),
+        skipTransition: vi.fn(),
+      } as unknown as ViewTransition
+    }
+
+    runSetTheme('dark', { user: true, point: [10, 10] })
+    await Promise.resolve()
+    await Promise.resolve()
+    // A newer toggle supersedes the first before it finishes.
+    runSetTheme('light', { user: true, point: [10, 10] })
+    await Promise.resolve()
+    await Promise.resolve()
+    resolvers.forEach((resolve) => resolve())
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // A finished fill: 'both' animation left alive keeps every later reveal off
+    // the compositor, so both must be released.
+    expect(cancels[0]).toHaveBeenCalledTimes(1)
+    expect(cancels[1]).toHaveBeenCalledTimes(1)
+  })
+
   it('animates grow to dark on new root pseudo', async () => {
     let captured: Record<string, unknown> | undefined
     let resolveFinished!: () => void
