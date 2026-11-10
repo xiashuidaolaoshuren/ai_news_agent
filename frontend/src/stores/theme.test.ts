@@ -195,7 +195,9 @@ describe('setTheme reveal', () => {
         removeEventListener: vi.fn(),
       })),
     )
-    vi.spyOn(document.documentElement, 'animate').mockImplementation(() => ({}) as Animation)
+    vi.spyOn(document.documentElement, 'animate').mockImplementation(
+      () => ({ cancel: vi.fn() }) as unknown as Animation,
+    )
   })
 
   afterEach(() => {
@@ -341,6 +343,47 @@ describe('setTheme reveal', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(store.theme).toBe('dark')
+  })
+
+  it('lets the store follow the applied theme when the transition is skipped', async () => {
+    document.startViewTransition = ((callback: () => unknown) => {
+      callback()
+      return {
+        ready: Promise.reject(new DOMException('skipped', 'AbortError')),
+        finished: Promise.resolve(),
+        skipTransition: vi.fn(),
+      }
+    }) as unknown as typeof document.startViewTransition
+
+    const store = useThemeStore()
+    store.setTheme('dark', { user: true, point: [10, 10] })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // The callback already flipped the DOM; the switch must not stay behind.
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(store.theme).toBe('dark')
+    expect(store.userChosen).toBe(true)
+  })
+
+  it('ignores the late ready of a transition the next toggle replaced', async () => {
+    const readies: Array<() => void> = []
+    document.startViewTransition = ((callback: () => unknown) => {
+      callback()
+      return {
+        ready: new Promise<void>((resolve) => readies.push(resolve)),
+        finished: Promise.resolve(),
+        skipTransition: vi.fn(),
+      }
+    }) as unknown as typeof document.startViewTransition
+
+    const store = useThemeStore()
+    store.setTheme('dark', { user: true, point: [10, 10] })
+    store.setTheme('light', { user: true, point: [10, 10] })
+    readies[0]?.()
+    readies[1]?.()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(store.theme).toBe('light')
   })
 
   it('applies the reactive theme without animation when the reveal is skipped', () => {

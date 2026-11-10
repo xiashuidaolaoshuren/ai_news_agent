@@ -126,11 +126,21 @@ export function runSetTheme(
   themeViewTransition = vt
 
   let reveal: Animation | undefined
+  let applied = false
+  const applyOnce = () => {
+    // A toggle the next one replaced must not write its theme back over the
+    // newer one, and every path that settles this transition shares one call.
+    if (applied || themeViewTransition !== vt) {
+      return
+    }
+    applied = true
+    void options.onApply?.()
+  }
   void vt.ready
     .then(() => {
       // State and labels catch up once the browser owns the new snapshot, so a
       // Vue flush can no longer sit between the click and the reveal.
-      void options.onApply?.()
+      applyOnce()
       reveal = root.animate(
         { clipPath: grow ? points : [...points].reverse() },
         {
@@ -143,9 +153,12 @@ export function runSetTheme(
         },
       )
     })
-    .catch(() => {})
+    // A skipped transition rejects `ready`, but the callback has already applied
+    // the theme to the document; the switch still has to catch up.
+    .catch(applyOnce)
 
   void vt.finished.finally(() => {
+    applyOnce()
     // `fill: 'both'` keeps a finished animation alive, and a leftover one on the
     // same pseudo-element pushes every later reveal off the compositor. Release
     // it even when a newer toggle cut this transition short.

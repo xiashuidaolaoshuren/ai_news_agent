@@ -355,6 +355,29 @@ def test_enrich_skips_hub_when_model_card_already_fetched() -> None:
     asyncio.run(main())
 
 
+def test_enrich_loads_model_card_with_connector_token(monkeypatch: Any) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_load(repo_id: str, **kwargs: Any) -> SimpleNamespace:
+        calls.append({"repo_id": repo_id, **kwargs})
+        return SimpleNamespace(content="README body")
+
+    from huggingface_hub import ModelCard
+
+    monkeypatch.setattr(ModelCard, "load", fake_load)
+
+    item = _hf_enrich_item(raw_snippet=None, source_evidence={})
+    conn = HuggingFaceConnector(api=FakeHfApi(), token="hf_test_token")
+
+    async def main() -> None:
+        enriched, warnings = await conn.enrich_news_item(item)
+        assert warnings == []
+        assert enriched.raw_snippet is not None
+        assert calls == [{"repo_id": "org/demo-model", "token": "hf_test_token"}]
+
+    asyncio.run(main())
+
+
 def test_enrich_maps_readme_to_raw_snippet_and_marks_fetched() -> None:
     long_text = "x" * 5000
 

@@ -161,7 +161,7 @@ class HuggingFaceConnector:
             if loader is None:
                 from huggingface_hub import ModelCard
 
-                loader = ModelCard.load
+                return ModelCard.load(repo_id, token=self._token)
             return loader(repo_id)
 
         try:
