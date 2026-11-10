@@ -19,6 +19,7 @@ class SourceKind(StrEnum):
     JUYA = "juya"
     HUGGINGFACE = "huggingface"
     ZHIHU = "zhihu"
+    OPENROUTER = "openrouter"
 
 
 class FollowUpAction(StrEnum):

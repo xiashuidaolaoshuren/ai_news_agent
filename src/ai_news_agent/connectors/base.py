@@ -46,6 +46,8 @@ class ConnectorRequest:
     github_keywords: list[str] | None = None
     github_min_stars: int | None = None
     github_language: str | None = None
+    #: OpenRouter: keep only listings with known-zero prompt and completion prices.
+    free_only: bool = False
 
 
 @dataclass
