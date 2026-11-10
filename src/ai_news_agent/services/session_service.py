@@ -42,8 +42,10 @@ CANCELLED_ASSISTANT_MESSAGE = "The request was cancelled."
 def is_pending_juya_confirmation(record: SessionRequestRecord) -> bool:
     if record.status != "active" or record.run_id is not None:
         return False
-    payload = (record.interpretation or {}).get("juya_confirmation")
-    return isinstance(payload, dict)
+    interpretation = record.interpretation or {}
+    if interpretation.get("juya_confirmation_claimed"):
+        return False
+    return isinstance(interpretation.get("juya_confirmation"), dict)
 
 
 class SessionService:
@@ -106,6 +108,14 @@ class SessionService:
         merged = dict(existing.interpretation or {}) if existing is not None else {}
         merged.update(interpretation)
         self._store.set_request_interpretation(session_id, request_id, merged)
+
+    def claim_juya_confirmation(
+        self,
+        session_id: str,
+        request_id: str,
+    ) -> dict[str, object] | None:
+        """Claim a pending Juya confirmation; only the first caller gets the payload."""
+        return self._store.claim_juya_confirmation(session_id, request_id)
 
     def pending_clarification(self, session_id: str) -> dict[str, object] | None:
         """The newest succeeded request's pending question, if it has one."""

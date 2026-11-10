@@ -111,6 +111,23 @@ def _seed_session_linked_digest(tmp_path: Path, session_id: str) -> tuple[Digest
     return store, run_id
 
 
+def test_run_session_followup_falls_back_when_bind_tools_raises(
+    tmp_path: Path,
+) -> None:
+    class _Unconfigured:
+        def bind_tools(self, tools: Any) -> Any:
+            del tools
+            raise ValueError("Configure an LLM in Settings (API key) to generate digests.")
+
+    router = _build_router(tmp_path, tool_model=_Unconfigured())
+    result = asyncio.run(
+        router.run_session_followup(session_id="s1", message="what changed?")
+    )
+
+    assert result.kind is InterfaceAgentResultKind.FALLBACK
+    assert "Try a concrete request" in result.text
+
+
 def test_run_session_followup_uses_session_scoped_context(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

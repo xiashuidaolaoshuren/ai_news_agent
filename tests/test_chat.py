@@ -2533,6 +2533,97 @@ def test_stream_events_juya_all_over_twenty_skips_workflow_runner(
     assert confirmation["issue_number"] == "juya-rss-issue-1"
 
 
+def test_stream_events_repeat_juya_all_requests_confirmation(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.conversation import request_metadata, request_payload
+
+    db_path = tmp_path / "juya-repeat-confirm.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    stored_request = DigestRequest(
+        connector_names=["juya"],
+        juya_item_count_all=True,
+        juya_all_confirmed=False,
+    )
+    _save_session_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["agents"],
+        request_id="req-juya-original",
+        ensure_session=False,
+    )
+    original = session_store.get_request(created.id, "req-juya-original")
+    assert original is not None
+    session_service.set_request_interpretation(
+        created.id,
+        "req-juya-original",
+        {
+            "intent": "digest",
+            "request": request_payload(stored_request),
+            "public": request_metadata(stored_request),
+        },
+    )
+
+    runner_called = False
+
+    async def fake_streaming_runner(
+        req: DigestRequest,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ):
+        del req, session_id, request_id
+        nonlocal runner_called
+        runner_called = True
+        if False:
+            yield "", False, None
+
+    def fake_juya_factory() -> object:
+        class _Conn:
+            async def collect(self, _request: object) -> ConnectorResult:
+                return ConnectorResult(items=_juya_story_items(21))
+
+            async def aclose(self) -> None:
+                return None
+
+        return _Conn()
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=fake_streaming_runner,
+        streaming_workflow_runner=fake_streaming_runner,
+        session_service=session_service,
+        juya_connector_factory=fake_juya_factory,
+    )
+
+    events = asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Run again",
+            session_id=created.id,
+            request_id="req-juya-repeat",
+            repeat_of_user_message_id=original.user_message_id,
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    assert runner_called is False
+    done = next(e for e in events if isinstance(e, DoneEvent))
+    assert done.path == "juya_confirmation"
+    record = session_service.get_request(created.id, "req-juya-repeat")
+    assert record is not None
+    assert record.status == "active"
+    assert record.run_id is None
+    confirmation = (record.interpretation or {}).get("juya_confirmation")
+    assert confirmation["story_count"] == 21
+
+
 def test_stream_events_juya_all_twenty_still_runs_digest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2728,4 +2819,93 @@ def test_continue_juya_all_runs_digest_on_same_request_id(
     assert record is not None
     assert record.status == "succeeded"
     assert record.run_id is not None
+
+
+def test_continue_juya_all_duplicate_submission_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_news_agent.services import chat as chat_module
+    from ai_news_agent.services.conversation import ConversationDecision
+
+    db_path = tmp_path / "juya-continue-dup.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_service = SessionService(SessionStore(db_path))
+    created = session_service.create_session()
+    runs = 0
+
+    async def fake_streaming_runner(
+        req: DigestRequest,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ):
+        del req, session_id, request_id
+        nonlocal runs
+        runs += 1
+        if False:
+            yield "", False, None
+
+    def fake_juya_factory() -> object:
+        class _Conn:
+            async def collect(self, _request: object) -> ConnectorResult:
+                return ConnectorResult(items=_juya_story_items(21))
+
+            async def aclose(self) -> None:
+                return None
+
+        return _Conn()
+
+    def fake_interpret(
+        _message: str,
+        *,
+        context: object | None = None,
+        model: object | None = None,
+    ) -> ConversationDecision:
+        del context, model
+        return ConversationDecision(
+            intent="digest",
+            request=DigestRequest(
+                connector_names=["juya"],
+                juya_item_count_all=True,
+            ),
+        )
+
+    monkeypatch.setattr(chat_module, "interpret_message", fake_interpret)
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=fake_streaming_runner,
+        streaming_workflow_runner=fake_streaming_runner,
+        session_service=session_service,
+        juya_connector_factory=fake_juya_factory,
+    )
+
+    asyncio.run(
+        _collect_stream_events(
+            svc,
+            "Digest juya all",
+            session_id=created.id,
+            request_id="req-juya-dup",
+            chunk_size=1000,
+            chunk_delay_s=0,
+        )
+    )
+
+    async def race() -> None:
+        first = svc.continue_juya_all(
+            created.id, "req-juya-dup", chunk_size=1000, chunk_delay_s=0
+        )
+        await anext(first)
+        with pytest.raises(KeyError):
+            await anext(
+                svc.continue_juya_all(
+                    created.id, "req-juya-dup", chunk_size=1000, chunk_delay_s=0
+                )
+            )
+        async for _event in first:
+            pass
+
+    asyncio.run(race())
+    assert runs == 1
 

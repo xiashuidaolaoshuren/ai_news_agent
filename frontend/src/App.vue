@@ -253,6 +253,7 @@ onUnmounted(() => {
       <HistoryPanel
         :vm="history.vm"
         :conversation-digest="lastDigestRef"
+        :current-session-id="thread.session?.id ?? null"
         @update-filter="history.setFilters($event)"
         @clear="history.clearFilters()"
         @retry="history.retry()"

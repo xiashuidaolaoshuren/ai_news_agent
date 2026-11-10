@@ -108,6 +108,7 @@ describe('toHistoryMatchVm', () => {
       host: 'huggingface.co',
       excerpt: 'GGUF quant of Qwen-Image-2.1 · trending 816.',
       topics: ['Model releases'],
+      sessionId: null,
     })
   })
 
@@ -123,6 +124,7 @@ describe('toHistoryMatchVm', () => {
     expect(vm.topics).toEqual([])
     expect(vm.excerpt).toBeNull()
     expect(vm.rank).toBe(1)
+    expect(toHistoryMatchVm(match({ session_id: 's1' })).sessionId).toBe('s1')
   })
 
   it('drops a non-http url and its host', () => {

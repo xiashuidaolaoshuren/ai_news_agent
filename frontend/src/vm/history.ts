@@ -32,6 +32,8 @@ export interface HistoryMatchVm {
   host: string | null
   excerpt: string | null
   topics: string[]
+  /** The conversation the digest belongs to; null for shared or CLI digests. */
+  sessionId: string | null
 }
 
 const UNTITLED = 'New conversation'
@@ -69,6 +71,7 @@ export function toHistoryMatchVm(match: HistorySearchMatchOut): HistoryMatchVm {
     host: hostOf(url),
     excerpt: textOrNull(match.excerpt ?? null),
     topics: match.topics ?? [],
+    sessionId: match.session_id ?? null,
   }
 }
 

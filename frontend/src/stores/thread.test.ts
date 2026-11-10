@@ -505,6 +505,53 @@ describe('thread store run ownership', () => {
 
     expect(store.controller.alert.value).toBeNull()
   })
+
+  it('confirms a Juya request with the open conversation\'s id, not another run\'s', async () => {
+    const hold = deferred()
+    const confirms: [string, string, string][] = []
+    const continues: [string, string][] = []
+    const store = makeStore({
+      loadMessages: async () => [
+        message({
+          session_id: 's2',
+          juya_confirmation: {
+            story_count: 25,
+            issue: '2026-06-16',
+            issue_number: 'juya-rss-1',
+          },
+        }),
+      ],
+      post: async () =>
+        (async function* generate() {
+          yield started
+          await hold.promise
+        })(),
+      continueJuya: async (sessionId, requestId) => {
+        continues.push([sessionId, requestId])
+        return events([
+          { event: 'done', data: { request_id: requestId, message_id: 2, run_id: 9, path: 'digest' } },
+        ])
+      },
+      confirmJuya: async (sessionId, requestId, action) => {
+        confirms.push([sessionId, requestId, action])
+      },
+    })
+
+    await store.controller.openSession(sessionOut({ id: 's1' }))
+    const sending = store.lifecycle.send('s1', { content: 'digest please' })
+    await waitFor(() => store.controller.snapshot.value.requestId === 'r1')
+
+    await store.controller.openSession(sessionOut({ id: 's2', active_request_id: 'r2' }))
+
+    await store.controller.confirmJuya(1, 'cancel')
+    expect(confirms).toEqual([['s2', 'r2', 'cancel']])
+
+    await store.controller.confirmJuya(1, 'continue')
+    expect(continues).toEqual([['s2', 'r2']])
+
+    hold.resolve()
+    await sending
+  })
 })
 
 describe('thread store exhausted polling', () => {

@@ -39,7 +39,6 @@ from ai_news_agent.services.session_records import SessionRequestRecord
 from ai_news_agent.services.session_service import (
     CANCELLED_ASSISTANT_MESSAGE,
     SessionService,
-    is_pending_juya_confirmation,
 )
 from ai_news_agent.connectors.base import ConnectorRequest
 from ai_news_agent.source_settings import (
@@ -320,7 +319,7 @@ class ChatService:
                         request=repeat_interpretation.get("public") or None,
                         intent="digest",
                     )
-                    async for event in self._stream_session_digest_events(
+                    async for event in self._stream_confirmation_gated_digest_events(
                         session_id=session_id,
                         record=record,
                         request=repeat_request,
@@ -376,21 +375,7 @@ class ChatService:
             )
 
             if decision.intent == "digest" and request is not None:
-                if request.juya_item_count_all and not request.juya_all_confirmed:
-                    preview_items = await self._preview_juya_items(request)
-                    confirm_payload = juya_all_confirmation(request, preview_items)
-                    if confirm_payload is not None:
-                        async for event in self._stream_juya_confirmation_events(
-                            session_id=session_id,
-                            record=record,
-                            request=request,
-                            confirm_payload=confirm_payload,
-                            chunk_size=chunk_size,
-                            chunk_delay_s=chunk_delay_s,
-                        ):
-                            yield event
-                        return
-                async for event in self._stream_session_digest_events(
+                async for event in self._stream_confirmation_gated_digest_events(
                     session_id=session_id,
                     record=record,
                     request=request,
@@ -472,6 +457,39 @@ class ChatService:
             except Exception:  # noqa: BLE001 - a model failure gets guidance
                 logger.exception("general answer failed")
         return _GENERAL_FALLBACK
+
+    async def _stream_confirmation_gated_digest_events(
+        self,
+        *,
+        session_id: str,
+        record: SessionRequestRecord,
+        request: DigestRequest,
+        chunk_size: int,
+        chunk_delay_s: float,
+    ) -> AsyncIterator[ChatEvent]:
+        """Run a digest, asking first when a large Juya-all selection needs confirmation."""
+        if request.juya_item_count_all and not request.juya_all_confirmed:
+            preview_items = await self._preview_juya_items(request)
+            confirm_payload = juya_all_confirmation(request, preview_items)
+            if confirm_payload is not None:
+                async for event in self._stream_juya_confirmation_events(
+                    session_id=session_id,
+                    record=record,
+                    request=request,
+                    confirm_payload=confirm_payload,
+                    chunk_size=chunk_size,
+                    chunk_delay_s=chunk_delay_s,
+                ):
+                    yield event
+                return
+        async for event in self._stream_session_digest_events(
+            session_id=session_id,
+            record=record,
+            request=request,
+            chunk_size=chunk_size,
+            chunk_delay_s=chunk_delay_s,
+        ):
+            yield event
 
     async def _preview_juya_items(self, request: DigestRequest) -> list[Any]:
         if self._juya_connector_factory is None:
@@ -562,14 +580,16 @@ class ChatService:
         chunk_delay_s: float = 0.02,
     ) -> AsyncIterator[ChatEvent]:
         assert self._session_service is not None
-        record = self._session_service.get_request(session_id, request_id)
-        if record is None or not is_pending_juya_confirmation(record):
+        stored = self._session_service.claim_juya_confirmation(
+            session_id, request_id
+        )
+        if stored is None:
             raise KeyError(
                 f"pending Juya confirmation not found: session={session_id!r} "
                 f"request={request_id!r}"
             )
-        stored = (record.interpretation or {}).get("juya_confirmation")
-        if not isinstance(stored, dict):
+        record = self._session_service.get_request(session_id, request_id)
+        if record is None:
             raise KeyError(
                 f"pending Juya confirmation not found: session={session_id!r} "
                 f"request={request_id!r}"

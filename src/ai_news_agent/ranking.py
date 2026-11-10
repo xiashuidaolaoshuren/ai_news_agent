@@ -87,11 +87,11 @@ def rank_items(
 
     ranked.sort(key=sort_key)
 
-    if source_item_counts:
+    if source_item_counts or juya_item_count_all:
         ranked = _collapse_hf_ranked_rows(ranked, reference=reference, sort_key=sort_key)
         _apply_per_source_selection_map(
             ranked,
-            source_item_counts=source_item_counts,
+            source_item_counts=source_item_counts or {},
             juya_item_count_all=juya_item_count_all,
             timeframe=timeframe,
             reference=reference,

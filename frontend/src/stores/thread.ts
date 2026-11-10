@@ -608,7 +608,7 @@ export function createThreadController(deps: ThreadDeps) {
    * running it, and the outcome is what ends the alert.
    */
   async function retryPoll(): Promise<void> {
-    const requestId = rawSnapshot.value.requestId
+    const requestId = snapshot.value.requestId
     const sessionId = session.value?.id
     if (requestId === null || sessionId === undefined) {
       return
@@ -631,7 +631,7 @@ export function createThreadController(deps: ThreadDeps) {
   ): Promise<void> {
     const current = session.value
     const sessionId = current?.id
-    const requestId = rawSnapshot.value.requestId ?? current?.active_request_id ?? null
+    const requestId = snapshot.value.requestId ?? current?.active_request_id ?? null
     if (sessionId === undefined || requestId === null || messageId < 0) {
       return
     }

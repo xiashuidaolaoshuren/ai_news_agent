@@ -12,7 +12,17 @@ const props = defineProps<{
   vm: HistoryPanelVm
   /** The newest digest in this conversation, named by the opened-result note. */
   conversationDigest?: string | null
+  /** The open conversation, so chat actions stay on digests it owns. */
+  currentSessionId?: string | null
 }>()
+
+/** A targeted follow-up only works for a digest that belongs to this conversation. */
+const canTarget = computed(
+  () =>
+    props.currentSessionId !== null &&
+    props.currentSessionId !== undefined &&
+    props.vm.opened?.match.sessionId === props.currentSessionId,
+)
 
 const emit = defineEmits<{
   updateFilter: [patch: Partial<HistoryFilters>]
@@ -193,6 +203,7 @@ function refFromMatch(match: HistoryMatchVm): RefVm {
           <EntryRow
             :entry="props.vm.opened.item.entry"
             :digest-id="props.vm.opened.match.digestId"
+            :actions="canTarget"
             @deepdive="emit('deepdive', $event)"
             @ask="emit('ask', $event)"
             @goto-related="emit('goto-related', $event)"
@@ -212,6 +223,7 @@ function refFromMatch(match: HistoryMatchVm): RefVm {
             ><AppIcon name="ext" />Open source page</a
           >
           <button
+            v-if="canTarget"
             type="button"
             class="btn btn-sm btn-ghost"
             @click="emit('ask', refFromMatch(props.vm.opened.match))"

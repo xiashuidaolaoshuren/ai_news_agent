@@ -731,6 +731,46 @@ def test_juya_confirmation_projection_drops_a_settled_request(
     assert service.juya_confirmation_projection(created.id) == {}
 
 
+def test_claim_juya_confirmation_is_once_only(tmp_path: Path) -> None:
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.session_service import (
+        SessionService,
+        is_pending_juya_confirmation,
+    )
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "claim-juya.db"
+    DigestStore(db_path).init_schema()
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+    pending = service.begin_request(
+        created.id,
+        content="Digest juya all",
+        request_id="req-pending",
+    )
+    confirmation = {
+        "story_count": 25,
+        "issue": "2026-06-16",
+        "issue_number": "juya-rss-1",
+        "request": {"connector_names": ["juya"], "juya_item_count_all": True},
+    }
+    service.set_request_interpretation(
+        created.id,
+        pending.id,
+        {"juya_confirmation": confirmation},
+    )
+
+    first = service.claim_juya_confirmation(created.id, pending.id)
+    second = service.claim_juya_confirmation(created.id, pending.id)
+
+    assert first == confirmation
+    assert second is None
+    claimed = service.get_request(created.id, pending.id)
+    assert claimed is not None
+    assert is_pending_juya_confirmation(claimed) is False
+    assert service.juya_confirmation_projection(created.id) == {}
+
+
 def test_begin_request_raises_session_busy_for_different_active_id(
     tmp_path: Path,
 ) -> None:

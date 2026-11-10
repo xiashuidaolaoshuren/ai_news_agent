@@ -21,6 +21,7 @@ const MATCH = {
   excerpt: 'OpenShell is the safe, private runtime for autonomous AI agents.',
   score: 9,
   topics: ['Agent tooling'],
+  session_id: 's1',
 }
 
 const RESULT: HistorySearchResultOut = {
@@ -32,10 +33,11 @@ const RESULT: HistorySearchResultOut = {
 
 /** An opened result with one match, resolved to an entry or falling back to markdown. */
 function openedVm(
-  options: { url?: string | null; withEntry?: boolean } = {},
+  options: { url?: string | null; withEntry?: boolean; sessionId?: string | null } = {},
 ): HistoryPanelVm {
   const match = toHistoryMatchVm({
     ...MATCH,
+    session_id: options.sessionId === undefined ? MATCH.session_id : options.sessionId,
     url: options.url === undefined ? MATCH.url : (options.url as string),
   })
   return toHistoryPanelVm({
@@ -60,9 +62,18 @@ function opened(wrapper: ReturnType<typeof mount>) {
   return wrapper.get('[data-od-id="history-opened-result"]')
 }
 
+function mountOpened(
+  options: { url?: string | null; withEntry?: boolean; sessionId?: string | null } = {},
+  currentSessionId: string | null = 's1',
+) {
+  return mount(HistoryPanel, {
+    props: { vm: openedVm(options), currentSessionId },
+  })
+}
+
 describe('HistoryPanel opened result', () => {
   it('shows the topic and offers the source page and Ask in chat', async () => {
-    const wrapper = mount(HistoryPanel, { props: { vm: openedVm() } })
+    const wrapper = mountOpened()
     const block = opened(wrapper)
 
     expect(block.text()).toContain('Agent tooling')
@@ -83,7 +94,7 @@ describe('HistoryPanel opened result', () => {
   })
 
   it('keeps the actions when the saved entry resolved', () => {
-    const wrapper = mount(HistoryPanel, { props: { vm: openedVm({ withEntry: true }) } })
+    const wrapper = mountOpened({ withEntry: true })
     const block = opened(wrapper)
 
     expect(block.find('.entries').exists()).toBe(true)
@@ -92,12 +103,21 @@ describe('HistoryPanel opened result', () => {
   })
 
   it('leaves the source page out when the match has no usable url', () => {
-    const wrapper = mount(HistoryPanel, {
-      props: { vm: openedVm({ url: 'javascript:alert(1)' }) },
-    })
+    const wrapper = mountOpened({ url: 'javascript:alert(1)' })
     const block = opened(wrapper)
 
     expect(block.find('a.btn').exists()).toBe(false)
     expect(block.text()).toContain('Ask in chat')
+  })
+
+  it('hides the chat actions when the digest belongs to another conversation', () => {
+    for (const sessionId of [null, 's2']) {
+      const wrapper = mountOpened({ withEntry: true, sessionId })
+      const block = opened(wrapper)
+
+      expect(block.text()).not.toContain('Ask in chat')
+      expect(block.text()).not.toContain('Deep dive')
+      expect(block.text()).toContain('Open source page')
+    }
   })
 })

@@ -9,13 +9,18 @@ import { riseStyle } from '@/lib/motion'
 import { hostOf } from '@/vm'
 import type { EntryVm, RefVm } from '@/vm'
 
-const props = defineProps<{
-  entry: EntryVm
-  /** Digest id for follow-up targets (not the display ref string). */
-  digestId: number
-  /** Stagger position when this row arrived live; null keeps it still. */
-  rise?: number | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    entry: EntryVm
+    /** Digest id for follow-up targets (not the display ref string). */
+    digestId: number
+    /** Stagger position when this row arrived live; null keeps it still. */
+    rise?: number | null
+    /** Deep dive and Ask buttons; off for a digest the conversation cannot target. */
+    actions?: boolean
+  }>(),
+  { actions: true },
+)
 
 const emit = defineEmits<{
   deepdive: [ref: RefVm]
@@ -175,7 +180,7 @@ const showsBackground = computed(
         </button>
       </div>
 
-      <div class="entry-foot">
+      <div v-if="props.actions" class="entry-foot">
         <button
           type="button"
           class="link-btn"

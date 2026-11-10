@@ -378,6 +378,10 @@ export type HistorySearchMatchOut = {
      * Topics
      */
     topics?: Array<string>;
+    /**
+     * Session Id
+     */
+    session_id?: string | null;
 };
 
 /**

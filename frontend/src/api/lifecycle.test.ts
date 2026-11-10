@@ -485,7 +485,7 @@ describe('createRequestLifecycle reconnect', () => {
     expect(lifecycle.state.state).toBe('succeeded')
   })
 
-  it('rethrows a send that never reached the server, so the composer can report it', async () => {
+  it('leaves the lifecycle idle when a send never reached the server', async () => {
     const lifecycle = makeLifecycle({
       post: async () => {
         throw new Error('backend unreachable')
@@ -495,7 +495,7 @@ describe('createRequestLifecycle reconnect', () => {
     await expect(lifecycle.send('s1', { content: 'hi' })).rejects.toThrow(
       'backend unreachable',
     )
-    expect(lifecycle.state.state).toBe('streaming')
+    expect(lifecycle.state.state).toBe('idle')
   })
 
   it('reconnects with backoff after a dropped stream and never reopens the stream', async () => {

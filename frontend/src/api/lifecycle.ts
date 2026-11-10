@@ -299,10 +299,14 @@ export function createRequestLifecycle(deps: LifecycleDeps): RequestLifecycle {
       }
       // A stream that breaks mid-flight is the dropped-stream case: the server keeps
       // running, so poll for the outcome. Without a request id there is nothing to
-      // poll, and the send failure belongs to the caller.
+      // poll, and the send failure belongs to the caller — but the composer must not
+      // stay blocked on a request that never started.
       if (!isSuperseded(token) && snapshot.requestId !== null) {
         await reconnect(sessionId, 1, token)
         return
+      }
+      if (!isSuperseded(token)) {
+        emit({ ...idleRequestSnapshot(), sessionId })
       }
       throw error
     }

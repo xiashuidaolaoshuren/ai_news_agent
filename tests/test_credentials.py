@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from pathlib import Path
 
@@ -185,11 +186,55 @@ def test_build_connectors_unreadable_github_is_blocked(tmp_path: Path) -> None:
 def test_build_application_live_without_openai_env_starts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from ai_news_agent.services.composition import build_application
+    from ai_news_agent.services.composition import _LazyToolProxy, build_application
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     application = build_application(fake=False, db_path=tmp_path / "live-no-llm.db")
     assert application.chat_service is not None
+    router = application.chat_service._interface_router
+    assert isinstance(router._tool_model, _LazyToolProxy)
+
+
+def test_lazy_tool_proxy_resolves_the_current_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cryptography.fernet import Fernet
+
+    from ai_news_agent.services import composition
+    from ai_news_agent.services.composition import _LLM_UNCONFIGURED_MESSAGE, build_application
+
+    key = Fernet.generate_key().decode()
+    monkeypatch.setenv("AI_NEWS_AGENT_SECRET_KEY", key)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    db = tmp_path / "lazy-tool.db"
+    models: list[object] = []
+
+    class _Model:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def bind_tools(self, tools: object) -> "_Model":
+            del tools
+            return self
+
+    def _build_tool_chat_model(**_kwargs: object) -> _Model:
+        model = _Model("A" if len(models) == 0 else "B")
+        models.append(model)
+        return model
+
+    monkeypatch.setattr(composition, "build_chat_model", lambda **_kwargs: object())
+    monkeypatch.setattr(composition, "build_tool_chat_model", _build_tool_chat_model)
+
+    application = build_application(fake=False, db_path=db)
+    proxy = application.chat_service._interface_router._tool_model
+    with pytest.raises(ValueError, match=re.escape(_LLM_UNCONFIGURED_MESSAGE)):
+        proxy.bind_tools([])
+
+    application.credentials_service.save_llm(api_key="sk-first")
+    assert proxy.bind_tools([]).name == "A"
+    application.credentials_service.save_llm(api_key="sk-second")
+    assert proxy.bind_tools([]).name == "B"
 
 
 def test_build_application_uses_saved_llm_override(

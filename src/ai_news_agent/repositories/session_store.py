@@ -311,6 +311,53 @@ class SessionStore:
                 (payload, session_id, request_id),
             )
 
+    def claim_juya_confirmation(
+        self,
+        session_id: str,
+        request_id: str,
+    ) -> dict[str, object] | None:
+        """Mark one pending Juya confirmation as claimed, exactly once.
+
+        The comparison uses the stored JSON text, so two callers cannot both win.
+        Returns the confirmation payload for the caller that won, otherwise None.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT interpretation_json
+                FROM session_requests
+                WHERE session_id = ? AND id = ?
+                  AND status = 'active' AND run_id IS NULL
+                """,
+                (session_id, request_id),
+            ).fetchone()
+            if row is None or row["interpretation_json"] is None:
+                return None
+            raw = row["interpretation_json"]
+            interpretation = json.loads(raw)
+            if not isinstance(interpretation, dict):
+                return None
+            if interpretation.get("juya_confirmation_claimed"):
+                return None
+            payload = interpretation.get("juya_confirmation")
+            if not isinstance(payload, dict):
+                return None
+            claimed = dict(interpretation)
+            claimed["juya_confirmation_claimed"] = True
+            cur = conn.execute(
+                """
+                UPDATE session_requests
+                SET interpretation_json = ?
+                WHERE session_id = ? AND id = ?
+                  AND status = 'active' AND run_id IS NULL
+                  AND interpretation_json = ?
+                """,
+                (json.dumps(claimed), session_id, request_id, raw),
+            )
+            if int(cur.rowcount) != 1:
+                return None
+            return payload
+
     def link_active_request_run(self, session_id: str, run_id: int) -> None:
         """Associate a persisted run with the session's active request."""
         with self._conn() as conn:

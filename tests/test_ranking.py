@@ -1019,6 +1019,49 @@ def test_rank_items_juya_all_selects_every_juya_row_while_github_stays_capped() 
     assert len(selected_github) == 2
 
 
+def test_rank_items_juya_all_without_counts_selects_every_story() -> None:
+    from ai_news_agent.ranking import rank_items
+
+    now = datetime(2026, 5, 7, 12, 0, 0, tzinfo=UTC)
+    juya_items = [
+        NewsItem(
+            source=SourceKind.JUYA,
+            source_id=f"juya-story-issue-1-{i}",
+            url=f"https://daily.juya.uk/2026/06/16/#story-{i}",
+            title=f"story {i}",
+            collected_at=now,
+            source_evidence={
+                "juya_item_type": "story",
+                "story_number": i,
+                "issue_id": "juya-rss-abc",
+            },
+        )
+        for i in range(1, 9)
+    ]
+    github_item = NewsItem(
+        source=SourceKind.GITHUB,
+        source_id="g1",
+        url="https://github.com/a/g1",
+        title="g1",
+        collected_at=now,
+    )
+    ranked = rank_items(
+        juya_items + [github_item],
+        top_n=5,
+        source_item_counts=None,
+        juya_item_count_all=True,
+        now=now,
+    )
+    selected_juya = [
+        row for row in ranked if row.selected and row.item.source is SourceKind.JUYA
+    ]
+    selected_github = [
+        row for row in ranked if row.selected and row.item.source is SourceKind.GITHUB
+    ]
+    assert len(selected_juya) == 8
+    assert selected_github == []
+
+
 def test_rank_items_source_item_counts_caps_each_kind_independently() -> None:
     from ai_news_agent.ranking import rank_items
 

@@ -128,6 +128,28 @@ class _LazyLlmProxy:
         return model.interpret_conversation(*args, **kwargs)
 
 
+class _LazyToolProxy:
+    """Delegates tool-calling model calls to the holder's current client."""
+
+    def __init__(self, holder: _LlmConfigHolder) -> None:
+        self._holder = holder
+
+    def _model(self) -> Any | None:
+        return self._holder.get()[1]
+
+    def bind_tools(self, tools: Any) -> Any:
+        model = self._model()
+        if model is None:
+            raise ValueError(_LLM_UNCONFIGURED_MESSAGE)
+        return model.bind_tools(tools)
+
+    async def ainvoke(self, messages: Any) -> Any:
+        model = self._model()
+        if model is None:
+            raise ValueError(_LLM_UNCONFIGURED_MESSAGE)
+        return await model.ainvoke(messages)
+
+
 def _digest_result_for_llm_block(
     req: DigestRequest,
     *,
@@ -366,26 +388,24 @@ def _build_chat_service(
             await _aclose_connectors(connectors)
 
     if not fake and llm_holder is not None:
-        _chat_model, tool_model = llm_holder.get()
-        if tool_model is not None:
-            interface_router = build_interface_tool_router(
-                store=store,
-                tool_model=tool_model,
-                github_factory=build_connector_factory(
-                    fake=fake, name="github", credentials=credentials_service
-                ),
-                bilibili_factory=build_connector_factory(
-                    fake=fake, name="bilibili", credentials=credentials_service
-                ),
-                juya_factory=build_connector_factory(fake=fake, name="juya", credentials=creds),
-                huggingface_factory=build_connector_factory(
-                    fake=fake, name="huggingface", credentials=credentials_service
-                ),
-                zhihu_factory=build_connector_factory(
-                    fake=fake, name="zhihu", credentials=credentials_service
-                ),
-                interface_name="api",
-            )
+        interface_router = build_interface_tool_router(
+            store=store,
+            tool_model=_LazyToolProxy(llm_holder),
+            github_factory=build_connector_factory(
+                fake=fake, name="github", credentials=credentials_service
+            ),
+            bilibili_factory=build_connector_factory(
+                fake=fake, name="bilibili", credentials=credentials_service
+            ),
+            juya_factory=build_connector_factory(fake=fake, name="juya", credentials=creds),
+            huggingface_factory=build_connector_factory(
+                fake=fake, name="huggingface", credentials=credentials_service
+            ),
+            zhihu_factory=build_connector_factory(
+                fake=fake, name="zhihu", credentials=credentials_service
+            ),
+            interface_name="api",
+        )
 
     hf_factory = (
         None

@@ -814,6 +814,7 @@ class DigestStore:
             "source_id": row["source_id"],
             "source_name": row["source_name"],
             "source_url": row["source_url"],
+            "session_id": row["session_id"],
         }
 
     def _utc_day_start(self, day: date) -> datetime:
@@ -857,11 +858,13 @@ class DigestStore:
                     d.generated_at,
                     d.topics_json,
                     d.id AS digest_id,
+                    r.session_id,
                     ROW_NUMBER() OVER (
                       PARTITION BY de.digest_id ORDER BY de.id ASC
                     ) AS display_rank
                   FROM digest_entries de
                   JOIN digests d ON d.id = de.digest_id
+                  LEFT JOIN runs r ON r.id = d.run_id
                 )
                 SELECT * FROM ranked_entries re
                 {where_sql}

@@ -4324,6 +4324,17 @@
             },
             "type": "array",
             "title": "Topics"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
           }
         },
         "additionalProperties": false,

@@ -71,6 +71,7 @@ def _candidate_to_match(
         excerpt=extract_historical_excerpt(query=query, candidate=candidate),
         score=score,
         topics=list(candidate.get("digest_topics") or []),
+        session_id=candidate.get("session_id"),
     )
 
 
