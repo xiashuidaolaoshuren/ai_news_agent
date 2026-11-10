@@ -34,16 +34,14 @@ describe('EmptyConversation', () => {
     expect(orbitLogos(wrapper)).toBe(5)
   })
 
-  it('offers the prototype suggestions', async () => {
+  it('offers the default digest first, then the prototype suggestions', async () => {
     const wrapper = mount(EmptyConversation)
 
     await wrapper.get('[data-od-id="suggestion-1"]').trigger('click')
 
-    expect(wrapper.emitted('suggest')).toEqual([
-      ['What shipped in open-weight models this week?'],
-    ])
+    expect(wrapper.emitted('suggest')).toEqual([["Digest today's AI news"]])
     expect(wrapper.get('[data-od-id="suggestion-2"]').text()).toBe(
-      'Trending agent tooling on GitHub this week',
+      'What shipped in open-weight models this week?',
     )
   })
 })

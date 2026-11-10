@@ -14,6 +14,7 @@ const ORBIT: EntryKind[] = SHOW_BILIBILI
   : ALL_ORBIT.filter((kind) => kind !== 'bilibili')
 
 const SUGGESTIONS = [
+  "Digest today's AI news",
   'What shipped in open-weight models this week?',
   'Trending agent tooling on GitHub this week',
   'Summarize the latest Juya AI 早报 for a beginner',

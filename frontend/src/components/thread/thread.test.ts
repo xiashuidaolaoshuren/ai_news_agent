@@ -347,19 +347,17 @@ describe('Thread', () => {
     expect(reloaded.html()).toBe(live.html())
   })
 
-  it('shows the empty conversation state with three suggestions', async () => {
+  it('shows the empty conversation state with four suggestions', async () => {
     const wrapper = mount(Thread, { props: { messages: [] } })
 
     expect(wrapper.get('.empty h2').text()).toBe('Start a digest')
     const suggestions = wrapper.findAll('.suggest button')
 
-    expect(suggestions).toHaveLength(3)
+    expect(suggestions).toHaveLength(4)
 
     await suggestions[0]!.trigger('click')
 
-    expect(wrapper.emitted('suggest')).toEqual([
-      ['What shipped in open-weight models this week?'],
-    ])
+    expect(wrapper.emitted('suggest')).toEqual([["Digest today's AI news"]])
   })
 
   it('shows no suggestions once the conversation has messages', () => {
