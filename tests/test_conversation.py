@@ -259,6 +259,7 @@ def test_request_metadata_describes_what_the_run_will_use() -> None:
         "per_source": 5,
         "counts": {"juya": "5"},
         "timeframe": "latest",
+        "windows": {"juya": "latest"},
         "topics": ["AI"],
         "language": "zh-CN",
         "audience": "beginner",
@@ -308,6 +309,46 @@ def test_refresh_without_a_saved_request_stays_a_followup() -> None:
     )
 
     assert decision.intent == "followup"
+
+
+def test_openrouter_in_message_selects_openrouter_connector() -> None:
+    decision = interpret_message(
+        "Summarize openrouter and github agent tooling releases"
+    )
+
+    assert decision.intent == "digest"
+    request = decision.request
+    assert request is not None
+    assert "openrouter" in request.connector_names
+    assert "github" in request.connector_names
+
+
+def test_windows_report_openrouter_fallback_without_storing_timeframe() -> None:
+    request = DigestRequest(
+        connector_names=["openrouter", "github"],
+        timeframe=None,
+    )
+    meta = request_metadata(request)
+    assert meta["timeframe"] is None
+    assert meta["windows"] == {"openrouter": "last_7_days", "github": ""}
+
+    payload = request_payload(request)
+    assert payload["timeframe"] is None
+    round_tripped = request_from_payload(payload)
+    assert round_tripped is not None
+    assert round_tripped.timeframe is None
+    assert request_metadata(round_tripped)["windows"]["openrouter"] == "last_7_days"
+
+
+def test_explicit_timeframe_fills_windows_for_every_source() -> None:
+    request = DigestRequest(
+        connector_names=["openrouter", "github"],
+        timeframe="today",
+    )
+    assert request_metadata(request)["windows"] == {
+        "openrouter": "today",
+        "github": "today",
+    }
 
 
 def test_explicit_repo_url_keeps_its_target_and_selection() -> None:

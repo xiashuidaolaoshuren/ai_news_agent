@@ -94,6 +94,17 @@ def test_empty_with_fatal_warning_is_failed() -> None:
     )
 
 
+def test_openrouter_request_failed_with_zero_entries_is_failed() -> None:
+    warning = ConnectorWarning(
+        connector="openrouter", code="request_failed", message="failed"
+    )
+    assert collection_outcome(entry_count=0, warnings=[warning]) == "failed"
+
+
+def test_openrouter_empty_success_is_no_eligible() -> None:
+    assert collection_outcome(entry_count=0, warnings=[]) == "no_eligible"
+
+
 def test_entries_with_fatal_warning_are_partial() -> None:
     assert (
         collection_outcome(

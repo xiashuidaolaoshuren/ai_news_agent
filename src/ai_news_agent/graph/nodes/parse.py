@@ -60,5 +60,6 @@ def parse_request_node(state: DigestGraphState) -> dict[str, object]:
             github_keywords=req.github_keywords,
             github_min_stars=req.github_min_stars,
             github_language=req.github_language,
+            free_only=req.free_only,
         )
     }

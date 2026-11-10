@@ -68,6 +68,20 @@ def _juya_entry(*, title: str = "Juya bulletin") -> DigestEntry:
     )
 
 
+def _openrouter_entry(*, title: str = "Free model") -> DigestEntry:
+    return DigestEntry(
+        source_kind=SourceKind.OPENROUTER,
+        source_id="vendor/m:free",
+        title=title,
+        source_name="OpenRouter",
+        source_url="https://openrouter.ai/vendor/m:free",
+        summary="OR summary.",
+        why_it_matters="Why OR.",
+        background_knowledge="BG OR.",
+        follow_up_action=FollowUpAction.TRY,
+    )
+
+
 def _huggingface_entry(*, title: str = "Trending model", source_id: str = "hf-1") -> DigestEntry:
     return DigestEntry(
         source_kind=SourceKind.HUGGINGFACE,
@@ -269,6 +283,20 @@ def test_render_digest_markdown_single_source_has_no_section_wrapper() -> None:
     out = render_digest_markdown(digest)
     assert "## GitHub" not in out
     assert "## 1. Neural nets \\_primer\\_" in out
+
+
+def test_render_digest_markdown_openrouter_section_uses_label_and_emoji() -> None:
+    from ai_news_agent.rendering import render_digest_markdown
+
+    digest = Digest(
+        generated_at=_fixture_dt(),
+        entries=[_github_entry(), _openrouter_entry()],
+        topics=["AI"],
+        timeframe="today",
+    )
+    out = render_digest_markdown(digest)
+    assert "\n## 🔗 OpenRouter\n" in out
+    assert "\n## 🐙 GitHub\n" in out
 
 
 def test_render_digest_markdown_mixed_huggingface_and_zhihu_section_labels() -> None:

@@ -531,10 +531,10 @@ def test_cli_and_session_service_share_saved_juya_profile(tmp_path: Path) -> Non
     assert web_req.source_item_counts.get("juya") == 8
 
 
-def test_openrouter_profile_is_not_a_connector_name() -> None:
+def test_openrouter_is_an_allowed_connector_name() -> None:
     from ai_news_agent.sources import ALLOWED_SOURCES
 
-    assert "openrouter" not in ALLOWED_SOURCES
+    assert "openrouter" in ALLOWED_SOURCES
 
 
 def test_finalize_public_counts_reports_shortfall() -> None:
@@ -591,6 +591,24 @@ def test_output_language_preference_defaults_and_round_trip(tmp_path: Path) -> N
 
     with pytest.raises(SourceSettingsValidationError):
         service.save_language("fr")
+
+
+def test_apply_sets_free_only_from_openrouter_profile(tmp_path: Path) -> None:
+    from ai_news_agent.request import DigestRequest
+    from ai_news_agent.source_settings import SourceSettingsService
+
+    db_path = tmp_path / "openrouter-free.db"
+    DigestStore(db_path).init_schema()
+    service = SourceSettingsService(db_path)
+    service.save_profile("openrouter", {"item_count": 5, "free_only": True})
+
+    applied = service.apply(DigestRequest(connector_names=["openrouter"]))
+    assert applied.free_only is True
+
+    already_true = service.apply(
+        DigestRequest(connector_names=["openrouter"], free_only=True)
+    )
+    assert already_true.free_only is True
 
 
 def test_apply_merges_saved_output_language_when_request_unset(tmp_path: Path) -> None:

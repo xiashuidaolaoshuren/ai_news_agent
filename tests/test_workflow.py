@@ -351,6 +351,14 @@ def test_parse_request_node_maps_huggingface_fields() -> None:
     assert cr.huggingface_pipeline_tag == "text-generation"
 
 
+def test_parse_request_node_maps_free_only_and_null_timeframe() -> None:
+    req = DigestRequest(topics=["AI"], free_only=True, timeframe=None)
+    out = parse_request_node({"request": req})
+    cr = out["connector_request"]
+    assert cr.free_only is True
+    assert cr.timeframe is None
+
+
 def test_parse_request_node_missing_request_emits_error() -> None:
     out = parse_request_node({})
     assert "connector_request" not in out

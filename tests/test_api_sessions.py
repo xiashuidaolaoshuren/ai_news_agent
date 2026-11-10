@@ -440,7 +440,7 @@ def test_post_message_repeat_streams_from_stored_resolution_and_rejects_unknown(
             "content": "Run again",
             "client_request_id": "repeat-bad-source",
             "repeat_of_user_message_id": original.user_message_id,
-            "replace_source": "openrouter",
+            "replace_source": "arxiv",
         },
     )
     assert bad_source.status_code == 400

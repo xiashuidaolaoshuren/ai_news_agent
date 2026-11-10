@@ -395,6 +395,15 @@ class SourceSettingsService:
         ):
             hf_pipeline = profiles["huggingface"].pipeline_tag
 
+        free_only = request.free_only
+        if (
+            "openrouter" in sources
+            and not free_only
+            and isinstance(profiles["openrouter"], OpenRouterProfile)
+            and profiles["openrouter"].free_only
+        ):
+            free_only = True
+
         juya_item_mode = request.juya_item_mode
         if juya_all:
             juya_item_mode = "stories"
@@ -410,6 +419,7 @@ class SourceSettingsService:
             github_language=github_language,
             huggingface_pipeline_tag=hf_pipeline,
             output_language=output_language,
+            free_only=free_only,
         )
 
 
