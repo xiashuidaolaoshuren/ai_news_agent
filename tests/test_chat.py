@@ -7,6 +7,7 @@ import sqlite3
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -23,6 +24,7 @@ from ai_news_agent.services.chat import (
 )
 from ai_news_agent.services.session_service import SessionService
 from ai_news_agent.connectors.base import ConnectorResult
+from ai_news_agent.connectors.huggingface import HuggingFaceConnector
 from ai_news_agent.graph.state import DigestResult
 from ai_news_agent.models import (
     ConfidenceLevel,
@@ -1053,6 +1055,72 @@ def test_targeted_deep_dive_latest_digest_fetches_once(tmp_path: Path) -> None:
     assert "after digest" in deltas.lower()
     factory.assert_called_once()
     mock_connector.enrich_news_item.assert_awaited_once()
+
+
+def test_targeted_deep_dive_cleans_kimi_style_card_and_reuses_it(tmp_path: Path) -> None:
+    db_path = tmp_path / "targeted-kimi-card.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _run_id, digest_id = _save_session_hf_digest(
+        store,
+        session_store,
+        session_id=created.id,
+        topics=["kimi"],
+        request_id="req-kimi",
+        ensure_session=False,
+        raw_snippet=None,
+    )
+    readme = """\
+<div align="center"><img src="assets/kimi-logo.png" alt="logo"></div>
+<a href="https://img.shields.io/badge/Chat-Kimi"><img alt="Chat" src="badge.svg"></a>
+<p>Kimi K3.1 Pro is an open-weight model.</p>
+<table><tr><td><strong>Architecture</strong></td><td>Mixture-of-Experts</td></tr></table>
+"""
+    loads: list[str] = []
+
+    def fake_load(repo_id: str) -> SimpleNamespace:
+        loads.append(repo_id)
+        return SimpleNamespace(content=readme)
+
+    def factory() -> HuggingFaceConnector:
+        return HuggingFaceConnector(load_model_card=fake_load)
+
+    svc = ChatService(
+        store=store,
+        workflow_runner=AsyncMock(),
+        session_service=session_service,
+        huggingface_connector_factory=factory,
+    )
+
+    async def ask(request_id: str) -> str:
+        events = await _collect_stream_events(
+            svc,
+            "Deep dive",
+            session_id=created.id,
+            request_id=request_id,
+            followup_target={"digest_id": digest_id, "display_rank": 1},
+            followup_action="deep_dive",
+            chunk_size=4000,
+            chunk_delay_s=0,
+        )
+        return "".join(event.text for event in events if isinstance(event, DeltaEvent))
+
+    first = asyncio.run(ask("req-kimi-first"))
+    second = asyncio.run(ask("req-kimi-second"))
+
+    assert loads == ["Org/Model-kimi"]
+    for text in (first, second):
+        assert "Kimi K3.1 Pro is an open-weight model." in text
+        assert "**Architecture**" in text
+        assert "Mixture-of-Experts" in text
+        assert "<div" not in text
+        assert "kimi-logo.png" not in text
+        assert "Trending —" in text and "88" in text
+        assert "after digest" in text.lower()
+        assert "popularity, not" in text
 
 
 def test_targeted_ask_calls_generate_followup_reply_without_fetch(

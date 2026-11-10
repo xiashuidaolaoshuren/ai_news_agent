@@ -380,3 +380,51 @@ def test_family_card_renders_markdown_after_stripped_frontmatter() -> None:
     assert "# Title" in out
     assert "Body text." in out
     assert "library_name:" not in out
+
+
+def test_family_card_renders_cached_html_snippet_as_readable_blocks() -> None:
+    entry = _hf_entry(title="Kimi-K3.1-Pro", source_id="moonshotai/Kimi-K3.1-Pro")
+    raw = """\
+<div align="center"><img src="logo.png" alt="logo"></div>
+<p>Kimi K3.1 Pro is an open-weight model.</p>
+<table><tr><td><strong>Architecture</strong></td><td>Mixture-of-Experts</td></tr></table>
+<td align="center" style="vertical
+"""
+    item = _hf_news_item(
+        source_id="moonshotai/Kimi-K3.1-Pro",
+        raw_snippet=raw,
+        source_evidence={"trending_score": 589.5, "model_card_live_fetched": True},
+    )
+    out = format_huggingface_family_card(entry, item, rank=9)
+
+    assert "Rank 9 — Kimi-K3.1-Pro" in out
+    assert "Trending — 589.5" in out
+    assert "Kimi K3.1 Pro is an open-weight model." in out
+    assert "**Architecture**" in out
+    assert "Mixture-of-Experts" in out
+    assert "<div" not in out
+    assert "<td" not in out
+    assert "logo.png" not in out
+    marker = "Snippet — \n\n"
+    _metadata, snippet_and_rest = out.split(marker, maxsplit=1)
+    snippet, caveats = snippet_and_rest.split("\n\n", maxsplit=1)
+    assert "Rank 9" not in snippet
+    assert "after digest" in caveats.lower()
+    assert "popularity, not" in caveats
+
+
+def test_family_card_omits_snippet_when_cached_html_has_no_readable_text() -> None:
+    entry = _hf_entry()
+    item = _hf_news_item(
+        raw_snippet='<div><img src="logo.png" alt="logo"></div>',
+        source_evidence={"trending_score": 88.0, "model_card_live_fetched": True},
+    )
+    out = format_huggingface_family_card(entry, item, rank=1)
+
+    assert "Trending —" in out
+    assert "Snippet —" not in out
+    assert "<div" not in out
+    assert "logo.png" not in out
+    assert "after digest" not in out.lower()
+    assert "saved with this digest" not in out.lower()
+    assert "popularity, not" in out
