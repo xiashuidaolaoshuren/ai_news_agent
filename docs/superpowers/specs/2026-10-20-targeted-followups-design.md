@@ -8,6 +8,10 @@ Review: agreed 2026-10-20. Vocabulary: [CONTEXT.md](../../../CONTEXT.md). Decisi
 
 Make **Deep dive** and **Ask about this** answer about the exact entry the user selected, and fix the rough edges seen in the running app: a flash of the empty state, dead-end empty digests, and inconsistent routing of identical messages.
 
+## Relationship to authorized research
+
+The [2026-10-29 agent-loop and entry-bound research design](2026-10-29-agent-loop-and-entry-research-design.md) adds a separate, explicitly authorized research operation; it is agreed but not implemented. It does not broaden **Ask about this** or **Deep dive**: insufficient evidence may lead to an offer to research, but the offer alone runs no retrieval. An explicit research request may gather evidence within verified source scopes and saves that evidence in a separate research record, leaving this spec's digest-targeting, historical-open, and latest-digest rules intact. Follow-ups explicitly about that research may reuse its saved evidence without turning an ordinary entry-only question into a research request. The research action's API/UI representation is deferred; this spec's `deep_dive | ask` contract is unchanged.
+
 ## Problems observed
 
 1. `prefillFollowUp` (`stores/composer.ts`) pastes free text that matches none of the rank patterns in `followup_structured.py`, so it skips the built-in deep dives (Juya story, live Hugging Face card, Zhihu card).
@@ -30,12 +34,15 @@ The public target is `{digest_id: int, display_rank: int}`, the same identity as
 - **Deep dive** returns the existing deterministic rank deep-dive for that entry's source kind. When an LLM is configured, it may append a short elaboration grounded only in that entry. Without an LLM, only the deterministic card is returned.
 - **Ask about this** answers the typed question from that entry's evidence. If the evidence is insufficient, the reply says so and does not search other sources. Without an LLM, it shows the deterministic card and says that question-specific answering is unavailable.
 - On the session's latest successful digest, a Hugging Face target may live-fetch the representative model-card README once, label that snippet as fetched after the digest, and save it. The fetch must reload the targeted digest, not the global latest digest. Older targets, history show, and Zhihu stay saved-evidence-only.
+- An older target labels its model-card snippet as saved with that digest. Only a target in the conversation's latest successful digest may be labelled as fetched after it, so a card never implies a fetch that did not happen.
+- A card renders the fields its saved evidence provides. A field the digest never recorded shows `Not saved`. It is never inferred, backfilled from a later run, or dropped without trace.
+- When the entry has `related_display_ranks`, the card shows the same Related link its digest row shows; otherwise it shows none.
 - The target and action are stored with the user message and returned on `MessageOut`, so a reload restores the chip.
 - Idempotency binds the session request id to the original message, target, action, and explicit options. An identical retry replays the stored request and its saved settings. The same id with different input returns `409` and executes nothing. A change to global settings alone does not invalidate an identical retry.
 
 ## UI
 
-- Per entry: **Deep dive** (sends at once with the target and `deep_dive`) and **Ask about this** (fills the composer and shows a removable chip `↳ d12 #3 title`; sending includes the target and `ask`; removing the chip sends a plain message).
+- Per entry — a block entry or one Hugging Face comparison-table row — **Deep dive** (sends at once with the target and `deep_dive`) and **Ask about this** (fills the composer and shows a removable chip `↳ d12 #3 title`; sending includes the target and `ask`; removing the chip sends a plain message).
 - The reply shows a `re: #3` link that scrolls to that entry in its digest.
 - The user bubble shows the same chip from the stored target.
 - Follow-up replies stay Markdown; rich cards are out of scope.
@@ -81,7 +88,8 @@ Rule-matched decisions do not change because a digest exists, a model is availab
 | LLM unavailable for Deep dive | deterministic card only |
 | LLM unavailable for Ask about this | deterministic card, plus a statement that question-specific answering is unavailable |
 | Targeted entry has no stored evidence | generic entry card from the digest entry |
-| Older Hugging Face target | saved evidence only; no live README fetch |
+| Card field the digest never recorded | shows `Not saved`; no inference or backfill |
+| Older Hugging Face target | saved evidence only; no live README fetch; snippet labelled as saved with that digest |
 
 ## Testing (TDD; one failing test per behaviour)
 
@@ -92,18 +100,21 @@ Backend:
 3. An unknown rank is rejected.
 4. Deep dive returns the deterministic card; Ask about this answers the question from that entry only.
 5. A latest-digest Hugging Face target may fetch the README once; an older target does not, and the fetch does not replace the targeted context with the global latest.
-6. LLM elaboration or answers use only the targeted entry and are skipped, with the agreed fallback, when no model is configured.
-7. `followup_target` and action persist and round-trip on `MessageOut`.
-8. An identical request id replays; a changed body with that id returns 409.
-9. Routing: standalone "Tell me about Qwen" is general explanation with and without a digest; an explicit entry reference is follow-up; "Recent updates" after a pending Qwen clarification keeps Qwen.
-10. A no-results suggestion preserves explicit options and changes only the source. A connector failure is not presented as no eligible results.
+6. A card shows `Not saved` for a stat the digest never recorded and never infers it. An older target labels its snippet as saved with that digest; a latest-digest fetch is labelled as fetched after it.
+7. LLM elaboration or answers use only the targeted entry and are skipped, with the agreed fallback, when no model is configured.
+8. `followup_target` and action persist and round-trip on `MessageOut`.
+9. An identical request id replays; a changed body with that id returns 409.
+10. Routing: standalone "Tell me about Qwen" is general explanation with and without a digest; an explicit entry reference is follow-up; "Recent updates" after a pending Qwen clarification keeps Qwen.
+11. A no-results suggestion preserves explicit options and changes only the source. A connector failure is not presented as no eligible results.
+12. Each Hugging Face comparison-table row resolves to the same entry target as a block entry, and its Deep dive renders the family card.
 
 Frontend:
 
-11. Deep dive sends the target and action in one click. Ask about this shows the chip and sends both. Removing the chip drops them.
-12. Chip restored from stored messages; `re: #n` scrolls to the entry in that digest.
-13. No-results, failure, and partial-results states show the actions defined above.
-14. Skeleton while loading; empty state only when truly empty; retry on failure.
+13. Deep dive sends the target and action in one click, including from a comparison-table row. Ask about this shows the chip and sends both. Removing the chip drops them.
+14. Chip restored from stored messages; `re: #n` scrolls to the entry in that digest.
+15. No-results, failure, and partial-results states show the actions defined above.
+16. Skeleton while loading; empty state only when truly empty; retry on failure.
+17. A Related link on a card scrolls to the other entry, and is absent when the entry has no related ranks.
 
 Verification: regenerate OpenAPI and client; manual check in the running app on the conversation with three digests.
 

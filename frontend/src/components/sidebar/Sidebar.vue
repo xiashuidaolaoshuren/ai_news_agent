@@ -19,6 +19,8 @@ const DELETE_COLLAPSE_MS = 330
 
 const store = useSessionsStore()
 
+const emit = defineEmits<{ openSettings: [] }>()
+
 const query = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -160,6 +162,7 @@ const deleteTitle = computed(() => {
                 enter: animId === session.id && shutId !== session.id,
               }"
               :data-od-id="`session-${session.id}`"
+              :data-sid="session.id"
             >
               <SessionRow
                 :session="session"
@@ -193,6 +196,15 @@ const deleteTitle = computed(() => {
   </div>
 
   <div class="sb-foot">
+    <button
+      type="button"
+      class="theme-sw"
+      id="settings-btn"
+      data-od-id="settings-button"
+      @click="emit('openSettings')"
+    >
+      <AppIcon name="gear" /><span class="lbl">Settings</span>
+    </button>
     <ThemeSwitch />
     <BackendStatus />
   </div>

@@ -1,4 +1,17 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+/** The hidden-source flag is read when the options are built, so a test can flip it. */
+const flags = vi.hoisted(() => ({ showBilibili: false }))
+
+vi.mock('@/lib/features', () => ({
+  get SHOW_BILIBILI() {
+    return flags.showBilibili
+  },
+}))
+
+afterEach(() => {
+  flags.showBilibili = false
+})
 
 import type {
   DigestEntryView,
@@ -95,6 +108,7 @@ describe('toHistoryMatchVm', () => {
       host: 'huggingface.co',
       excerpt: 'GGUF quant of Qwen-Image-2.1 · trending 816.',
       topics: ['Model releases'],
+      sessionId: null,
     })
   })
 
@@ -110,6 +124,7 @@ describe('toHistoryMatchVm', () => {
     expect(vm.topics).toEqual([])
     expect(vm.excerpt).toBeNull()
     expect(vm.rank).toBe(1)
+    expect(toHistoryMatchVm(match({ session_id: 's1' })).sessionId).toBe('s1')
   })
 
   it('drops a non-http url and its host', () => {
@@ -125,16 +140,21 @@ describe('history filters', () => {
     return { ...EMPTY_HISTORY_FILTERS, ...overrides }
   }
 
-  it('lists every source kind behind an all-sources option', () => {
+  it('lists every visible source kind behind an all-sources option', () => {
     expect(historySourceOptions().map((option) => option.value)).toEqual([
       'all',
       'juya',
       'huggingface',
       'github',
       'zhihu',
-      'bilibili',
     ])
     expect(historySourceOptions()[0]?.label).toBe('All sources')
+  })
+
+  it('lists the hidden source again when the flag is on', () => {
+    flags.showBilibili = true
+
+    expect(historySourceOptions().map((option) => option.value)).toContain('bilibili')
   })
 
   it('makes no query while every filter is empty', () => {

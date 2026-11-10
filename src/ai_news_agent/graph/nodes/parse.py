@@ -54,7 +54,11 @@ def parse_request_node(state: DigestGraphState) -> dict[str, object]:
             huggingface_search=req.huggingface_search,
             huggingface_pipeline_tag=req.huggingface_pipeline_tag,
             juya_item_mode=req.juya_item_mode,
+            juya_collect_all_stories=req.juya_item_count_all,
             topics_are_filters=req.topics_are_filters,
             strict_timeframe=req.strict_timeframe,
+            github_keywords=req.github_keywords,
+            github_min_stars=req.github_min_stars,
+            github_language=req.github_language,
         )
     }

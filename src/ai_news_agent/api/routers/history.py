@@ -69,6 +69,7 @@ def search_history(
                 excerpt=match.excerpt,
                 score=match.score,
                 topics=match.topics,
+                session_id=match.session_id,
             )
             for match in result.matches
         ],

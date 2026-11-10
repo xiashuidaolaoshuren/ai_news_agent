@@ -145,6 +145,8 @@ export interface WarningVm {
 
 export interface DigestVm {
   ref: string | null
+  /** Numeric id for follow-up targets and data-ref attributes. */
+  digestId: number | null
   generatedAt: string
   itemCount: number
   sourcesReturned: number
@@ -198,6 +200,7 @@ export function toDigestVm(input: DigestVmInput): DigestVm {
   const returned = new Set<EntryKind>(sections.map((section) => section.kind))
   return {
     ref: typeof input.digestId === 'number' ? `d${input.digestId}` : null,
+    digestId: typeof input.digestId === 'number' ? input.digestId : null,
     generatedAt: input.digest.generated_at,
     itemCount: entries.length,
     sourcesReturned: returned.size,

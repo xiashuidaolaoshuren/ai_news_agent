@@ -196,6 +196,285 @@ def test_post_message_fake_mode_all_sources_returns_presentation_evidence(
     assert juya["issue"]["lead_title"] == "Fake Juya lead headline"
 
 
+def test_post_message_body_followup_target_and_action_must_be_paired() -> None:
+    from pydantic import ValidationError
+
+    from ai_news_agent.api.schemas.sessions import PostMessageBody
+
+    body = PostMessageBody(
+        content="Explain this entry",
+        followup_target={"digest_id": 1, "display_rank": 2},
+        followup_action="deep_dive",
+    )
+    assert body.followup_target is not None
+    assert body.followup_target.digest_id == 1
+    assert body.followup_target.display_rank == 2
+    assert body.followup_action == "deep_dive"
+
+    with pytest.raises(ValidationError):
+        PostMessageBody(
+            content="x",
+            followup_target={"digest_id": 1, "display_rank": 1},
+        )
+    with pytest.raises(ValidationError):
+        PostMessageBody(content="x", followup_action="ask")
+
+
+def test_post_message_body_repeat_fields_require_the_repeat_id_and_exclude_followups() -> None:
+    from pydantic import ValidationError
+
+    from ai_news_agent.api.schemas.sessions import PostMessageBody
+
+    body = PostMessageBody(
+        content="Run again",
+        repeat_of_user_message_id=7,
+        replace_source="huggingface",
+    )
+    assert body.repeat_of_user_message_id == 7
+    assert body.replace_source == "huggingface"
+
+    plain = PostMessageBody(content="Run again", repeat_of_user_message_id=7)
+    assert plain.replace_source is None
+
+    with pytest.raises(ValidationError):
+        PostMessageBody(content="x", replace_source="huggingface")
+    with pytest.raises(ValidationError):
+        PostMessageBody(
+            content="x",
+            repeat_of_user_message_id=7,
+            followup_target={"digest_id": 1, "display_rank": 1},
+            followup_action="deep_dive",
+        )
+
+
+def _seed_session_owned_digest(
+    tmp_path: Path,
+    *,
+    db_name: str = "target-digest.db",
+) -> tuple[object, str, int]:
+    """Session with one digest linked through a succeeded session_request."""
+    from ai_news_agent.models import Digest, DigestEntry, FollowUpAction, SourceKind
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.composition import build_application
+    from ai_news_agent.storage import DigestStore
+    from fastapi.testclient import TestClient
+
+    from ai_news_agent.api.app import create_app
+
+    db_path = tmp_path / db_name
+    application = build_application(fake=True, db_path=db_path)
+    client = TestClient(create_app(application))
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    store = DigestStore(db_path)
+    collected = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
+    run_id = store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=["ai"],
+        connector_names=["github"],
+        session_id=session_id,
+    )
+    digest = Digest(
+        generated_at=collected,
+        entries=[
+            DigestEntry(
+                source_kind=SourceKind.GITHUB,
+                source_id="repo-1",
+                title="Repo 1",
+                source_name="GitHub",
+                source_url="https://example.com/repo-1",
+                summary="summary",
+                why_it_matters="why",
+                background_knowledge="bg",
+                follow_up_action=FollowUpAction.READ,
+            )
+        ],
+        topics=["ai"],
+        timeframe="today",
+    )
+    digest_id = store.save_digest(run_id, digest)
+
+    session_store = SessionStore(db_path)
+    user_message_id = session_store.insert_message(
+        session_id,
+        role="user",
+        content="Give me a digest",
+    )
+    session_store.create_request(
+        session_id,
+        "req-digest",
+        user_message_id=user_message_id,
+        correlation_id="corr-digest",
+    )
+    session_store.update_request_run_id(session_id, "req-digest", run_id)
+    session_store.mark_terminal(session_id, "req-digest", status="succeeded")
+    return client, session_id, digest_id
+
+
+def test_post_message_rejects_unknown_followup_digest(tmp_path: Path) -> None:
+    client, session_id, _digest_id = _seed_session_owned_digest(tmp_path)
+
+    response = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Deep dive",
+            "followup_target": {"digest_id": 9999, "display_rank": 1},
+            "followup_action": "deep_dive",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_post_message_rejects_followup_rank_out_of_range(tmp_path: Path) -> None:
+    client, session_id, digest_id = _seed_session_owned_digest(tmp_path)
+
+    response = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Deep dive",
+            "followup_target": {"digest_id": digest_id, "display_rank": 99},
+            "followup_action": "deep_dive",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_list_messages_includes_followup_target_on_user_and_assistant(
+    tmp_path: Path,
+) -> None:
+    client, session_id, digest_id = _seed_session_owned_digest(tmp_path)
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "follow up on item 1",
+            "client_request_id": "req-target-projection",
+            "followup_target": {"digest_id": digest_id, "display_rank": 1},
+            "followup_action": "deep_dive",
+        },
+    ) as response:
+        assert response.status_code == 200
+        response.read()
+
+    page = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    target = {"digest_id": digest_id, "display_rank": 1}
+    for message in page["messages"]:
+        if message["role"] not in {"user", "assistant"}:
+            continue
+        if message["content"] in {"Give me a digest", "Digest text"}:
+            continue
+        assert message["followup_target"] == target
+        assert message["followup_action"] == "deep_dive"
+
+    reloaded = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    assert reloaded["messages"] == page["messages"]
+
+
+def test_post_message_rejects_followup_target_from_other_session(
+    tmp_path: Path,
+) -> None:
+    client_a, _session_a, digest_id = _seed_session_owned_digest(
+        tmp_path,
+        db_name="target-owner-a.db",
+    )
+    client_b = _build_test_client(fake=True, db_path=tmp_path / "target-owner-b.db")
+    session_b = client_b.post("/api/v1/sessions").json()["id"]
+
+    response = client_b.post(
+        f"/api/v1/sessions/{session_b}/messages",
+        json={
+            "content": "Deep dive",
+            "followup_target": {"digest_id": digest_id, "display_rank": 1},
+            "followup_action": "deep_dive",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_post_message_repeat_streams_from_stored_resolution_and_rejects_unknown(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.request import DigestRequest
+    from ai_news_agent.services.conversation import request_metadata, request_payload
+    from ai_news_agent.services.session_service import SessionService
+
+    client, session_id, _digest_id = _seed_session_owned_digest(tmp_path)
+    db_path = tmp_path / "target-digest.db"
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    original = session_store.get_request(session_id, "req-digest")
+    assert original is not None
+    stored_request = DigestRequest(
+        topics=["ai"],
+        timeframe="today",
+        connector_names=["juya"],
+        items_per_source=1,
+    )
+    session_service.set_request_interpretation(
+        session_id,
+        "req-digest",
+        {
+            "intent": "digest",
+            "request": request_payload(stored_request),
+            "public": request_metadata(stored_request),
+        },
+    )
+
+    missing = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Run again",
+            "client_request_id": "repeat-missing",
+            "repeat_of_user_message_id": 9999,
+        },
+    )
+    assert missing.status_code == 400
+    assert missing.json()["detail"]["code"] == "repeat_resolution_missing"
+
+    bad_source = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Run again",
+            "client_request_id": "repeat-bad-source",
+            "repeat_of_user_message_id": original.user_message_id,
+            "replace_source": "openrouter",
+        },
+    )
+    assert bad_source.status_code == 400
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Run again from Juya",
+            "client_request_id": "repeat-1",
+            "repeat_of_user_message_id": original.user_message_id,
+            "replace_source": "juya",
+        },
+    ) as response:
+        assert response.status_code == 200
+        body = response.read().decode()
+    events = _parse_sse_events(body)
+    started = next(payload for name, payload in events if name == "started")
+    assert started["intent"] == "digest"
+    assert started["request"]["sources"] == ["juya"]
+    assert any(name == "digest" for name, _ in events)
+
+    conflict = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "Run again from Juya",
+            "client_request_id": "repeat-1",
+            "repeat_of_user_message_id": original.user_message_id,
+            "replace_source": "github",
+        },
+    )
+    assert conflict.status_code == 409
+
+
 def test_post_message_unknown_field_returns_400(tmp_path: Path) -> None:
     client = _build_test_client(fake=True, db_path=tmp_path / "validation-400.db")
     session_id = client.post("/api/v1/sessions").json()["id"]
@@ -243,6 +522,56 @@ def test_openapi_lists_milestone_8b_contract_fields(tmp_path: Path) -> None:
     assert "stars_today" in properties("GitHubDigestEntryView")
     assert "base_model" in properties("HuggingFaceDigestEntryView")
     assert "topics" in properties("HistorySearchMatchOut")
+
+
+def _schema_enum(schema: dict, name: str) -> set[str]:
+    """Collect string enum values for one property, including nullable anyOf."""
+    prop = schema["properties"][name]
+    values: set[str] = set()
+    candidates = [prop, *prop.get("anyOf", []), *prop.get("allOf", [])]
+    for candidate in candidates:
+        if "$ref" in candidate:
+            continue
+        values.update(candidate.get("enum", []))
+    return values
+
+
+def test_openapi_lists_followup_and_settings_contracts(tmp_path: Path) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "openapi-b12.db")
+    document = client.get("/openapi.json").json()
+    schemas = document["components"]["schemas"]
+    paths = document["paths"]
+
+    message = schemas["MessageOut"]
+    body = schemas["PostMessageBody"]
+    assert {"followup_target", "followup_action", "collection_outcome"} <= set(
+        message["properties"]
+    )
+    assert {
+        "followup_target",
+        "followup_action",
+        "repeat_of_user_message_id",
+        "replace_source",
+    } <= set(body["properties"])
+    assert _schema_enum(message, "followup_action") == {"deep_dive", "ask"}
+    assert _schema_enum(body, "followup_action") == {"deep_dive", "ask"}
+    assert _schema_enum(message, "collection_outcome") == {
+        "results",
+        "no_eligible",
+        "failed",
+        "partial",
+    }
+
+    for path, methods in {
+        "/api/v1/settings/sources": {"get"},
+        "/api/v1/settings/sources/{name}": {"put"},
+        "/api/v1/settings/language": {"get", "put"},
+        "/api/v1/settings/credentials": {"get"},
+        "/api/v1/settings/credentials/llm": {"put", "delete"},
+        "/api/v1/settings/credentials/{name}": {"put", "delete"},
+        "/api/v1/settings/credentials/{name}/test": {"post"},
+    }.items():
+        assert methods <= set(paths[path])
 
 
 def test_fastapi_shell_surface_importable() -> None:
@@ -294,8 +623,25 @@ def test_api_v1_sources_lists_defaults_and_opt_in_metadata(tmp_path: Path) -> No
         "bilibili",
     ]
     by_name = {item["name"]: item for item in payload["sources"]}
-    assert by_name["juya"] == {"name": "juya", "default": True, "opt_in": False}
-    assert by_name["github"] == {"name": "github", "default": False, "opt_in": True}
+    _unchecked = {
+        "current": None,
+        "stale": False,
+        "credential_version": "unset",
+        "observed_at": None,
+        "kind": None,
+    }
+    assert by_name["juya"] == {
+        "name": "juya",
+        "default": True,
+        "opt_in": False,
+        "health": _unchecked,
+    }
+    assert by_name["github"] == {
+        "name": "github",
+        "default": False,
+        "opt_in": True,
+        "health": _unchecked,
+    }
 
 
 def test_api_v1_allows_loopback_cors_origins_only(tmp_path: Path) -> None:
@@ -777,6 +1123,105 @@ def test_list_messages_digest_without_warnings_returns_empty_list(tmp_path: Path
     assert assistant["warnings"] == []
 
 
+def test_list_messages_reports_collection_outcome_per_digest_run(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from ai_news_agent.api.app import create_app
+    from ai_news_agent.models import (
+        ConnectorWarning,
+        Digest,
+        DigestEntry,
+        FollowUpAction,
+        SourceKind,
+    )
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.composition import build_application
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "collection-outcomes.db"
+    application = build_application(fake=True, db_path=db_path)
+    client = TestClient(create_app(application))
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    store = DigestStore(db_path)
+    session_store = SessionStore(db_path)
+    collected = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
+
+    def seed_run(entry_count: int, warning_codes: tuple[str, ...]) -> int:
+        run_id = store.save_run(
+            requested_at=collected,
+            timeframe="today",
+            topics=["ai"],
+            connector_names=["juya"],
+            session_id=session_id,
+        )
+        store.save_digest(
+            run_id,
+            Digest(
+                generated_at=collected,
+                entries=[
+                    DigestEntry(
+                        source_kind=SourceKind.JUYA,
+                        source_id=f"story-{index}",
+                        title=f"Story {index}",
+                        source_name="Juya",
+                        source_url=f"https://example.com/story-{index}",
+                        summary="summary",
+                        why_it_matters="why",
+                        background_knowledge="bg",
+                        follow_up_action=FollowUpAction.READ,
+                    )
+                    for index in range(entry_count)
+                ],
+                topics=["ai"],
+                timeframe="today",
+            ),
+        )
+        store.save_connector_warnings(
+            run_id,
+            [
+                ConnectorWarning(
+                    connector="juya", code=code, message=f"{code} happened"
+                )
+                for code in warning_codes
+            ],
+        )
+        session_store.insert_message(
+            session_id, role="user", content="Give me a digest"
+        )
+        session_store.insert_message(
+            session_id, role="assistant", content="Digest text", run_id=run_id
+        )
+        return run_id
+
+    results_run = seed_run(2, ())
+    no_eligible_run = seed_run(0, ("juya_no_topic_matches",))
+    failed_run = seed_run(0, ("juya_rss_unavailable",))
+    partial_run = seed_run(1, ("juya_rss_unavailable",))
+    session_store.insert_message(
+        session_id, role="assistant", content="Plain answer without a digest"
+    )
+
+    response = client.get(f"/api/v1/sessions/{session_id}/messages")
+    assert response.status_code == 200
+    messages = response.json()["messages"]
+
+    outcomes = {message["run_id"]: message["collection_outcome"] for message in messages}
+    assert outcomes[results_run] == "results"
+    assert outcomes[no_eligible_run] == "no_eligible"
+    assert outcomes[failed_run] == "failed"
+    assert outcomes[partial_run] == "partial"
+
+    plain = next(
+        message
+        for message in messages
+        if message["role"] == "assistant" and message["run_id"] is None
+    )
+    assert plain["collection_outcome"] is None
+    user = next(message for message in messages if message["role"] == "user")
+    assert user["collection_outcome"] is None
+
+
 def test_post_message_progress_structured_fields_on_sse(tmp_path: Path) -> None:
     client = _build_test_client(fake=True, db_path=tmp_path / "sse-progress-structured.db")
     session_id = client.post("/api/v1/sessions").json()["id"]
@@ -977,6 +1422,42 @@ def test_post_message_status_mapping(tmp_path: Path) -> None:
     assert duplicate.json()["detail"]["code"] == "request_in_progress"
 
 
+def test_post_message_request_conflict_when_client_request_id_reused_with_different_body(
+    tmp_path: Path,
+) -> None:
+    client, session_id, digest_id = _seed_session_owned_digest(tmp_path)
+
+    payload = {
+        "content": "follow up on item 1",
+        "client_request_id": "req-conflict",
+        "followup_target": {"digest_id": digest_id, "display_rank": 1},
+        "followup_action": "deep_dive",
+    }
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json=payload,
+    ) as first:
+        assert first.status_code == 200
+        first.read()
+
+    before = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    message_count_before = len(before["messages"])
+
+    conflict = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            **payload,
+            "content": "different submission",
+        },
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == {"code": "request_conflict"}
+
+    after = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    assert len(after["messages"]) == message_count_before
+
+
 def test_post_message_terminal_request_id_replays_without_new_messages(
     tmp_path: Path,
 ) -> None:
@@ -997,7 +1478,7 @@ def test_post_message_terminal_request_id_replays_without_new_messages(
     with client.stream(
         "POST",
         f"/api/v1/sessions/{session_id}/messages",
-        json={"content": "ignored content", "client_request_id": "req-replay"},
+        json={"content": "list sources", "client_request_id": "req-replay"},
     ) as replay:
         assert replay.status_code == 200
         body = replay.read().decode()
@@ -1033,7 +1514,7 @@ def test_post_message_terminal_digest_replay_emits_digest_sse_event(
         "POST",
         f"/api/v1/sessions/{session_id}/messages",
         json={
-            "content": "ignored content",
+            "content": "Give me today's AI digest",
             "client_request_id": "req-digest-replay",
         },
     ) as replay:
@@ -1299,11 +1780,11 @@ def test_build_application_live_uses_model_factory(
 
     calls: list[str] = []
 
-    def _track_build_chat_model() -> object:
+    def _track_build_chat_model(**_kwargs: object) -> object:
         calls.append("build_chat_model")
         return object()
 
-    def _track_build_tool_chat_model() -> object:
+    def _track_build_tool_chat_model(**_kwargs: object) -> object:
         calls.append("build_tool_chat_model")
         return object()
 
@@ -1329,12 +1810,24 @@ def test_build_application_live_uses_model_factory(
         lambda _: None,
     )
 
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
     application = build_application(fake=False, db_path=tmp_path / "digest.db")
 
     assert application.fake is False
+    assert application.chat_service is not None
+    application.chat_service._chat_model._holder.get()
     assert "build_chat_model" in calls
     assert "build_tool_chat_model" in calls
-    assert application.chat_service is not None
+    assert application.chat_service._huggingface_connector_factory is not None
+
+
+def test_build_application_fake_has_no_huggingface_connector_factory(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.composition import build_application
+
+    application = build_application(fake=True, db_path=tmp_path / "digest.db")
+    assert application.chat_service._huggingface_connector_factory is None
 
 
 def test_natural_digest_report_exposes_its_resolved_request(tmp_path: Path) -> None:
@@ -1361,14 +1854,14 @@ def test_natural_digest_report_exposes_its_resolved_request(tmp_path: Path) -> N
     assert user["request"]["per_source"] == 5
 
 
-def test_session_default_per_source_resolves_into_the_reported_request(
+def test_saved_profile_count_resolves_not_session_items_per_source(
     tmp_path: Path,
 ) -> None:
     client = _build_test_client(fake=True, db_path=tmp_path / "session-default-count.db")
     session_id = client.post("/api/v1/sessions").json()["id"]
     patched = client.patch(
         f"/api/v1/sessions/{session_id}",
-        json={"items_per_source": 5},
+        json={"items_per_source": 20},
     )
     assert patched.status_code == 200
 
@@ -1384,10 +1877,12 @@ def test_session_default_per_source_resolves_into_the_reported_request(
     started = next(payload for name, payload in events if name == "started")
     assert started["intent"] == "digest"
     assert started["request"]["per_source"] == 5
+    assert started["request"]["counts"] == {"github": "5"}
 
     transcript = client.get(f"/api/v1/sessions/{session_id}/messages").json()
     user = next(m for m in transcript["messages"] if m["role"] == "user")
     assert user["request"]["per_source"] == 5
+    assert user["request"]["counts"]["github"].endswith("5")
 
 
 def test_clarification_report_carries_no_source_chips(tmp_path: Path) -> None:
@@ -1404,7 +1899,7 @@ def test_clarification_report_carries_no_source_chips(tmp_path: Path) -> None:
     started = next(
         payload for name, payload in _parse_sse_events(body) if name == "started"
     )
-    assert started["intent"] == "clarify"
+    assert started["intent"] == "general"
     assert started["request"] is None
 
     transcript = client.get(f"/api/v1/sessions/{session_id}/messages").json()
@@ -1426,7 +1921,7 @@ def test_clarification_reply_after_reload_completes_the_original_request(
     with client.stream(
         "POST",
         f"/api/v1/sessions/{session_id}/messages",
-        json={"content": "Tell me about agents"},
+        json={"content": "What about agents"},
     ) as response:
         first_body = response.read().decode()
     assert any(name == "delta" for name, _ in _parse_sse_events(first_body))
@@ -1452,3 +1947,38 @@ def test_clarification_reply_after_reload_completes_the_original_request(
     user_messages = [m for m in transcript["messages"] if m["role"] == "user"]
     assert user_messages[0]["request"] is None
     assert user_messages[1]["request"]["topics"] == ["agents"]
+
+
+def test_post_juya_confirmation_cancel_cancels_active_request(tmp_path: Path) -> None:
+    from ai_news_agent.services.composition import build_application
+
+    db_path = tmp_path / "juya-cancel-api.db"
+    application = build_application(fake=True, db_path=db_path)
+    client = _build_test_client(fake=True, db_path=db_path)
+    session_id = client.post("/api/v1/sessions").json()["id"]
+
+    application.session_service.begin_request(
+        session_id,
+        content="Digest juya all",
+        request_id="req-juya-cancel",
+    )
+    application.session_service.set_request_interpretation(
+        session_id,
+        "req-juya-cancel",
+        {
+            "juya_confirmation": {
+                "story_count": 25,
+                "issue": "2026-06-16",
+                "issue_number": "juya-rss-1",
+            },
+        },
+    )
+
+    response = client.post(
+        f"/api/v1/sessions/{session_id}/requests/req-juya-cancel/juya-confirmation",
+        json={"action": "cancel"},
+    )
+    assert response.status_code == 202
+
+    status = client.get(f"/api/v1/sessions/{session_id}/requests/req-juya-cancel")
+    assert status.json()["status"] == "cancelled"

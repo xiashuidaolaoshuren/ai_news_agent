@@ -35,6 +35,8 @@ def rank_items(
     now: datetime | None = None,
     timeframe: str | None = None,
     items_per_source: int | None = None,
+    source_item_counts: dict[str, int] | None = None,
+    juya_item_count_all: bool = False,
     strict_timeframe: bool = False,
 ) -> list[RankedItem]:
     """Score, deduplicate, and mark top-N candidates.
@@ -85,7 +87,16 @@ def rank_items(
 
     ranked.sort(key=sort_key)
 
-    if items_per_source is not None:
+    if source_item_counts or juya_item_count_all:
+        ranked = _collapse_hf_ranked_rows(ranked, reference=reference, sort_key=sort_key)
+        _apply_per_source_selection_map(
+            ranked,
+            source_item_counts=source_item_counts or {},
+            juya_item_count_all=juya_item_count_all,
+            timeframe=timeframe,
+            reference=reference,
+        )
+    elif items_per_source is not None:
         ranked = _collapse_hf_ranked_rows(ranked, reference=reference, sort_key=sort_key)
         _apply_per_source_selection(
             ranked,
@@ -110,6 +121,53 @@ def rank_items(
         )
 
     return ranked
+
+
+def _apply_per_source_selection_map(
+    ranked: list[RankedItem],
+    *,
+    source_item_counts: dict[str, int],
+    juya_item_count_all: bool = False,
+    timeframe: str | None,
+    reference: datetime,
+) -> None:
+    by_kind: dict[SourceKind, list[RankedItem]] = {}
+    for row in ranked:
+        by_kind.setdefault(row.item.source, []).append(row)
+
+    for kind, rows in by_kind.items():
+        if kind is SourceKind.JUYA and juya_item_count_all:
+            for index, row in enumerate(rows):
+                row.selected = True
+                row.selection_reason = (
+                    f"rank #{index + 1} of {len(rows)} in {kind.value} by score_total"
+                )
+            continue
+        cap = source_item_counts.get(kind.value)
+        if cap is None:
+            for row in rows:
+                row.selected = False
+                row.selection_reason = ""
+            continue
+        for index, row in enumerate(rows):
+            if index < cap:
+                row.selected = True
+                row.selection_reason = (
+                    f"rank #{index + 1} of {len(rows)} in {kind.value} by score_total"
+                )
+            else:
+                row.selected = False
+                row.selection_reason = ""
+
+    if timeframe:
+        for cap in source_item_counts.values():
+            _apply_newest_bilibili_guarantee_per_source(
+                ranked,
+                items_per_source=cap,
+                timeframe=timeframe,
+                reference=reference,
+            )
+            break
 
 
 def _apply_per_source_selection(

@@ -79,7 +79,11 @@ def build_history_search_query(ns: argparse.Namespace) -> Any:
     return validate_history_search_query(**kwargs)
 
 
-def build_digest_request(ns: argparse.Namespace) -> DigestRequest:
+def build_digest_request(
+    ns: argparse.Namespace,
+    *,
+    source_settings_service: Any | None = None,
+) -> DigestRequest:
     """Build a :class:`~ai_news_agent.request.DigestRequest` from parsed CLI flags."""
     topics_csv = getattr(ns, "topics", None)
     if topics_csv is None:
@@ -96,6 +100,7 @@ def build_digest_request(ns: argparse.Namespace) -> DigestRequest:
     if getattr(ns, "top_n", None) is not None:
         kw["top_n"] = ns.top_n
     if getattr(ns, "max_items", None) is not None:
+        kw["items_per_source"] = ns.max_items
         kw["max_items_per_source"] = ns.max_items
 
     sources = parse_sources_csv(getattr(ns, "sources", "") or "")
@@ -120,7 +125,10 @@ def build_digest_request(ns: argparse.Namespace) -> DigestRequest:
         )
     )
 
-    return DigestRequest(**kw)
+    request = DigestRequest(**kw)
+    if source_settings_service is not None:
+        request = source_settings_service.apply(request)
+    return request
 
 
 def _resolve_db_path(ns: argparse.Namespace) -> Path:
@@ -299,6 +307,11 @@ def _add_service_parser(sub: Any) -> argparse.ArgumentParser:
         action="store_true",
         help="Offline deterministic mode",
     )
+    p.add_argument(
+        "--remote",
+        action="store_true",
+        help="Remote mode: require AI_NEWS_AGENT_ACCESS_TOKEN",
+    )
     p.set_defaults(_handler=service_main)
     return p
 
@@ -316,14 +329,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def _run_digest_command(ns: argparse.Namespace, *, stdout: TextIO) -> int:
     try:
-        req = build_digest_request(ns)
+        db_path = _resolve_db_path(ns)
+        store = DigestStore(db_path)
+        store.init_schema()
+        from ai_news_agent.source_settings import SourceSettingsService
+
+        settings = SourceSettingsService(db_path)
+        req = build_digest_request(ns, source_settings_service=settings)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 2
-
-    db_path = _resolve_db_path(ns)
-    store = DigestStore(db_path)
-    store.init_schema()
 
     try:
         names = _pick_connector_names(ns)
@@ -331,16 +346,40 @@ def _run_digest_command(ns: argparse.Namespace, *, stdout: TextIO) -> int:
         print(str(e), file=sys.stderr)
         return 2
 
-    connectors = build_connectors(fake=ns.fake, names=names)
+    from ai_news_agent.credentials import CredentialsProvider
 
-    try:
-        if ns.fake:
-            model: Any = FakeDigestModel()
-        else:
-            model = build_chat_model()
-    except ValueError as e:
-        print(str(e), file=sys.stderr)
-        return 2
+    credentials = CredentialsProvider(db_path)
+    connectors = build_connectors(
+        fake=ns.fake,
+        names=names,
+        credentials=None if ns.fake else credentials,
+    )
+
+    if ns.fake:
+        model: Any = FakeDigestModel()
+    else:
+        llm = credentials.resolve_llm()
+        if llm.status == "unreadable":
+            print(
+                "Saved credentials cannot be read; set AI_NEWS_AGENT_SECRET_KEY.",
+                file=sys.stderr,
+            )
+            return 2
+        if llm.status == "unset" or not llm.api_key:
+            print(
+                "Configure an LLM in Settings (API key) to generate digests.",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            model = build_chat_model(
+                api_key=llm.api_key,
+                base_url=llm.base_url,
+                model=llm.model,
+            )
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
 
     async def _go():
         return await _run_digest_async(req, store=store, connectors=connectors, model=model)
@@ -364,6 +403,20 @@ def _run_digest_command(ns: argparse.Namespace, *, stdout: TextIO) -> int:
         len(result.warnings),
         len(result.errors),
     )
+
+    if not ns.fake:
+        from ai_news_agent.credential_health import (
+            CredentialHealthStore,
+            record_connector_health_from_digest,
+        )
+
+        health_store = CredentialHealthStore(db_path)
+        record_connector_health_from_digest(
+            store=health_store,
+            provider=credentials,
+            warnings=list(result.warnings),
+            connector_names=set(names),
+        )
 
     text = result.text
     if not text.endswith("\n"):

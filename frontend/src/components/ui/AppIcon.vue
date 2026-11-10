@@ -10,12 +10,15 @@ import {
   FlaskConical,
   History,
   Info,
+  Layers,
   LoaderCircle,
+  Lock,
   Menu,
   Moon,
   Pencil,
   Plus,
   RefreshCw,
+  Settings,
   Reply,
   Search,
   Sparkles,
@@ -31,6 +34,7 @@ const props = defineProps<{
     | 'alert'
     | 'ext'
     | 'reply'
+    | 'layers'
     | 'spark'
     | 'plus'
     | 'search'
@@ -51,12 +55,15 @@ const props = defineProps<{
     | 'up'
     | 'down'
     | 'stop'
-}>()
+    | 'gear'
+    | 'lock'
+  }>()
 
 const ICONS = {
   alert: AlertTriangle,
   ext: ExternalLink,
   reply: Reply,
+  layers: Layers,
   spark: Sparkles,
   plus: Plus,
   search: Search,
@@ -77,6 +84,8 @@ const ICONS = {
   up: ArrowUp,
   down: ArrowDown,
   stop: Square,
+  gear: Settings,
+  lock: Lock,
 } as const
 
 const icon = computed(() => ICONS[props.name])

@@ -5,6 +5,7 @@ import type {
   SearchHistoryApiV1HistorySearchGetData,
   SessionSearchHitOut,
 } from '@/api/generated/types.gen'
+import { SHOW_BILIBILI } from '@/lib/features'
 import { sourceLabel } from '@/vm/digest'
 import { hostOf, safeHttpUrl, textOrNull, toEntryVm } from '@/vm/entries'
 import type { EntryKind, EntryVm } from '@/vm/types'
@@ -31,6 +32,8 @@ export interface HistoryMatchVm {
   host: string | null
   excerpt: string | null
   topics: string[]
+  /** The conversation the digest belongs to; null for shared or CLI digests. */
+  sessionId: string | null
 }
 
 const UNTITLED = 'New conversation'
@@ -68,6 +71,7 @@ export function toHistoryMatchVm(match: HistorySearchMatchOut): HistoryMatchVm {
     host: hostOf(url),
     excerpt: textOrNull(match.excerpt ?? null),
     topics: match.topics ?? [],
+    sessionId: match.session_id ?? null,
   }
 }
 
@@ -100,6 +104,13 @@ export type HistorySearchQuery = NonNullable<SearchHistoryApiV1HistorySearchGetD
 /** Source kinds in the panel's order, behind the all-sources option. */
 const HISTORY_SOURCES: EntryKind[] = ['juya', 'huggingface', 'github', 'zhihu', 'bilibili']
 
+/** Visible kinds only: a hidden source leaves the filter, as the spec requires. */
+function visibleSources(): EntryKind[] {
+  return SHOW_BILIBILI
+    ? HISTORY_SOURCES
+    : HISTORY_SOURCES.filter((kind) => kind !== 'bilibili')
+}
+
 /** The prototype's short source value, mapped onto the API's name. */
 const SOURCE_ALIASES: Record<string, string> = { hf: 'huggingface' }
 
@@ -107,7 +118,7 @@ const SOURCE_ALIASES: Record<string, string> = { hf: 'huggingface' }
 export function historySourceOptions(): { value: string; label: string }[] {
   return [
     { value: 'all', label: 'All sources' },
-    ...HISTORY_SOURCES.map((kind) => ({ value: kind, label: sourceLabel(kind) })),
+    ...visibleSources().map((kind) => ({ value: kind, label: sourceLabel(kind) })),
   ]
 }
 

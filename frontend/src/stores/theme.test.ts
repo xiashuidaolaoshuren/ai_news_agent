@@ -195,7 +195,9 @@ describe('setTheme reveal', () => {
         removeEventListener: vi.fn(),
       })),
     )
-    vi.spyOn(document.documentElement, 'animate').mockImplementation(() => ({}) as Animation)
+    vi.spyOn(document.documentElement, 'animate').mockImplementation(
+      () => ({ cancel: vi.fn() }) as unknown as Animation,
+    )
   })
 
   afterEach(() => {
@@ -203,6 +205,53 @@ describe('setTheme reveal', () => {
     vi.unstubAllGlobals()
     // @ts-expect-error cleanup
     delete document.startViewTransition
+  })
+
+  it('leaves the snap to the transition callback, never before the capture', () => {
+    document.startViewTransition = (() => ({
+      ready: Promise.resolve(),
+      finished: Promise.resolve(),
+      skipTransition: vi.fn(),
+    })) as unknown as typeof document.startViewTransition
+    document.documentElement.classList.remove('theme-snap')
+
+    runSetTheme('dark', { user: true, point: [10, 10] })
+
+    // Adding the class here would recalculate the whole document before the
+    // browser has taken its picture of the old theme.
+    expect(document.documentElement.classList.contains('theme-snap')).toBe(false)
+  })
+
+  it('cancels each reveal animation once its transition finishes', async () => {
+    const cancels = [vi.fn(), vi.fn()]
+    let call = 0
+    vi.mocked(document.documentElement.animate).mockImplementation(
+      () => ({ cancel: cancels[call++] }) as unknown as Animation,
+    )
+    const resolvers: Array<() => void> = []
+    document.startViewTransition = (callback: () => void) => {
+      callback()
+      return {
+        ready: Promise.resolve(),
+        finished: new Promise<void>((resolve) => resolvers.push(resolve)),
+        skipTransition: vi.fn(),
+      } as unknown as ViewTransition
+    }
+
+    runSetTheme('dark', { user: true, point: [10, 10] })
+    await Promise.resolve()
+    await Promise.resolve()
+    // A newer toggle supersedes the first before it finishes.
+    runSetTheme('light', { user: true, point: [10, 10] })
+    await Promise.resolve()
+    await Promise.resolve()
+    resolvers.forEach((resolve) => resolve())
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // A finished fill: 'both' animation left alive keeps every later reveal off
+    // the compositor, so both must be released.
+    expect(cancels[0]).toHaveBeenCalledTimes(1)
+    expect(cancels[1]).toHaveBeenCalledTimes(1)
   })
 
   it('animates grow to dark on new root pseudo', async () => {
@@ -260,12 +309,15 @@ describe('setTheme reveal', () => {
     resolveFinished()
   })
 
-  it('holds the reactive theme until the transition update callback runs', async () => {
+  it('keeps the update callback synchronous and lets state follow the snapshot', async () => {
     let updateCallback: (() => unknown) | undefined
+    let resolveReady!: () => void
     document.startViewTransition = ((callback: () => unknown) => {
       updateCallback = callback
       return {
-        ready: Promise.resolve(),
+        ready: new Promise<void>((resolve) => {
+          resolveReady = resolve
+        }),
         finished: Promise.resolve(),
         skipTransition: vi.fn(),
       } as unknown as ViewTransition
@@ -279,10 +331,59 @@ describe('setTheme reveal', () => {
     expect(store.theme).toBe('light')
     expect(document.documentElement.dataset.theme).toBe('light')
 
-    await updateCallback?.()
+    // Nothing may be pending on this return value: an async callback leaves the
+    // old snapshot frozen until Vue has finished re-rendering.
+    const returned = updateCallback?.()
+
+    expect(returned).toBeUndefined()
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(store.theme).toBe('light')
+
+    resolveReady()
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(store.theme).toBe('dark')
+  })
+
+  it('lets the store follow the applied theme when the transition is skipped', async () => {
+    document.startViewTransition = ((callback: () => unknown) => {
+      callback()
+      return {
+        ready: Promise.reject(new DOMException('skipped', 'AbortError')),
+        finished: Promise.resolve(),
+        skipTransition: vi.fn(),
+      }
+    }) as unknown as typeof document.startViewTransition
+
+    const store = useThemeStore()
+    store.setTheme('dark', { user: true, point: [10, 10] })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // The callback already flipped the DOM; the switch must not stay behind.
     expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(store.theme).toBe('dark')
+    expect(store.userChosen).toBe(true)
+  })
+
+  it('ignores the late ready of a transition the next toggle replaced', async () => {
+    const readies: Array<() => void> = []
+    document.startViewTransition = ((callback: () => unknown) => {
+      callback()
+      return {
+        ready: new Promise<void>((resolve) => readies.push(resolve)),
+        finished: Promise.resolve(),
+        skipTransition: vi.fn(),
+      }
+    }) as unknown as typeof document.startViewTransition
+
+    const store = useThemeStore()
+    store.setTheme('dark', { user: true, point: [10, 10] })
+    store.setTheme('light', { user: true, point: [10, 10] })
+    readies[0]?.()
+    readies[1]?.()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(store.theme).toBe('light')
   })
 
   it('applies the reactive theme without animation when the reveal is skipped', () => {

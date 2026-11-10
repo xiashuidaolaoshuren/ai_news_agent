@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 
-const props = defineProps<{ escapeGuard?: boolean }>()
+const props = defineProps<{ escapeGuard?: boolean; inert?: boolean }>()
 
 const histOpen = ref(typeof window !== 'undefined' && window.innerWidth >= 1280)
 const sbOpen = ref(false)
@@ -76,8 +76,9 @@ onUnmounted(() => {
     class="app"
     :class="{ 'hist-open': histOpen, 'sb-open': sbOpen }"
     id="app-shell"
+    :inert="props.inert === true"
   >
-    <aside class="sidebar" aria-label="Conversations">
+    <aside class="sidebar" aria-label="Conversations" data-od-id="session-sidebar">
       <slot name="sidebar" />
     </aside>
     <button
@@ -88,7 +89,7 @@ onUnmounted(() => {
       @click="sbOpen = false"
     />
 
-    <main class="chat">
+    <main class="chat" data-od-id="chat">
       <slot name="header" />
       <div class="chat-body">
         <slot />

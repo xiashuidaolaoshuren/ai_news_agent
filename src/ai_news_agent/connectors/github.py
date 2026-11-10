@@ -344,7 +344,7 @@ class GitHubConnector:
         now: datetime,
     ) -> tuple[list[NewsItem], int, list[ConnectorWarning]]:
         warnings: list[ConnectorWarning] = []
-        q = _build_search_query(request.topics, request.timeframe)
+        q = _build_search_query(request)
         per_page = max(1, min(request.max_items, 100))
 
         try:
@@ -536,21 +536,28 @@ def _timeframe_to_pushed_qualifier(timeframe: str | None) -> str | None:
     return None
 
 
-def _build_search_query(topics: list[str], timeframe: str | None) -> str:
+def _build_search_query(request: ConnectorRequest) -> str:
     terms: list[str] = []
-    for t in topics:
-        s = str(t).strip()
-        if not s:
-            continue
-        if any(c in s for c in (" ", ":", "/", '"')):
-            terms.append(f'"{s}"')
-        else:
-            terms.append(s)
+    if request.github_keywords:
+        terms = [str(keyword).strip() for keyword in request.github_keywords if str(keyword).strip()]
+    else:
+        for topic in request.topics:
+            s = str(topic).strip()
+            if not s:
+                continue
+            if any(c in s for c in (" ", ":", "/", '"')):
+                terms.append(f'"{s}"')
+            else:
+                terms.append(s)
     if not terms:
         terms = ["AI"]
     topic_q = " OR ".join(terms)
     q = f"({topic_q}) in:name,description,readme"
-    pushed = _timeframe_to_pushed_qualifier(timeframe)
+    if request.github_min_stars is not None and request.github_min_stars > 0:
+        q = f"{q} stars:>={request.github_min_stars}"
+    if request.github_language:
+        q = f"{q} language:{request.github_language}"
+    pushed = _timeframe_to_pushed_qualifier(request.timeframe)
     if pushed:
         q = f"{q} {pushed}"
     return q

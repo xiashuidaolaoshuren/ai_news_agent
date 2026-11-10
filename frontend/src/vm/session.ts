@@ -1,8 +1,13 @@
-import type { MessageOut, ResolvedRequestOut, SessionOut } from '@/api/generated/types.gen'
+import type {
+  FollowupTarget,
+  MessageOut,
+  ResolvedRequestOut,
+  SessionOut,
+} from '@/api/generated/types.gen'
 import { sourceKindOf, sourceLabel, toDigestVm, toWarningVm } from '@/vm/digest'
 import type { DigestVm, WarningVm } from '@/vm/digest'
 import { textOrNull } from '@/vm/entries'
-import type { EntryKind } from '@/vm/types'
+import type { EntryKind, FollowupActionVm, RefVm } from '@/vm/types'
 
 /** Exact assistant content the backend writes when a request is cancelled. */
 export const CANCELLED_ASSISTANT_MESSAGE = 'The request was cancelled.'
@@ -19,7 +24,8 @@ const FAILED_ASSISTANT_MESSAGES = [WORKFLOW_FAILED_MESSAGE, REQUEST_FAILED_MESSA
 /** What the composer knows about the question it is sending. */
 export interface SentSourcesInput {
   names: string[]
-  perSource: number
+  /** The count the run used; null until the resolved request reports one. */
+  perSource: number | null
 }
 
 /** The chip row under a question: one chip per source, plus the count chip. */
@@ -55,7 +61,24 @@ export function toResolvedSourcesVm(request: ResolvedRequestOut): SentSourcesVm 
   return { sources, perSource: request.per_source ?? null }
 }
 
-export type MessageKind = 'user' | 'digest' | 'markdown' | 'cancelled' | 'failed'
+export type MessageKind =
+  | 'user'
+  | 'digest'
+  | 'markdown'
+  | 'cancelled'
+  | 'failed'
+  | 'noresults'
+  | 'collectfailed'
+
+/** How a finished digest collect ended, for the no-results and failure blocks. */
+export interface CollectionVm {
+  outcome: 'no_eligible' | 'failed'
+  sources: EntryKind[]
+  topic: string | null
+  timeframe: string | null
+  failedSource: EntryKind | null
+  reason: string | null
+}
 
 export interface MessageVm {
   id: number
@@ -69,6 +92,33 @@ export interface MessageVm {
   /** The sources a question was sent with, for messages sent in this page session. */
   chips?: SentSourcesVm
   warnings: WarningVm[]
+  /** User message: optional follow-up target chip. */
+  ref?: RefVm
+  followupAction?: FollowupActionVm
+  /** Assistant message: link to the preceding user's follow-up target (`re: #n`). */
+  replyRef?: RefVm
+  /** Set on a finished empty collect or a source failure. */
+  collection?: CollectionVm
+  /** A stored digest request this row can run again. */
+  repeat?: RepeatVm
+  /** A Juya request waiting for confirmation before the digest is written. */
+  juyaConfirm?: JuyaConfirmVm
+}
+
+/** The pending Juya confirmation shown in the thread. */
+export interface JuyaConfirmVm {
+  storyCount: number
+  issue: string
+  issueNumber: string
+}
+
+/** The stored resolution a Run again or try-source action repeats. */
+export interface RepeatVm {
+  userMessageId: number
+  text: string
+  summary: string
+  sources: string[]
+  perSource: number | null
 }
 
 /** Terminal request states the thread shows as an alert rather than a reply. */
@@ -209,9 +259,205 @@ export function groupSessions(sessions: SessionOut[], now: Date): SessionGroupVm
   return groups
 }
 
-/** Classify one transcript message and project it for the thread. */
-export function toMessageVm(message: MessageOut): MessageVm {
+/** Map `(digest_id, display_rank)` → entry title from digest messages in the transcript. */
+function buildDigestEntryTitleIndex(messages: MessageOut[]): Map<string, string> {
+  const index = new Map<string, string>()
+  for (const message of messages) {
+    if (message.role !== 'assistant' || message.digest === undefined || message.digest === null) {
+      continue
+    }
+    const digestId = message.digest_id
+    if (digestId === undefined || digestId === null) {
+      continue
+    }
+    for (const entry of message.digest.entries ?? []) {
+      const title = textOrNull(entry.title ?? null)
+      const key = `${digestId}:${entry.display_rank}`
+      index.set(key, title !== null && title !== '' ? title : `#${entry.display_rank}`)
+    }
+  }
+  return index
+}
+
+function followupTargetToRef(
+  target: FollowupTarget,
+  digestTitles: Map<string, string>,
+): RefVm {
+  const key = `${target.digest_id}:${target.display_rank}`
+  const title = digestTitles.get(key) ?? `#${target.display_rank}`
+  return {
+    digestId: target.digest_id,
+    rank: target.display_rank,
+    title,
+  }
+}
+
+export interface MessageMapContext {
+  digestTitles: Map<string, string>
+  /** The immediately preceding user message's follow-up ref, for assistant `re:`. */
+  previousUserRef: RefVm | null
+  /** The immediately preceding user message's stored resolution, when it has one. */
+  previousRequest?: ResolvedRequestOut | null
+  /** The immediately preceding user message, for repeat actions. */
+  previousUser?: { id: number; text: string; request: ResolvedRequestOut | null } | null
+}
+
+const REPEAT_KINDS = new Set<MessageKind>(['digest', 'noresults', 'collectfailed'])
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  en: 'English',
+  'zh-CN': '中文',
+}
+
+function formatResolvedCount(request: ResolvedRequestOut): string | null {
+  const counts = request.counts
+  if (counts !== undefined && Object.keys(counts).length > 0) {
+    const values = Object.values(counts)
+    const singleAll =
+      values.length === 1 && values[0] === 'all' && (request.sources ?? []).length === 1
+    if (singleAll) {
+      return 'all stories'
+    }
+    const perSource =
+      values.length > 0 &&
+      request.per_source !== null &&
+      request.per_source !== undefined &&
+      values.every((value) => value === String(request.per_source))
+    if (perSource) {
+      return `${request.per_source} per source`
+    }
+    return values.join(', ')
+  }
+  if (request.per_source === null || request.per_source === undefined) {
+    return null
+  }
+  return `${request.per_source} per source`
+}
+
+/** The prototype's request summary: sources, count, timeframe, and language. */
+export function summarizeRequest(request: ResolvedRequestOut): string {
+  const sources = request.sources ?? []
+  const sourceLine = sources
+    .map((name) => {
+      const kind = sourceKindOf(name)
+      return kind === null ? name : sourceLabel(kind)
+    })
+    .filter((label) => label !== '')
+    .join(', ')
+  const parts: string[] = []
+  const countText = formatResolvedCount(request)
+  const counts = request.counts
+  if (sources.length === 1 && countText !== null) {
+    const name = sourceLine
+    if (counts !== undefined && counts[sources[0] ?? ''] === 'all') {
+      parts.push(`${name} · all stories`)
+    } else if (
+      counts !== undefined &&
+      Object.keys(counts).length === 1 &&
+      sources[0] !== undefined
+    ) {
+      const label = counts[sources[0]]
+      parts.push(label !== undefined ? `${name} · ${label}` : name)
+    } else {
+      parts.push(`${name} · ${countText}`)
+    }
+  } else if (sourceLine !== '') {
+    parts.push(sourceLine)
+    if (countText !== null) {
+      parts.push(countText)
+    }
+  } else if (countText !== null) {
+    parts.push(countText)
+  }
+  const timeframe = textOrNull(request.timeframe ?? null)
+  if (timeframe !== null) {
+    parts.push(timeframe)
+  }
+  const language = textOrNull(request.language ?? null)
+  if (language !== null) {
+    parts.push(LANGUAGE_LABELS[language] ?? language)
+  }
+  return parts.join(' · ')
+}
+
+function attachRepeat(vm: MessageVm, context: MessageMapContext | undefined): void {
+  const user = context?.previousUser
+  if (
+    user === undefined ||
+    user === null ||
+    user.request === null ||
+    user.id <= 0 ||
+    !REPEAT_KINDS.has(vm.kind)
+  ) {
+    return
+  }
+  vm.repeat = {
+    userMessageId: user.id,
+    text: user.text,
+    summary: summarizeRequest(user.request),
+    sources: [...(user.request.sources ?? [])],
+    perSource: user.request.per_source ?? null,
+  }
+}
+
+/** Codes the backend treats as a whole-source abort, copied from collection_outcomes.py. */
+const SOURCE_FAILURE_CODES = new Set([
+  'juya_rss_unavailable',
+  'search_failed',
+  'invalid_search_response',
+  'no_input',
+  'request_failed',
+  'rate_limited',
+  'auth_missing',
+  'anti_bot_blocked',
+  'proxy_connection_failed',
+  'auth_required_missing',
+  'auth_required_rejected',
+])
+
+function collectionFrom(
+  outcome: 'no_eligible' | 'failed',
+  request: ResolvedRequestOut | null | undefined,
+  failure?: { source: EntryKind | null; reason: string | null },
+): CollectionVm {
+  const sources: EntryKind[] = []
+  for (const name of request?.sources ?? []) {
+    const kind = sourceKindOf(name)
+    if (kind !== null) {
+      sources.push(kind)
+    }
+  }
+  const topics = (request?.topics ?? []).map((topic) => topic.trim()).filter((topic) => topic !== '')
+  return {
+    outcome,
+    sources,
+    topic: topics.length > 0 ? topics.join(', ') : null,
+    timeframe: textOrNull(request?.timeframe ?? null),
+    failedSource: failure?.source ?? null,
+    reason: failure?.reason ?? null,
+  }
+}
+
+function sourceFailure(
+  warnings: MessageOut['warnings'],
+): { source: EntryKind | null; reason: string | null } {
+  const warning = (warnings ?? []).find((item) => SOURCE_FAILURE_CODES.has(item.code))
+  if (warning === undefined) {
+    return { source: null, reason: null }
+  }
+  return {
+    source: sourceKindOf(warning.connector),
+    reason: textOrNull(warning.message),
+  }
+}
+
+/**
+ * Classify one transcript message. Prefer `toMessages` for full transcripts so entry
+ * titles and assistant `re:` links resolve from digest rows.
+ */
+export function toMessageVm(message: MessageOut, context?: MessageMapContext): MessageVm {
   const warnings = message.warnings ?? []
+  const titles = context?.digestTitles ?? new Map<string, string>()
   const vm: MessageVm = {
     id: message.id,
     sequence: message.sequence,
@@ -225,6 +471,44 @@ export function toMessageVm(message: MessageOut): MessageVm {
     if (message.request) {
       vm.chips = toResolvedSourcesVm(message.request)
     }
+    if (message.juya_confirmation !== undefined && message.juya_confirmation !== null) {
+      vm.juyaConfirm = {
+        storyCount: message.juya_confirmation.story_count,
+        issue: message.juya_confirmation.issue,
+        issueNumber: message.juya_confirmation.issue_number,
+      }
+    }
+    if (message.followup_target !== undefined && message.followup_target !== null) {
+      vm.ref = followupTargetToRef(message.followup_target, titles)
+      const action = message.followup_action
+      if (action === 'deep_dive' || action === 'ask') {
+        vm.followupAction = action
+      }
+    }
+    return vm
+  }
+  if (
+    message.digest !== null &&
+    message.digest !== undefined &&
+    message.collection_outcome === 'no_eligible'
+  ) {
+    vm.kind = 'noresults'
+    vm.collection = collectionFrom('no_eligible', context?.previousRequest)
+    attachRepeat(vm, context)
+    return vm
+  }
+  if (
+    message.digest !== null &&
+    message.digest !== undefined &&
+    message.collection_outcome === 'failed'
+  ) {
+    vm.kind = 'collectfailed'
+    vm.collection = collectionFrom(
+      'failed',
+      context?.previousRequest,
+      sourceFailure(message.warnings),
+    )
+    attachRepeat(vm, context)
     return vm
   }
   if (message.digest !== null && message.digest !== undefined) {
@@ -235,6 +519,10 @@ export function toMessageVm(message: MessageOut): MessageVm {
       warnings,
     })
     vm.warnings = vm.digest.warnings
+    if (context?.previousUserRef !== undefined && context?.previousUserRef !== null) {
+      vm.replyRef = context.previousUserRef
+    }
+    attachRepeat(vm, context)
     return vm
   }
   if (message.content === CANCELLED_ASSISTANT_MESSAGE) {
@@ -242,11 +530,41 @@ export function toMessageVm(message: MessageOut): MessageVm {
     return vm
   }
   if (FAILED_ASSISTANT_MESSAGES.includes(message.content.trim())) {
-    // The backend persists the safe failure text as the run's assistant row, so the
-    // row the transcript carries is the same alert the live run showed.
     vm.kind = 'failed'
     vm.alert = { kind: 'failed', message: vm.text, canRunAgain: true }
     return vm
   }
+  if (context?.previousUserRef !== undefined && context?.previousUserRef !== null) {
+    vm.replyRef = context.previousUserRef
+  }
   return vm
+}
+
+/** Sort and map a page of API messages; resolves follow-up titles from digest rows. */
+export function toMessages(loaded: MessageOut[]): MessageVm[] {
+  const sorted = [...loaded].sort((a, b) => a.sequence - b.sequence)
+  const digestTitles = buildDigestEntryTitleIndex(sorted)
+  let previousUserRef: RefVm | null = null
+  let previousRequest: ResolvedRequestOut | null = null
+  let previousUser: MessageMapContext['previousUser'] = null
+  const out: MessageVm[] = []
+  for (const message of sorted) {
+    const vm = toMessageVm(message, {
+      digestTitles,
+      previousUserRef,
+      previousRequest,
+      previousUser,
+    })
+    out.push(vm)
+    if (message.role === 'user') {
+      previousUserRef = vm.ref ?? null
+      previousRequest = message.request ?? null
+      previousUser = {
+        id: message.id,
+        text: message.content,
+        request: message.request ?? null,
+      }
+    }
+  }
+  return out
 }

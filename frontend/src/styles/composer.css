@@ -45,6 +45,11 @@
   border-color: var(--danger-bd);
 }
 
+.c-refs {
+  display: flex;
+  padding: 10px 12px 0;
+}
+
 .c-notice {
   display: flex;
   align-items: center;
@@ -201,63 +206,97 @@
   border-color: var(--danger-bd);
 }
 
-.per {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--muted);
+.src-item {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
 }
 
-.stepper {
-  display: flex;
-  align-items: center;
-  border: 1px solid var(--border-strong);
+/* The chip joins its gear, so only its outer corners are rounded. */
+.src-item .src-chk span {
+  border-radius: 6px 0 0 6px;
+}
+
+/* The prototype's warning pip on a source chip whose credential check failed. */
+.pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn-dot);
+  flex: none;
+}
+
+.tip {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  width: max-content;
+  max-width: 260px;
+  padding: 6px 9px;
   border-radius: 6px;
+  background: var(--fg);
+  color: var(--surface);
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--d1) var(--ease);
+}
+
+.src-item:hover .tip,
+.src-item:focus-within .tip {
+  opacity: 1;
+}
+
+.src-gear {
+  width: 24px;
   height: 28px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
   background: var(--surface);
-}
-
-.stepper button {
-  width: 26px;
-  height: 26px;
-  border: 0;
-  background: transparent;
   color: var(--muted);
-  border-radius: 5px;
-  font-size: 15px;
-  line-height: 1;
+  transition: background-color var(--d1) var(--ease);
 }
 
-.stepper button:hover {
+.src-gear .ic {
+  width: 13px;
+  height: 13px;
+}
+
+.src-gear:hover {
   background: var(--hover);
   color: var(--fg);
 }
 
-.stepper input {
-  width: 34px;
-  border: 0;
-  text-align: center;
-  font: 500 12.5px var(--font-mono);
-  background: transparent;
-  -moz-appearance: textfield;
+.sources[aria-invalid='true'] .src-gear {
+  border-color: var(--danger-bd);
 }
 
-.stepper input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
+.dock-note {
+  max-width: 880px;
+  margin: 0 auto 8px;
+  align-items: center;
+  padding: 6px 6px 6px 12px;
+  box-shadow: var(--shadow);
 }
 
-.stepper input:focus {
-  outline: none;
+/* The prototype's notice: the text takes the room, the actions sit at the end. */
+.dock-note p {
+  flex: 1;
 }
 
-.stepper:focus-within {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
+.dock-note > .ic {
+  margin-top: 0;
 }
 
-.stepper.err {
-  border-color: var(--danger);
+.dock-note .link-btn {
+  margin-left: 0;
 }
 
 .c-actions {

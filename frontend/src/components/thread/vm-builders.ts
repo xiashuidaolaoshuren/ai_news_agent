@@ -111,6 +111,7 @@ export function warningVm(over: Partial<WarningVm> = {}): WarningVm {
 export function digestVm(over: Partial<DigestVm> = {}): DigestVm {
   return {
     ref: 'd15',
+    digestId: 15,
     generatedAt: '2026-10-01T20:04:00',
     itemCount: 5,
     sourcesReturned: 2,

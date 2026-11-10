@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from ai_news_agent.followup_enrich import enrich_huggingface_for_rank
 from ai_news_agent.huggingface_followup import format_huggingface_family_card
+from ai_news_agent.services.digest_views import huggingface_related_display_ranks
 from ai_news_agent.juya_followup import (
     format_juya_issue_deep_dive,
     format_juya_story_deep_dive,
@@ -219,6 +221,76 @@ def format_ranking_pick(ctx: FollowupContext) -> str:
     )
 
 
+def build_targeted_card(
+    ctx: FollowupContext,
+    rank: int,
+    *,
+    saved_with_digest: bool = False,
+) -> str:
+    """Deterministic card for one targeted digest entry."""
+    if ctx.digest is None or not ctx.digest.entries:
+        return "No digest entries are available for rank-targeted follow-up."
+    if rank < 1 or rank > len(ctx.digest.entries):
+        return f"No digest item at rank {rank}."
+
+    entry = ctx.digest.entries[rank - 1]
+    news_item = match_news_item_for_digest_entry(entry, ctx.news_items)
+    if entry.source_kind is SourceKind.HUGGINGFACE:
+        related = huggingface_related_display_ranks(
+            ctx.digest,
+            news_items=ctx.news_items,
+            display_rank=rank,
+        )
+        return format_huggingface_family_card(
+            entry,
+            news_item,
+            rank=rank,
+            targeted=True,
+            saved_with_digest=saved_with_digest,
+            related_display_ranks=related,
+        )
+    return format_rank_item(ctx, rank)
+
+
+async def answer_targeted_deep_dive(
+    ctx: FollowupContext,
+    rank: int,
+    store: DigestStore,
+    *,
+    fetch_allowed: bool,
+    digest_id: int,
+    huggingface_connector_factory: Callable[[], Any] | None = None,
+) -> str:
+    """Deep dive for a targeted entry; optional HF README fetch on latest digest."""
+    if ctx.digest is None or rank < 1 or rank > len(ctx.digest.entries):
+        return build_targeted_card(ctx, rank, saved_with_digest=not fetch_allowed)
+
+    entry = ctx.digest.entries[rank - 1]
+    connector: Any | None = None
+    if (
+        fetch_allowed
+        and entry.source_kind is SourceKind.HUGGINGFACE
+        and huggingface_connector_factory is not None
+    ):
+        connector = huggingface_connector_factory()
+    try:
+        if connector is not None:
+            ctx, _model_card_unavailable = await enrich_huggingface_for_rank(
+                ctx,
+                store,
+                rank,
+                huggingface_connector=connector,
+                digest_id=digest_id,
+            )
+    finally:
+        if connector is not None:
+            closer = getattr(connector, "aclose", None)
+            if closer is not None:
+                await closer()
+
+    return build_targeted_card(ctx, rank, saved_with_digest=not fetch_allowed)
+
+
 def format_rank_item(ctx: FollowupContext, rank: int) -> str:
     if ctx.digest is None or not ctx.digest.entries:
         return "No digest entries are available for rank-targeted follow-up."
@@ -280,8 +352,10 @@ def format_caveats(ctx: FollowupContext) -> str:
 
 __all__ = [
     "NO_SAVED_DIGEST",
+    "answer_targeted_deep_dive",
     "answer_structured_followup",
     "answer_structured_followup_live",
+    "build_targeted_card",
     "format_caveats",
     "format_rank_item",
     "format_ranking_pick",

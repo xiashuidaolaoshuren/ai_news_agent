@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from ai_news_agent.models import ConfidenceLevel, NewsItem, RankedItem, SourceKind
 
@@ -971,6 +971,152 @@ def _mixed_juya_huggingface_pool(now: datetime) -> list[NewsItem]:
         for i in range(4)
     ]
     return juya_items + hf_items
+
+
+def test_rank_items_juya_all_selects_every_juya_row_while_github_stays_capped() -> None:
+    from ai_news_agent.ranking import rank_items
+
+    now = datetime(2026, 5, 7, 12, 0, 0, tzinfo=UTC)
+    juya_items = [
+        NewsItem(
+            source=SourceKind.JUYA,
+            source_id=f"juya-story-issue-1-{i}",
+            url=f"https://daily.juya.uk/2026/06/16/#story-{i}",
+            title=f"story {i}",
+            collected_at=now,
+            source_evidence={
+                "juya_item_type": "story",
+                "story_number": i,
+                "issue_id": "juya-rss-abc",
+            },
+        )
+        for i in range(1, 6)
+    ]
+    github_items = [
+        NewsItem(
+            source=SourceKind.GITHUB,
+            source_id=f"g{i}",
+            url=f"https://github.com/a/g{i}",
+            title=f"g{i}",
+            collected_at=now,
+        )
+        for i in range(3)
+    ]
+    ranked = rank_items(
+        juya_items + github_items,
+        top_n=10,
+        source_item_counts={"github": 2},
+        juya_item_count_all=True,
+        now=now,
+    )
+    selected_juya = [
+        row for row in ranked if row.selected and row.item.source is SourceKind.JUYA
+    ]
+    selected_github = [
+        row for row in ranked if row.selected and row.item.source is SourceKind.GITHUB
+    ]
+    assert len(selected_juya) == 5
+    assert len(selected_github) == 2
+
+
+def test_rank_items_juya_all_without_counts_selects_every_story() -> None:
+    from ai_news_agent.ranking import rank_items
+
+    now = datetime(2026, 5, 7, 12, 0, 0, tzinfo=UTC)
+    juya_items = [
+        NewsItem(
+            source=SourceKind.JUYA,
+            source_id=f"juya-story-issue-1-{i}",
+            url=f"https://daily.juya.uk/2026/06/16/#story-{i}",
+            title=f"story {i}",
+            collected_at=now,
+            source_evidence={
+                "juya_item_type": "story",
+                "story_number": i,
+                "issue_id": "juya-rss-abc",
+            },
+        )
+        for i in range(1, 9)
+    ]
+    github_item = NewsItem(
+        source=SourceKind.GITHUB,
+        source_id="g1",
+        url="https://github.com/a/g1",
+        title="g1",
+        collected_at=now,
+    )
+    ranked = rank_items(
+        juya_items + [github_item],
+        top_n=5,
+        source_item_counts=None,
+        juya_item_count_all=True,
+        now=now,
+    )
+    selected_juya = [
+        row for row in ranked if row.selected and row.item.source is SourceKind.JUYA
+    ]
+    selected_github = [
+        row for row in ranked if row.selected and row.item.source is SourceKind.GITHUB
+    ]
+    assert len(selected_juya) == 8
+    assert selected_github == []
+
+
+def test_rank_items_source_item_counts_caps_each_kind_independently() -> None:
+    from ai_news_agent.ranking import rank_items
+
+    now = datetime(2026, 5, 7, 12, 0, 0, tzinfo=UTC)
+    items = [
+        NewsItem(
+            source=SourceKind.GITHUB,
+            source_id=f"g{i}",
+            url=f"https://github.com/a/g{i}",
+            title=f"g{i}",
+            collected_at=now,
+        )
+        for i in range(3)
+    ]
+    ranked = rank_items(
+        items,
+        top_n=5,
+        source_item_counts={"github": 5},
+        now=now,
+    )
+    selected = [row for row in ranked if row.selected]
+    assert len(selected) == 3
+
+
+def test_rank_items_source_item_counts_respects_strict_timeframe() -> None:
+    from ai_news_agent.ranking import rank_items
+
+    now = datetime(2026, 5, 7, 12, 0, 0, tzinfo=UTC)
+    old = NewsItem(
+        source=SourceKind.GITHUB,
+        source_id="old",
+        url="https://github.com/a/old",
+        title="old",
+        published_at=now - timedelta(days=30),
+        collected_at=now,
+    )
+    fresh = NewsItem(
+        source=SourceKind.GITHUB,
+        source_id="fresh",
+        url="https://github.com/a/fresh",
+        title="fresh",
+        published_at=now,
+        collected_at=now,
+    )
+    ranked = rank_items(
+        [old, fresh],
+        top_n=5,
+        timeframe="today",
+        strict_timeframe=True,
+        source_item_counts={"github": 5},
+        now=now,
+    )
+    selected = [row for row in ranked if row.selected]
+    assert len(selected) == 1
+    assert selected[0].item.source_id == "fresh"
 
 
 def test_rank_items_items_per_source_selects_huggingface_families_not_variants() -> None:

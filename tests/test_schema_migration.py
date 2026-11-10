@@ -52,6 +52,16 @@ def _backup_path(db_path: Path) -> Path:
     return db_path.with_name(f"{db_path.name}.v1.bak")
 
 
+def _assert_v4_settings_tables(db_path: Path) -> None:
+    names = _table_names(db_path)
+    assert "source_settings" in names
+    assert "secrets" in names
+    assert "app_settings" in names
+    assert "credential_health" in names
+    if "digest_entries" in names:
+        assert "language" in _column_names(db_path, "digest_entries")
+
+
 def _seed_v1_database(db_path: Path) -> int:
     con = sqlite3.connect(db_path)
     try:
@@ -214,13 +224,13 @@ def _seed_v2_database(db_path: Path) -> None:
         con.close()
 
 
-def test_fresh_init_schema_is_v3_with_request_interpretation(tmp_path: Path) -> None:
+def test_fresh_init_schema_is_v4_with_request_interpretation(tmp_path: Path) -> None:
     db_path = tmp_path / "fresh.db"
     store = DigestStore(db_path)
     store.init_schema()
 
-    assert SCHEMA_VERSION == "3"
-    assert _stored_schema_version(db_path) == "3"
+    assert SCHEMA_VERSION == "4"
+    assert _stored_schema_version(db_path) == "4"
     assert "interpretation_json" in _column_names(db_path, "session_requests")
 
 
@@ -231,8 +241,9 @@ def test_v2_database_gains_interpretation_column_and_keeps_rows(tmp_path: Path) 
     store = DigestStore(db_path)
     store.init_schema()
 
-    assert _stored_schema_version(db_path) == "3"
+    assert _stored_schema_version(db_path) == "4"
     assert "interpretation_json" in _column_names(db_path, "session_requests")
+    _assert_v4_settings_tables(db_path)
 
     con = sqlite3.connect(db_path)
     try:
@@ -246,16 +257,16 @@ def test_v2_database_gains_interpretation_column_and_keeps_rows(tmp_path: Path) 
         con.close()
 
     store.init_schema()
-    assert _stored_schema_version(db_path) == "3"
+    assert _stored_schema_version(db_path) == "4"
 
 
-def test_fresh_init_schema_is_v2_with_session_tables_and_no_backup(tmp_path: Path) -> None:
+def test_fresh_init_schema_is_v4_with_session_tables_and_no_backup(tmp_path: Path) -> None:
     db_path = tmp_path / "fresh.db"
     store = DigestStore(db_path)
     store.init_schema()
 
-    assert SCHEMA_VERSION == "3"
-    assert _stored_schema_version(db_path) == "3"
+    assert SCHEMA_VERSION == "4"
+    assert _stored_schema_version(db_path) == "4"
 
     names = _table_names(db_path)
     assert "sessions" in names
@@ -272,12 +283,13 @@ def test_v1_database_migrates_in_place_preserving_rows(tmp_path: Path) -> None:
     store = DigestStore(db_path)
     store.init_schema()
 
-    assert _stored_schema_version(db_path) == "3"
+    assert _stored_schema_version(db_path) == "4"
     names = _table_names(db_path)
     assert "sessions" in names
     assert "session_messages" in names
     assert "session_requests" in names
     assert "session_id" in _column_names(db_path, "runs")
+    _assert_v4_settings_tables(db_path)
 
     con = sqlite3.connect(db_path)
     try:
@@ -291,7 +303,7 @@ def test_v1_database_migrates_in_place_preserving_rows(tmp_path: Path) -> None:
         con.close()
 
     store.init_schema()
-    assert _stored_schema_version(db_path) == "3"
+    assert _stored_schema_version(db_path) == "4"
 
 
 def test_v1_upgrade_creates_sibling_backup_once(tmp_path: Path) -> None:
@@ -305,7 +317,7 @@ def test_v1_upgrade_creates_sibling_backup_once(tmp_path: Path) -> None:
     assert backup.exists()
     assert _stored_schema_version(backup) == "1"
     assert "sessions" not in _table_names(backup)
-    assert _stored_schema_version(db_path) == "3"
+    assert _stored_schema_version(db_path) == "4"
 
     store.init_schema()
     assert backup.exists()

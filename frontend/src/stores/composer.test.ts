@@ -3,9 +3,11 @@ import { ref, shallowRef } from 'vue'
 
 import type { PostMessageBody, SessionOut, SessionPatch } from '@/api/generated/types.gen'
 import type { RequestLifecycle, RequestSnapshot } from '@/api/lifecycle'
+import { SseHttpError } from '@/api/sse'
 import { createComposerController, type ComposerDeps } from '@/stores/composer'
-import { COUNT_INVALID, PREFS_FAILED, TEXT_REQUIRED, parseSources } from '@/vm/composer'
+import { PREFS_FAILED, TEXT_REQUIRED, parseSources } from '@/vm/composer'
 import type { SentSourcesInput } from '@/vm/session'
+import type { RefVm } from '@/vm/types'
 
 const CATALOG = parseSources({
   defaults: ['juya'],
@@ -61,7 +63,7 @@ interface Harness {
   applied: SessionOut[]
   cancelCount: { value: number }
   patchError: { value: string | null }
-  marked: { text: string; sources: SentSourcesInput }[]
+  marked: { text: string; sources: SentSourcesInput; ref?: RefVm | null }[]
 }
 
 /** Composer controller wired to spies, so no HTTP layer is involved. */
@@ -95,6 +97,11 @@ function makeComposer(overrides: Partial<ComposerDeps> = {}): Harness {
 
   const deps: ComposerDeps = {
     loadSources: async () => CATALOG,
+    hiddenSources: async () => ['bilibili'],
+    countsSeen: () => true,
+    writeCountsSeen: () => {},
+    loadFailed: () => false,
+    confirmPending: () => false,
     session: () => session.value,
     draft,
     snapshot: () => snapshot.value,
@@ -114,8 +121,8 @@ function makeComposer(overrides: Partial<ComposerDeps> = {}): Harness {
       applied.push(next)
     },
     runAgain: () => {},
-    markUserSent: (text, sources) => {
-      marked.push({ text, sources })
+    markUserSent: (text, sources, ref) => {
+      marked.push(ref === undefined ? { text, sources } : { text, sources, ref })
     },
     newId: () => {
       ids += 1
@@ -195,23 +202,29 @@ describe('composer send', () => {
     expect(marked).toEqual([
       {
         text: 'What shipped this week?',
-        sources: { names: ['juya', 'github'], perSource: 5 },
+        sources: { names: ['juya', 'github'], perSource: null },
       },
     ])
   })
 
-  it('counts a typed item count among the sent sources', async () => {
+  it('sends the session sources without a count of its own', async () => {
     const { controller, marked, draft } = await ready()
-    await controller.commitCount('8')
     draft.value = 'What shipped this week?'
 
     controller.send()
 
-    expect(marked[0]?.sources).toEqual({ names: ['juya'], perSource: 8 })
+    expect(marked[0]?.sources).toEqual({ names: ['juya'], perSource: null })
   })
 })
 
 describe('composer source preferences', () => {
+  it('keeps Bilibili out of the composer while it stays selectable in settings', async () => {
+    const { controller } = await ready()
+
+    expect(controller.vm.value.sources.map((source) => source.name)).not.toContain('bilibili')
+    expect(controller.vm.value.sources.map((source) => source.name)).toContain('juya')
+  })
+
   it('patches the session when a source is toggled', async () => {
     const { controller, patches, applied } = await ready()
 
@@ -220,7 +233,7 @@ describe('composer source preferences', () => {
     expect(patches).toEqual([
       {
         sessionId: 's1',
-        body: { connector_names: ['juya', 'github'], items_per_source: 5 },
+        body: { connector_names: ['juya', 'github'] },
       },
     ])
     expect(applied).toHaveLength(1)
@@ -300,6 +313,42 @@ describe('composer busy and blocked', () => {
     expect(controller.vm.value.busy).toBe(false)
   })
 
+  it('refuses a send while a Juya confirmation waits for an answer', async () => {
+    const { controller, sends, draft } = await ready({ confirmPending: () => true })
+    draft.value = 'Another question'
+
+    expect(controller.send()).toBe(false)
+
+    expect(sends).toEqual([])
+    expect(controller.vm.value.confirmPending).toBe(true)
+    expect(draft.value).toBe('Another question')
+  })
+
+  it('refuses a send when the transcript failed to load', async () => {
+    const { controller, sends, draft } = await ready({ loadFailed: () => true })
+    draft.value = 'What shipped this week?'
+
+    expect(controller.send()).toBe(false)
+
+    expect(sends).toEqual([])
+    expect(controller.vm.value.loadFailed).toBe(true)
+  })
+
+  it('notes a cancelled confirmation until the next send', async () => {
+    const { controller, draft } = await ready()
+
+    controller.noteConfirmCancelled()
+
+    expect(controller.vm.value.confirmCancelled).toBe(
+      'Cancelled. No digest was written, and your request is back in the composer.',
+    )
+
+    draft.value = 'What shipped this week?'
+    controller.send()
+
+    expect(controller.vm.value.confirmCancelled).toBeNull()
+  })
+
   it('cancels the running request', async () => {
     const { controller, snapshot, cancelCount } = await ready()
     snapshot.value = { ...idleSnapshot(), state: 'streaming', requestId: 'r1' }
@@ -323,6 +372,83 @@ describe('composer text field', () => {
   })
 })
 
+describe('composer repeat', () => {
+  it('repeats a stored request and blocks while a run is active', async () => {
+    const { controller, sends, marked, snapshot } = await ready()
+
+    expect(
+      controller.repeat({
+        userMessageId: 7,
+        text: 'Run again · d15',
+        sources: ['github'],
+        perSource: 5,
+        replaceSource: 'github',
+      }),
+    ).toBe(true)
+
+    expect(sends).toEqual([
+      {
+        sessionId: 's1',
+        body: {
+          content: 'Run again · d15',
+          client_request_id: 'req-1',
+          juya_item_mode: 'stories',
+          repeat_of_user_message_id: 7,
+          replace_source: 'github',
+        },
+      },
+    ])
+    expect(marked).toEqual([
+      {
+        text: 'Run again · d15',
+        sources: { names: ['github'], perSource: 5 },
+      },
+    ])
+
+    snapshot.value = { ...idleSnapshot(), state: 'streaming', requestId: 'r1' }
+    expect(
+      controller.repeat({
+        userMessageId: 8,
+        text: 'again',
+        sources: ['juya'],
+        perSource: 5,
+      }),
+    ).toBe(false)
+    expect(controller.vm.value.notice).toBe('blocked')
+    expect(sends).toHaveLength(1)
+  })
+
+  it('says a stored request can no longer be repeated', async () => {
+    const harness = makeComposer({
+      lifecycle: {
+        get state() {
+          return idleSnapshot()
+        },
+        async send(): Promise<void> {
+          throw new SseHttpError(400, 'repeat_resolution_missing', 'missing')
+        },
+        async cancel(): Promise<void> {},
+        async resume(): Promise<void> {},
+        subscribe(): () => void {
+          return () => {}
+        },
+      } as unknown as RequestLifecycle,
+    })
+    const controller = createComposerController(harness.deps)
+    await controller.load()
+
+    controller.repeat({
+      userMessageId: 7,
+      text: 'Run again · d15',
+      sources: ['github'],
+      perSource: 5,
+    })
+    await Promise.resolve()
+
+    expect(controller.vm.value.errors.send).toBe('That request can’t be repeated.')
+  })
+})
+
 describe('composer prefill', () => {
   it('fills the draft, clears the text error, and asks for focus', async () => {
     const { controller, draft } = await ready()
@@ -336,14 +462,18 @@ describe('composer prefill', () => {
     expect(controller.focusToken.value).toBe(1)
   })
 
-  it('templates the follow-up prompt from an entry title', async () => {
+  it('sets ask-about target and clears the draft', async () => {
     const { controller, draft } = await ready()
+    draft.value = 'scratch'
 
-    controller.prefillFollowUp('NVIDIA/OpenShell')
+    const ref: RefVm = { digestId: 15, rank: 3, title: 'NVIDIA/OpenShell' }
+    controller.askAbout(ref)
 
-    expect(draft.value).toBe(
-      'Tell me more about “NVIDIA/OpenShell”: what it is and how I could try it.',
-    )
+    expect(draft.value).toBe('')
+    expect(controller.targetRef.value).toEqual(ref)
+    expect(controller.vm.value.ref).toEqual(ref)
+    expect(controller.vm.value.placeholder).toBe('Ask about d15 #3…')
+    expect(controller.focusToken.value).toBe(1)
   })
 
   it('refills from the last user message on Run again and focuses', async () => {
@@ -363,38 +493,28 @@ describe('composer prefill', () => {
   })
 })
 
-describe('composer count preferences', () => {
-  it('patches the session when a typed count is committed', async () => {
-    const { controller, patches } = await ready()
+describe('composer count notice', () => {
+  it('hides the notice the moment it is dismissed and remembers it', async () => {
+    let seen = false
+    const { controller } = await ready({
+      countsSeen: () => seen,
+      writeCountsSeen: () => {
+        seen = true
+      },
+    })
 
-    await controller.commitCount('8')
+    expect(controller.vm.value.countsSeen).toBe(false)
+    controller.dismissCounts()
 
-    expect(controller.vm.value.count).toBe('8')
-    expect(patches).toEqual([
-      { sessionId: 's1', body: { connector_names: ['juya'], items_per_source: 8 } },
-    ])
+    expect(controller.vm.value.countsSeen).toBe(true)
+    expect(seen).toBe(true)
   })
 
-  it('reports an unusable count, keeps the raw text, and patches nothing', async () => {
-    const { controller, patches } = await ready()
+  it('hands the caret back to the composer after dismissing', async () => {
+    const { controller } = await ready()
 
-    await controller.commitCount('99')
+    controller.dismissCounts()
 
-    expect(patches).toEqual([])
-    expect(controller.vm.value.count).toBe('99')
-    expect(controller.vm.value.errors.count).toBe(COUNT_INVALID)
-  })
-
-  it('clamps a stepper step into 1-20 and clears the count error', async () => {
-    const { controller, patches } = await ready()
-    await controller.commitCount('99')
-
-    await controller.stepCount(-1)
-
-    expect(controller.vm.value.count).toBe('20')
-    expect(controller.vm.value.errors.count).toBeUndefined()
-    expect(patches).toEqual([
-      { sessionId: 's1', body: { connector_names: ['juya'], items_per_source: 20 } },
-    ])
+    expect(controller.focusToken.value).toBe(1)
   })
 })

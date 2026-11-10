@@ -59,6 +59,27 @@ describe('renderMarkdown', () => {
     expect(html).toContain('href="https://example.test/docs"')
   })
 
+  it('renders a cleaned model-card table and link without raw HTML', () => {
+    const html = renderMarkdown(
+      [
+        'Kimi K3.1 Pro is an open-weight model.',
+        '',
+        '| **Architecture** | Mixture-of-Experts |',
+        '| --- | --- |',
+        '',
+        '[API Quickstart](https://example.test/docs)',
+        '<div><img src="https://tracker.test/logo.png"></div>',
+      ].join('\n'),
+    )
+
+    expect(html).toContain('<table>')
+    expect(html).toContain('<strong>Architecture</strong>')
+    expect(html).toContain('Mixture-of-Experts')
+    expect(html).toContain('href="https://example.test/docs"')
+    expect(html).not.toContain('<img')
+    expect(html).toContain('&lt;img src="https://tracker.test/logo.png"&gt;')
+  })
+
   it('opens rendered links in a new tab without a referrer leak', () => {
     const html = renderMarkdown('[docs](https://example.test/docs)')
     const doc = new DOMParser().parseFromString(html, 'text/html')

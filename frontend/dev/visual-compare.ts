@@ -9,6 +9,7 @@ import '@/style.css'
 
 import Composer from '@/components/composer/Composer.vue'
 import HistoryPanel from '@/components/history/HistoryPanel.vue'
+import SettingsDialog from '@/components/settings/SettingsDialog.vue'
 import Thread from '@/components/thread/Thread.vue'
 
 import type {
@@ -18,6 +19,7 @@ import type {
 import type { HistoryPanelVm } from '@/vm'
 import { toHistoryMatchVm, toHistoryPanelVm } from '@/vm'
 import type { DigestVm, EntryVm, JuyaIssueVm, MessageVm, SectionVm } from '@/vm'
+import type { KeysVm, SourceProfileVm } from '@/vm/settings'
 import { HF_FIXTURES, HIST_FIXTURES, JUYA_FIXTURES, GH_FIXTURES } from '@/vm/fixtures/prototype'
 import { toVmFromFixture } from '@/vm/fixtures/toVmFromFixture'
 import { toRequestStateVm, type RequestStateVm } from '@/vm/session'
@@ -88,6 +90,7 @@ juyaSection.juyaIssues = [juyaIssue]
 
 const digest: DigestVm = {
   ref: 'd15',
+  digestId: 15,
   generatedAt: '2026-10-01T20:04:00',
   itemCount: juya.length + hf.length + github.length,
   sourcesReturned: 3,
@@ -168,6 +171,8 @@ type PrototypeView = {
 const PROTOTYPE_VIEWS: PrototypeView[] = [
   { id: 'digest', label: 'Digest reply', implemented: true },
   { id: 'empty', label: 'Empty conversation', implemented: true },
+  { id: 'loading', label: 'Loading conversation', implemented: true },
+  { id: 'loadfailed', label: 'Load failed', implemented: true },
   { id: 'streaming', label: 'Streaming', implemented: true },
   { id: 'writing', label: 'Writing digest', implemented: true },
   { id: 'streamtext', label: 'Streaming text', implemented: true },
@@ -185,6 +190,10 @@ const PROTOTYPE_VIEWS: PrototypeView[] = [
   { id: 'nomatch', label: 'No history matches', implemented: true },
   { id: 'historyerror', label: 'History failed search', implemented: true },
   { id: 'validation', label: 'Validation error', implemented: true },
+  { id: 'juya-confirm', label: 'Juya confirmation', implemented: true },
+  { id: 'settings', label: 'Settings sources', implemented: true },
+  { id: 'settingsauth', label: 'Settings GitHub auth', implemented: true },
+  { id: 'settingsfocus', label: 'Settings gear jump', implemented: true },
 ]
 
 /** The views that show the history panel beside the thread. */
@@ -363,6 +372,8 @@ interface ViewState {
   run: RunVm | null
   cancelled: CancelledVm | null
   alert: RequestStateVm | null
+  loading?: boolean
+  loadError?: string | null
 }
 
 const NO_STATE: ViewState = { messages: [], run: null, cancelled: null, alert: null }
@@ -371,6 +382,10 @@ function stateFor(view: string): ViewState {
   switch (view) {
     case 'empty':
       return NO_STATE
+    case 'loading':
+      return { ...NO_STATE, loading: true }
+    case 'loadfailed':
+      return { ...NO_STATE, loadError: 'backend down' }
     case 'streaming':
       return { ...NO_STATE, messages: [askMessage], run: toRunVm(runInput()) }
     case 'writing':
@@ -436,6 +451,16 @@ function stateFor(view: string): ViewState {
         messages: [askMessage],
         alert: toRequestStateVm({ status: 'interrupted', error_code: null, error_message: null }),
       }
+    case 'juya-confirm':
+      return {
+        ...NO_STATE,
+        messages: [
+          {
+            ...askMessage,
+            juyaConfirm: { storyCount: 25, issue: '2026-06-16', issueNumber: 'juya-rss-1' },
+          },
+        ],
+      }
     default:
       return { ...NO_STATE, messages }
   }
@@ -464,10 +489,11 @@ function composerVmFor(view: string): ComposerVm {
     text: '',
     sources: CATALOG,
     selected: DEFAULT_SELECTED,
-    count: '5',
     errors: {},
     busy: false,
     notice: 'none',
+    countsSeen: true,
+    ref: null,
   }
   switch (view) {
     case 'streaming':
@@ -484,17 +510,77 @@ function composerVmFor(view: string): ComposerVm {
         ...base,
         text: VALIDATION_TEXT,
         selected: [],
-        count: '0',
-        errors: validateComposer({ text: VALIDATION_TEXT, selected: [], count: '0' }),
+        errors: validateComposer({ text: VALIDATION_TEXT, selected: [] }),
       })
     default:
       return toComposerVm(base)
   }
 }
 
+const KEYS_DRAFT = {
+  llmKey: '',
+  llmUrl: '',
+  llmModel: '',
+  github: '',
+  hf: '',
+  zhihu: '',
+  bilibiliSessdata: '',
+  bilibiliBiliJct: '',
+  bilibiliBuvid3: '',
+}
+
+/** The Keys panel in its prototype states: normal, read-only, unreadable. */
+function keysVmFor(view: string): KeysVm {
+  const readOnly = view === 'keysro'
+  const bad = view === 'keysbad'
+  return {
+    readOnly,
+    llmUnreadable: bad,
+    draft: { ...KEYS_DRAFT },
+    rows: {
+      OPENAI_API_KEY: bad
+        ? { status: 'bad', last4: null, version: 'v2' }
+        : { status: 'app', last4: 'a1b2', version: 'v1' },
+      OPENAI_BASE_URL: { status: 'env', last4: null, version: 'v1' },
+      OPENAI_MODEL: { status: 'none', last4: null, version: null },
+      GITHUB_TOKEN: { status: 'env', last4: '9f3c', version: 'v1' },
+      HUGGINGFACE_TOKEN: { status: 'none', last4: null, version: null },
+      ZHIHU_ACCESS_SECRET: { status: 'app', last4: '4d2e', version: 'v1' },
+      BILIBILI_SESSDATA: { status: 'none', last4: null, version: null },
+      BILIBILI_BILI_JCT: { status: 'none', last4: null, version: null },
+      BILIBILI_BUVID3: { status: 'none', last4: null, version: null },
+    },
+    messages: {},
+    results: {},
+    testing: null,
+    githubAuthError: true,
+  }
+}
+
+/** The prototype's source profile values, in host field names. */
+const SOURCE_PROFILES: SourceProfileVm[] = [
+  { name: 'juya', hidden: false, itemCount: 5 },
+  {
+    name: 'github',
+    hidden: false,
+    itemCount: 5,
+    keywords: ['agent', 'mcp'],
+    minStars: 50,
+    language: 'TypeScript',
+  },
+  { name: 'huggingface', hidden: false, itemCount: 5, pipelineTag: 'text-generation' },
+  { name: 'openrouter', hidden: false, itemCount: 5, freeOnly: true },
+  { name: 'zhihu', hidden: false, itemCount: 5 },
+  { name: 'bilibili', hidden: true },
+]
+
 /** `?state=empty` still opens the empty conversation, as it did before the toolbar. */
 function initialView(): string {
-  return new URLSearchParams(window.location.search).get('state') === 'empty' ? 'empty' : 'digest'
+  const state = new URLSearchParams(window.location.search).get('state')
+  if (state !== null && PROTOTYPE_VIEWS.some((view) => view.id === state)) {
+    return state
+  }
+  return 'digest'
 }
 
 function PrototypeStateBar(onSelect: (id: string) => void, active: string) {
@@ -533,14 +619,41 @@ function PrototypeStateBar(onSelect: (id: string) => void, active: string) {
 createApp({
   setup() {
     const view = ref(initialView())
-    return () =>
-      h('div', { class: 'compare' }, [
+    return () => {
+      if (view.value.startsWith('keys') || view.value.startsWith('settings')) {
+        const onSources = view.value.startsWith('settings')
+        return h(SettingsDialog, {
+          vm: {
+            open: true,
+            tab: onSources ? 'sources' : 'keys',
+            language: 'source_default',
+            profiles: onSources ? SOURCE_PROFILES : [],
+            fieldErrors: {},
+            saved: false,
+            loadError: null,
+            focus: view.value === 'settingsfocus' ? 'github' : null,
+            keys: {
+              ...keysVmFor('keys'),
+              githubAuthError: view.value === 'settingsauth',
+            },
+          },
+          onFocusDone: () => undefined,
+        })
+      }
+      return h('div', { class: 'compare' }, [
         PrototypeStateBar((next) => {
           view.value = next
         }, view.value),
         h('div', { class: 'stage' }, [
           h('div', { class: 'stage-main' }, [
-            h(Thread, { ...stateFor(view.value) }),
+            h(Thread, {
+              ...stateFor(view.value),
+              catalog: CATALOG.map((source) => ({
+                name: source.name,
+                label: source.label,
+                kind: source.kind,
+              })),
+            }),
             h(Composer, { vm: composerVmFor(view.value) }),
           ]),
           ...(HISTORY_VIEWS.has(view.value)
@@ -566,5 +679,6 @@ createApp({
             : []),
         ]),
       ])
+    }
   },
 }).mount('#app')

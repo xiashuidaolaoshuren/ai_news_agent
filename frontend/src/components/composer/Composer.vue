@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, useTemplateRef } from 'vue'
 
 import AppIcon from '@/components/ui/AppIcon.vue'
+import RefChip from '@/components/thread/RefChip.vue'
 import SourceLogo from '@/components/thread/SourceLogo.vue'
 import type { ComposerVm } from '@/vm/composer'
 
@@ -12,8 +13,9 @@ const emit = defineEmits<{
   cancel: []
   updateText: [text: string]
   toggleSource: [name: string]
-  commitCount: [raw: string]
-  stepCount: [delta: number]
+  removeRef: []
+  openSettings: [name: string | null]
+  dismissCounts: []
 }>()
 
 const dock = useTemplateRef<HTMLElement>('dock')
@@ -32,7 +34,6 @@ function errorList(): { id: string; message: string }[] {
   return [
     { id: 'err-text', message: errors.text },
     { id: 'err-sources', message: errors.sources },
-    { id: 'err-n', message: errors.count },
     { id: 'err-send', message: errors.send },
     { id: 'err-prefs', message: errors.prefs },
   ].filter((item): item is { id: string; message: string } => item.message !== undefined)
@@ -49,10 +50,6 @@ function onKeydown(event: KeyboardEvent): void {
 
 function onInput(event: Event): void {
   emit('updateText', (event.target as HTMLTextAreaElement).value)
-}
-
-function onCountInput(event: Event): void {
-  emit('commitCount', (event.target as HTMLInputElement).value)
 }
 
 /**
@@ -103,6 +100,21 @@ defineExpose({
 
 <template>
   <div ref="dock" class="composer-dock">
+    <div
+      v-if="!props.vm.countsSeen"
+      class="alert alert-info dock-note"
+      role="status"
+      data-od-id="source-count-notice"
+    >
+      <AppIcon name="info" />
+      <p>New requests use the global source counts from Settings, initially 5 per source.</p>
+      <button type="button" class="link-btn" @click="emit('openSettings', null)">
+        Open Settings
+      </button>
+      <button type="button" class="icon-btn" aria-label="Dismiss notice" @click="emit('dismissCounts')">
+        <AppIcon name="close" />
+      </button>
+    </div>
     <form
       class="composer"
       :class="{ invalid: hasErrors }"
@@ -127,13 +139,46 @@ defineExpose({
       >
         <AppIcon name="load" class="spin" />{{ NOTICE_COPY[props.vm.notice] }}
       </div>
+      <div
+        v-else-if="props.vm.loadFailed"
+        class="c-notice warn"
+        role="status"
+        data-od-id="load-failed-notice"
+      >
+        <AppIcon name="alert" />This conversation didn't load. Retry above before sending.
+      </div>
+      <div
+        v-else-if="props.vm.confirmPending"
+        class="c-notice warn"
+        role="alert"
+        data-od-id="confirm-pending-notice"
+      >
+        <AppIcon name="alert" />Not sent. Continue or cancel the Juya request above first.
+      </div>
+      <div
+        v-else-if="props.vm.confirmCancelled !== null"
+        class="c-notice info"
+        role="status"
+        data-od-id="confirm-cancelled-notice"
+      >
+        <AppIcon name="info" />{{ props.vm.confirmCancelled }}
+      </div>
+
+      <div v-if="props.vm.ref !== null" class="c-refs">
+        <RefChip
+          :ref-vm="props.vm.ref"
+          od-id="composer-ref-chip"
+          removable
+          @remove="emit('removeRef')"
+        />
+      </div>
 
       <label class="sr-only" for="msg">Message</label>
       <textarea
         id="msg"
         ref="input"
         rows="2"
-        placeholder="Ask for a digest or a follow-up…"
+        :placeholder="props.vm.placeholder"
         :value="props.vm.text"
         :aria-invalid="props.vm.errors.text !== undefined"
         :aria-describedby="props.vm.errors.text === undefined ? undefined : 'err-text'"
@@ -150,58 +195,42 @@ defineExpose({
           data-od-id="source-checkboxes"
         >
           <legend>Sources</legend>
-          <label v-for="source in props.vm.sources" :key="source.name" class="src-chk">
-            <input
-              type="checkbox"
-              :data-src="source.name"
-              :checked="source.checked"
-              :disabled="props.vm.busy"
-              @change="emit('toggleSource', source.name)"
-            />
-            <span>
-              <i class="box"><AppIcon name="check" /></i>
-              <SourceLogo v-if="source.kind !== null" :kind="source.kind" />{{ source.label }}
+          <span v-for="source in props.vm.sources" :key="source.name" class="src-item">
+            <label class="src-chk">
+              <input
+                type="checkbox"
+                :data-src="source.name"
+                :checked="source.checked"
+                :disabled="props.vm.busy"
+                :aria-describedby="source.healthHint ? `src-tip-${source.name}` : undefined"
+                @change="emit('toggleSource', source.name)"
+              />
+              <span>
+                <i class="box"><AppIcon name="check" /></i>
+                <SourceLogo v-if="source.kind !== null" :kind="source.kind" />{{ source.label }}
+                <i v-if="source.healthHint" class="pip" aria-hidden="true" />
+              </span>
+            </label>
+            <span
+              v-if="source.healthHint"
+              :id="`src-tip-${source.name}`"
+              class="tip"
+              role="tooltip"
+            >
+              {{ source.healthHint }}
             </span>
-          </label>
+            <button
+              type="button"
+              class="src-gear"
+              :aria-label="`${source.label} settings`"
+              :title="source.name === 'github' ? undefined : `${source.label} settings`"
+              :data-od-id="`source-settings-${source.name}`"
+              @click="emit('openSettings', source.name)"
+            >
+              <AppIcon name="gear" />
+            </button>
+          </span>
         </fieldset>
-
-        <div class="per">
-          <label for="per-n">Per source</label>
-          <div
-            class="stepper"
-            :class="{ err: props.vm.errors.count !== undefined }"
-            data-od-id="items-per-source"
-          >
-            <button
-              type="button"
-              aria-label="Fewer items"
-              :disabled="props.vm.busy"
-              @click="emit('stepCount', -1)"
-            >
-              −
-            </button>
-            <input
-              id="per-n"
-              type="number"
-              inputmode="numeric"
-              min="1"
-              max="20"
-              :value="props.vm.count"
-              :aria-invalid="props.vm.errors.count !== undefined"
-              :aria-describedby="props.vm.errors.count === undefined ? undefined : 'err-n'"
-              :disabled="props.vm.busy"
-              @change="onCountInput"
-            />
-            <button
-              type="button"
-              aria-label="More items"
-              :disabled="props.vm.busy"
-              @click="emit('stepCount', 1)"
-            >
-              +
-            </button>
-          </div>
-        </div>
 
         <div class="c-actions">
           <button
@@ -216,7 +245,8 @@ defineExpose({
           <button
             type="submit"
             class="btn btn-primary"
-            :disabled="props.vm.busy"
+            :disabled="props.vm.busy || props.vm.loadFailed"
+            :aria-disabled="props.vm.busy || props.vm.loadFailed ? 'true' : undefined"
             data-od-id="send-button"
           >
             <AppIcon name="up" />Send

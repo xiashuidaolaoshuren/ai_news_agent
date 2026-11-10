@@ -1,16 +1,34 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import type { DigestVm, SectionVm } from '@/vm'
+import type { DigestVm, RefVm, SectionVm } from '@/vm'
+import type { RepeatVm } from '@/vm/session'
 import { riseStyle } from '@/lib/motion'
 
 import AppIcon from '@/components/ui/AppIcon.vue'
 import DigestSection from '@/components/thread/DigestSection.vue'
 import { formatDigestWhen } from '@/components/thread/format'
 
-const props = defineProps<{ digest: DigestVm; animate?: boolean }>()
+const props = defineProps<{ digest: DigestVm; animate?: boolean; repeat?: RepeatVm | null }>()
 
-const emit = defineEmits<{ followup: [title: string] }>()
+const emit = defineEmits<{
+  deepdive: [ref: RefVm]
+  ask: [ref: RefVm]
+  'goto-related': [ref: RefVm]
+  repeat: [repeat: RepeatVm]
+  openSettings: [name: string]
+}>()
+
+/** Connectors with a Settings section; every source except hidden Bilibili. */
+const SETTINGS_SOURCES = new Set(['juya', 'huggingface', 'github', 'zhihu', 'openrouter'])
+
+/**
+ * The prototype puts a settings button on a warning only for a connector that
+ * has a section, so the button and `settings.focus` agree.
+ */
+function settingsSource(source: string): string | null {
+  return SETTINGS_SOURCES.has(source) ? source : null
+}
 
 const when = computed(() => formatDigestWhen(props.digest.generatedAt))
 
@@ -60,18 +78,45 @@ function warningStyle(index: number): string | undefined {
       :class="{ rise: props.animate === true }"
       :style="warningStyle(index)"
       role="alert"
+      :data-od-id="`connector-warning-${warning.source.toLowerCase()}`"
     >
       <AppIcon name="alert" />
       <p><b>{{ warning.label }} connector:</b> {{ warning.message }}</p>
+      <button
+        v-if="settingsSource(warning.source) !== null"
+        type="button"
+        class="btn btn-sm act"
+        @click="emit('openSettings', warning.source)"
+      >
+        {{ warning.label }} settings
+      </button>
     </div>
 
     <DigestSection
       v-for="(section, index) in digest.sections"
       :key="`${section.kind}:${section.rangeStart}`"
       :section="section"
+      :digest-id="digest.digestId ?? -1"
       :animate="props.animate === true"
       :start-index="sectionStarts[index] ?? 0"
-      @followup="emit('followup', $event)"
+      @deepdive="emit('deepdive', $event)"
+      @ask="emit('ask', $event)"
+      @goto-related="emit('goto-related', $event)"
     />
+
+    <div v-if="props.repeat" class="digest-foot" data-od-id="digest-run-again">
+      <button
+        type="button"
+        class="btn btn-sm"
+        :aria-describedby="`again-${digest.ref ?? 'digest'}`"
+        @click="emit('repeat', props.repeat)"
+      >
+        <AppIcon name="refresh" />Run again
+      </button>
+      <p class="help" :id="`again-${digest.ref ?? 'digest'}`">
+        Repeats the request behind {{ digest.ref }}: {{ props.repeat.summary }}. Sources, counts,
+        timeframe and language come from that request, not from current Settings.
+      </p>
+    </div>
   </div>
 </template>

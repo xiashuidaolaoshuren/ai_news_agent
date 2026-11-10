@@ -5,17 +5,23 @@ import EntryRow from '@/components/thread/EntryRow.vue'
 import HfTable from '@/components/thread/HfTable.vue'
 import JuyaIssueCover from '@/components/thread/JuyaIssueCover.vue'
 import SourceLogo from '@/components/thread/SourceLogo.vue'
-import type { EntryVm, SectionVm } from '@/vm'
+import type { EntryVm, RefVm, SectionVm } from '@/vm'
 
 const props = defineProps<{
   section: SectionVm
+  /** Numeric digest id for follow-up targets. */
+  digestId: number
   /** Set when the section arrived live, so its rows and the section itself reveal. */
   animate?: boolean
   /** Where this section's rows start in the digest-wide stagger count. */
   startIndex?: number
 }>()
 
-const emit = defineEmits<{ followup: [title: string] }>()
+const emit = defineEmits<{
+  deepdive: [ref: RefVm]
+  ask: [ref: RefVm]
+  'goto-related': [ref: RefVm]
+}>()
 
 /**
  * Stagger positions, counted in render order across the section. Juya stories are
@@ -72,8 +78,11 @@ function rowRise(entry: EntryVm): number | null {
             v-for="entry in issue.stories"
             :key="entry.key"
             :entry="entry"
+            :digest-id="props.digestId"
             :rise="rowRise(entry)"
-            @followup="emit('followup', $event)"
+            @deepdive="emit('deepdive', $event)"
+            @ask="emit('ask', $event)"
+            @goto-related="emit('goto-related', $event)"
           />
         </ol>
       </template>
@@ -82,8 +91,12 @@ function rowRise(entry: EntryVm): number | null {
     <HfTable
       v-else-if="props.section.kind === 'huggingface'"
       :entries="props.section.entries"
+      :digest-id="props.digestId"
       :animate="props.animate === true"
       :start-index="props.startIndex ?? 0"
+      @deepdive="emit('deepdive', $event)"
+      @ask="emit('ask', $event)"
+      @goto-related="emit('goto-related', $event)"
     />
 
     <ol v-else class="entries">
@@ -91,8 +104,11 @@ function rowRise(entry: EntryVm): number | null {
         v-for="entry in props.section.entries"
         :key="entry.key"
         :entry="entry"
+        :digest-id="props.digestId"
         :rise="rowRise(entry)"
-        @followup="emit('followup', $event)"
+        @deepdive="emit('deepdive', $event)"
+        @ask="emit('ask', $event)"
+        @goto-related="emit('goto-related', $event)"
       />
     </ol>
   </section>

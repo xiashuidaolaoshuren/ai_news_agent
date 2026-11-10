@@ -9,6 +9,7 @@ from typing import TextIO
 
 import uvicorn
 
+from ai_news_agent.access import AccessConfig
 from ai_news_agent.env import configure_bilibili_network_from_env, load_local_env
 from ai_news_agent.logging_setup import configure_logging, get_logger
 
@@ -50,8 +51,23 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
             "Writes go to a temporary database copy; --db-path is left unchanged."
         ),
     )
+    parser.add_argument(
+        "--remote",
+        action="store_true",
+        help=(
+            "Remote mode: require AI_NEWS_AGENT_ACCESS_TOKEN on every /api/v1 "
+            "route except /health."
+        ),
+    )
 
     ns = parser.parse_args(argv if argv is not None else sys.argv[1:])
+
+    try:
+        access = AccessConfig.from_environ(remote_flag=ns.remote)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        logger.error("%s", exc)
+        return 2
 
     from ai_news_agent.api.app import create_app
     from ai_news_agent.app.fake_runtime_db import materialize_fake_db, remove_fake_runtime_db
@@ -64,7 +80,7 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
         db_path = runtime_db
 
     try:
-        application = build_application(fake=ns.fake, db_path=db_path)
+        application = build_application(fake=ns.fake, db_path=db_path, access=access)
         app = create_app(application)
         logger.info(
             "digest service listening on http://%s:%s fake=%s db_path=%s",

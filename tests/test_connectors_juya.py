@@ -125,6 +125,15 @@ def _load_fixture_markdown(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8")
 
 
+def _markdown_with_n_stories(n: int) -> str:
+    lines = ["# 2026-06-16", "", "## 要闻"]
+    for i in range(1, n + 1):
+        lines.append(f"### Story {i} `#{i}`")
+        lines.append(f"> Summary for story {i}.")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def test_juya_collect_stories_mode_emits_one_item_per_numbered_story() -> None:
     markdown = _load_fixture_markdown("juya_website_with_cover_sample.md")
 
@@ -181,6 +190,64 @@ def test_juya_collect_stories_mode_cleans_linked_headlines() -> None:
         assert out.items[1].source_evidence["story_original_url"] == (
             "https://x.com/thsottiaux/status/2111244596131111253"
         )
+
+    asyncio.run(main())
+
+
+def test_juya_collect_all_stories_returns_every_story_without_story_cap() -> None:
+    markdown = _markdown_with_n_stories(25)
+    rss = _dated_rss("2026-06-16")
+
+    async def main() -> None:
+        transport = _juya_website_transport(
+            rss,
+            markdown_by_path={"/markdown/2026-06-16.md": markdown},
+        )
+        async with httpx.AsyncClient(transport=transport) as client:
+            out = await JuyaConnector(client=client).collect(
+                ConnectorRequest(
+                    topics=["rag"],
+                    max_items=5,
+                    juya_item_mode="stories",
+                    juya_collect_all_stories=True,
+                ),
+            )
+        assert len(out.items) == 25
+        assert all(
+            item.source_evidence.get("juya_item_type") == "story" for item in out.items
+        )
+
+    asyncio.run(main())
+
+
+def test_juya_collect_all_stories_still_bounds_rss_issue_window() -> None:
+    dates = [f"2026-06-{day:02d}" for day in range(1, 12)]
+    rss = _dated_rss(*dates)
+    markdown = _markdown_with_n_stories(3)
+    requested_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        requested_paths.append(path)
+        if path == "/rss.xml":
+            return httpx.Response(200, text=rss)
+        if path.startswith("/markdown/") and path.endswith(".md"):
+            return httpx.Response(200, text=markdown)
+        return httpx.Response(404, text="not found")
+
+    async def main() -> None:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            await JuyaConnector(client=client).collect(
+                ConnectorRequest(
+                    topics=[],
+                    max_items=11,
+                    juya_item_mode="stories",
+                    juya_collect_all_stories=True,
+                ),
+            )
+        md_fetches = [p for p in requested_paths if p.startswith("/markdown/")]
+        assert len(md_fetches) == 10
 
     asyncio.run(main())
 

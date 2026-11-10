@@ -6,6 +6,7 @@ import json
 import os
 from typing import Any, Protocol, runtime_checkable
 
+import httpx
 from openai import OpenAI
 
 from ai_news_agent.digest_content import extract_digest_fields, extract_json_object
@@ -26,11 +27,26 @@ class ConversationChatModel(Protocol):
         """Return one validated conversation decision as a plain dict."""
 
 
+def _guarded_sync_client(guard: Any) -> httpx.Client:
+    return httpx.Client(
+        timeout=httpx.Timeout(600.0, connect=5.0),
+        event_hooks={"request": [guard.sync_request_hook]},
+    )
+
+
+def _guarded_async_client(guard: Any) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(600.0, connect=5.0),
+        event_hooks={"request": [guard.async_request_hook]},
+    )
+
+
 def build_chat_model(
     *,
     api_key: str | None = None,
     base_url: str | None = None,
     model: str | None = None,
+    guard: Any | None = None,
 ) -> ChatModel:
     """Construct a client using env ``OPENAI_*`` when args omitted."""
     key = api_key if api_key is not None else os.environ.get("OPENAI_API_KEY")
@@ -38,7 +54,8 @@ def build_chat_model(
         raise ValueError("OPENAI_API_KEY is not set and no api_key was provided")
     url = base_url if base_url is not None else os.environ.get("OPENAI_BASE_URL")
     model_name = model if model is not None else os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-    client = OpenAI(api_key=key, base_url=url or None)
+    http_client = _guarded_sync_client(guard) if guard is not None else None
+    client = OpenAI(api_key=key, base_url=url or None, http_client=http_client)
     return OpenAIChatModel(client=client, model=model_name)
 
 
@@ -47,6 +64,7 @@ def build_tool_chat_model(
     api_key: str | None = None,
     base_url: str | None = None,
     model: str | None = None,
+    guard: Any | None = None,
 ) -> Any:
     from langchain_openai import ChatOpenAI
 
@@ -55,7 +73,16 @@ def build_tool_chat_model(
         raise ValueError("OPENAI_API_KEY is not set and no api_key was provided")
     url = base_url if base_url is not None else os.environ.get("OPENAI_BASE_URL")
     model_name = model if model is not None else os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-    return ChatOpenAI(api_key=key, base_url=url or None, model=model_name)
+    guard_kwargs: dict[str, Any] = {}
+    if guard is not None:
+        guard_kwargs["http_client"] = _guarded_sync_client(guard)
+        guard_kwargs["http_async_client"] = _guarded_async_client(guard)
+    return ChatOpenAI(
+        api_key=key,
+        base_url=url or None,
+        model=model_name,
+        **guard_kwargs,
+    )
 
 
 class OpenAIChatModel:
@@ -106,6 +133,29 @@ class OpenAIChatModel:
             temperature=0.3,
         )
         return (resp.choices[0].message.content or "").strip()
+
+    def generate_followup_reply(self, *, question: str, grounding: dict[str, Any]) -> str:
+        user = json.dumps(
+            {"question": question, "grounding": grounding},
+            ensure_ascii=False,
+        )
+        resp = self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": _FOLLOWUP_REPLY_SYSTEM_PROMPT},
+                {"role": "user", "content": user},
+            ],
+            temperature=0.2,
+        )
+        return (resp.choices[0].message.content or "").strip()
+
+
+_FOLLOWUP_REPLY_SYSTEM_PROMPT = (
+    "Answer the user's question using only the grounded digest entry evidence "
+    "provided in the user message. If the evidence is insufficient, say so plainly. "
+    "Do not search other sources, offer research, or cite material outside the "
+    "grounded entry."
+)
 
 
 _GENERAL_ANSWER_SYSTEM_PROMPT = (

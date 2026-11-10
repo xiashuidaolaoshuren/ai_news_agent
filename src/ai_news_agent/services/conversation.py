@@ -10,6 +10,11 @@ from ai_news_agent.digest_request_builder import resolve_digest_request
 from ai_news_agent.followup_structured import is_structured_followup
 from ai_news_agent.intent import parse_digest_intent
 from ai_news_agent.request import DigestRequest
+from ai_news_agent.source_settings import (
+    build_public_counts,
+    parse_message_item_counts,
+    public_per_source,
+)
 from ai_news_agent.sources import ALLOWED_SOURCES, normalize_source_names
 
 _TIMEFRAME_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -44,6 +49,10 @@ _TOPIC_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"\u5173\u4e8e\s*(.+?)\s*\u7684(?:\u6700\u65b0|\u65b0\u95fb|\u8fdb\u5c55)"
         r"\s*[\uff1f?]?$"
+    ),
+    re.compile(
+        r"\b(?:recent|latest|newest)\s+(.+?)\s+updates?\b",
+        re.I,
     ),
 )
 
@@ -109,7 +118,10 @@ _REFERENCES_DIGEST = re.compile(
     r"|\b(?:that|those|this\s+digest|the\s+digest|the\s+results?)\b"
     r"|\bmore\s+detail\b|\bgo\s+deeper\b"
     r"|\bbeginner[- ]friendly\b|\bsimpler\b|\brephrase\b"
-    r"|\b(?:explain|summarize)\s+(?:it|that|this)\b",
+    r"|\b(?:explain|summarize)\s+(?:it|that|this)\b"
+    r"|\bentry\s+(?:above|below|here)\b"
+    r"|\b(?:that|this|the)\s+\S+\s+entry\b"
+    r"|\btop\s+item\b|\b(?:that|the)\s+item\b",
     re.I,
 )
 
@@ -119,8 +131,9 @@ _GENERAL_QUESTION = re.compile(
     r"|\u4ec0\u4e48\u662f|\u5982\u4f55|\u4e3a\u4ec0\u4e48)",
     re.I,
 )
+_TELL_ME_ABOUT = re.compile(r"^tell\s+me\s+about\s+.+?\s*\??$", re.I)
 _VAGUE_TOPIC = re.compile(
-    r"^(?:tell\s+me\s+about|what\s+about|any\s+(?:info|information|news)\s+(?:on|about)"
+    r"^(?:what\s+about|any\s+(?:info|information|news)\s+(?:on|about)"
     r"|\u8bf4\u8bf4|\u4ecb\u7ecd\u4e00\u4e0b)\s*(.+?)\s*\??$",
     re.I,
 )
@@ -231,17 +244,14 @@ def _digest_decision(text: str, *, context: ConversationContext) -> Conversation
     if topic is not None:
         cleaned = _clean_topic(topic)
         topics = [cleaned] if cleaned else []
-    count_match = _PER_SOURCE_COUNT.search(text)
-    per_source = None
-    if count_match is not None:
-        raw_count = count_match.group(1) or count_match.group(2)
-        per_source = max(1, min(20, int(raw_count)))
+    per_source, count_overrides = parse_message_item_counts(text)
     request = DigestRequest(
         topics=topics or parsed.topics,
         topics_are_filters=bool(topics),
         strict_timeframe=timeframe in _STRICT_TIMEFRAMES,
         timeframe=timeframe,
         items_per_source=per_source,
+        source_count_overrides=count_overrides,
         output_language=parsed.output_language,
         audience="beginner" if _AUDIENCE.search(text) else None,
         github_manual_urls=list(parsed.github_manual_urls),
@@ -300,7 +310,7 @@ def _validated_language(value: object) -> str | None:
 def _validated_count(value: object) -> int | None:
     if not isinstance(value, int) or isinstance(value, bool):
         return None
-    return max(1, min(20, value))
+    return max(1, min(50, value))
 
 
 def _model_decision(
@@ -378,7 +388,8 @@ def request_metadata(request: DigestRequest) -> dict[str, Any]:
     """Public, user-relevant options of one resolved digest request."""
     return {
         "sources": list(request.connector_names or []),
-        "per_source": request.items_per_source,
+        "per_source": public_per_source(request),
+        "counts": build_public_counts(request),
         "timeframe": request.timeframe,
         "topics": list(request.topics or []),
         "language": request.output_language,
@@ -401,6 +412,21 @@ def request_from_payload(payload: object) -> DigestRequest | None:
         return DigestRequest(**kwargs)
     except (TypeError, ValueError):
         return None
+
+
+def _is_self_contained_request(text: str) -> bool:
+    """True when the message is a new request, not a short clarification reply."""
+    if _REFERENCES_DIGEST.search(text):
+        return True
+    if _RELEASE_PURPOSE.search(text):
+        return True
+    if _topic_from_text(text) is not None:
+        return True
+    if _GENERAL_QUESTION.search(text):
+        return True
+    if _TELL_ME_ABOUT.match(text):
+        return True
+    return False
 
 
 def _resume_decision(
@@ -444,7 +470,7 @@ def interpret_message(
     ctx = context or ConversationContext()
     if is_structured_followup(text):
         return ConversationDecision(intent="followup")
-    if ctx.pending:
+    if ctx.pending and not _is_self_contained_request(text):
         resumed = _resume_decision(text, ctx.pending, context=ctx)
         if resumed is not None:
             return resumed
@@ -457,7 +483,9 @@ def interpret_message(
         return ConversationDecision(intent="followup")
     if _RELEASE_PURPOSE.search(text) or _topic_from_text(text) is not None:
         return _digest_decision(text, context=ctx)
-    if _GENERAL_QUESTION.search(text) and not ctx.has_digest:
+    if _TELL_ME_ABOUT.match(text):
+        return ConversationDecision(intent="general", question=text)
+    if _GENERAL_QUESTION.search(text):
         return ConversationDecision(intent="general", question=text)
     vague = _VAGUE_TOPIC.search(text)
     if vague is not None:

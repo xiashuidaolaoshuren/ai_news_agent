@@ -25,7 +25,7 @@ from ai_news_agent.models import (
 )
 
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 
 @dataclass
@@ -46,11 +46,14 @@ class DigestStore:
         self.db_path = Path(db_path)
         self._bound_conn = conn
 
-    def _v1_backup_path(self) -> Path:
-        return self.db_path.with_name(f"{self.db_path.name}.v1.bak")
+    def _backup_path_for_version(self, version: str) -> Path:
+        return self.db_path.with_name(f"{self.db_path.name}.v{version}.bak")
 
-    def _ensure_v1_backup(self) -> None:
-        backup_path = self._v1_backup_path()
+    def _v1_backup_path(self) -> Path:
+        return self._backup_path_for_version("1")
+
+    def _ensure_backup(self, version: str) -> None:
+        backup_path = self._backup_path_for_version(version)
         if backup_path.exists():
             return
         source = sqlite3.connect(self.db_path)
@@ -63,8 +66,11 @@ class DigestStore:
         finally:
             source.close()
 
-    def _restore_v1_backup(self) -> None:
-        backup_path = self._v1_backup_path()
+    def _ensure_v1_backup(self) -> None:
+        self._ensure_backup("1")
+
+    def _restore_backup(self, version: str) -> None:
+        backup_path = self._backup_path_for_version(version)
         if not backup_path.exists():
             return
         source = sqlite3.connect(backup_path)
@@ -76,6 +82,9 @@ class DigestStore:
                 destination.close()
         finally:
             source.close()
+
+    def _restore_v1_backup(self) -> None:
+        self._restore_backup("1")
 
     def _apply_v2_ddl(self, conn: sqlite3.Connection) -> None:
         statements = (
@@ -145,6 +154,57 @@ class DigestStore:
         if "interpretation_json" not in columns:
             conn.execute("ALTER TABLE session_requests ADD COLUMN interpretation_json TEXT")
 
+    def _apply_v4_ddl(self, conn: sqlite3.Connection) -> None:
+        statements = (
+            """
+            CREATE TABLE IF NOT EXISTS source_settings (
+              source TEXT PRIMARY KEY NOT NULL,
+              settings_json TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS secrets (
+              name TEXT PRIMARY KEY NOT NULL,
+              ciphertext TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+              key TEXT PRIMARY KEY NOT NULL,
+              value TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS credential_health (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              source TEXT NOT NULL,
+              observed_at TEXT NOT NULL,
+              credential_version TEXT NOT NULL,
+              kind TEXT NOT NULL CHECK (kind IN ('connector', 'test')),
+              result TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_credential_health_source
+              ON credential_health(source, credential_version, observed_at DESC)
+            """,
+        )
+        for statement in statements:
+            conn.execute(statement)
+        table_names = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "digest_entries" in table_names:
+            entry_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(digest_entries)").fetchall()
+            }
+            if "language" not in entry_columns:
+                conn.execute("ALTER TABLE digest_entries ADD COLUMN language TEXT")
+
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
         if self._bound_conn is not None:
@@ -180,26 +240,28 @@ class DigestStore:
         if stored_version == SCHEMA_VERSION:
             return
 
-        if stored_version is not None and stored_version not in ("1", "2"):
+        if stored_version is not None and stored_version not in ("1", "2", "3"):
             raise RuntimeError(
                 f"Unsupported DB schema version {stored_version!r}; expected {SCHEMA_VERSION!r}"
             )
 
-        if stored_version in ("1", "2"):
-            if stored_version == "1":
-                self._ensure_v1_backup()
+        if stored_version in ("1", "2", "3"):
+            if stored_version in ("1", "3"):
+                self._ensure_backup(stored_version)
             try:
                 with self._conn() as conn:
                     if stored_version == "1":
                         self._apply_v2_ddl(conn)
-                    self._apply_v3_ddl(conn)
+                    if stored_version in ("1", "2"):
+                        self._apply_v3_ddl(conn)
+                    self._apply_v4_ddl(conn)
                     conn.execute(
                         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schema_version', ?)",
                         (SCHEMA_VERSION,),
                     )
             except Exception:
-                if stored_version == "1":
-                    self._restore_v1_backup()
+                if stored_version in ("1", "3"):
+                    self._restore_backup(stored_version)
                 raise
             return
 
@@ -275,7 +337,8 @@ class DigestStore:
                   why_it_matters TEXT NOT NULL,
                   background_knowledge TEXT NOT NULL,
                   follow_up_action TEXT NOT NULL,
-                  confidence_caveat TEXT
+                  confidence_caveat TEXT,
+                  language TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS connector_warnings (
@@ -327,6 +390,7 @@ class DigestStore:
                   ON session_requests(session_id, started_at DESC);
                 """
             )
+            self._apply_v4_ddl(conn)
             conn.execute(
                 "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schema_version', ?)",
                 (SCHEMA_VERSION,),
@@ -459,6 +523,67 @@ class DigestStore:
                     ),
                 )
 
+    @staticmethod
+    def _digest_entries_supports_language(conn: sqlite3.Connection) -> bool:
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(digest_entries)").fetchall()
+        }
+        return "language" in columns
+
+    def _insert_digest_entry(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        digest_id: int,
+        entry: DigestEntry,
+    ) -> None:
+        if self._digest_entries_supports_language(conn):
+            conn.execute(
+                """
+                INSERT INTO digest_entries (
+                  digest_id, source_kind, source_id, title, source_name, source_url,
+                  summary, why_it_matters, background_knowledge, follow_up_action,
+                  confidence_caveat, language
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    digest_id,
+                    entry.source_kind.value,
+                    entry.source_id,
+                    entry.title,
+                    entry.source_name,
+                    entry.source_url,
+                    entry.summary,
+                    entry.why_it_matters,
+                    entry.background_knowledge,
+                    entry.follow_up_action.value,
+                    entry.confidence_caveat,
+                    entry.language,
+                ),
+            )
+            return
+        conn.execute(
+            """
+            INSERT INTO digest_entries (
+              digest_id, source_kind, source_id, title, source_name, source_url,
+              summary, why_it_matters, background_knowledge, follow_up_action, confidence_caveat
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                digest_id,
+                entry.source_kind.value,
+                entry.source_id,
+                entry.title,
+                entry.source_name,
+                entry.source_url,
+                entry.summary,
+                entry.why_it_matters,
+                entry.background_knowledge,
+                entry.follow_up_action.value,
+                entry.confidence_caveat,
+            ),
+        )
+
     def save_digest(self, run_id: int, digest: Digest) -> int:
         with self._conn() as conn:
             cur = conn.execute(
@@ -475,27 +600,7 @@ class DigestStore:
             )
             digest_id = int(cur.lastrowid)
             for entry in digest.entries:
-                conn.execute(
-                    """
-                    INSERT INTO digest_entries (
-                      digest_id, source_kind, source_id, title, source_name, source_url,
-                      summary, why_it_matters, background_knowledge, follow_up_action, confidence_caveat
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        digest_id,
-                        entry.source_kind.value,
-                        entry.source_id,
-                        entry.title,
-                        entry.source_name,
-                        entry.source_url,
-                        entry.summary,
-                        entry.why_it_matters,
-                        entry.background_knowledge,
-                        entry.follow_up_action.value,
-                        entry.confidence_caveat,
-                    ),
-                )
+                self._insert_digest_entry(conn, digest_id=digest_id, entry=entry)
             return digest_id
 
     def save_digest_bundle(
@@ -587,6 +692,7 @@ class DigestStore:
                     background_knowledge=er["background_knowledge"],
                     follow_up_action=FollowUpAction(er["follow_up_action"]),
                     confidence_caveat=er["confidence_caveat"],
+                    language=er["language"] if "language" in er.keys() else None,
                 )
             )
         return Digest(
@@ -708,6 +814,7 @@ class DigestStore:
             "source_id": row["source_id"],
             "source_name": row["source_name"],
             "source_url": row["source_url"],
+            "session_id": row["session_id"],
         }
 
     def _utc_day_start(self, day: date) -> datetime:
@@ -751,11 +858,13 @@ class DigestStore:
                     d.generated_at,
                     d.topics_json,
                     d.id AS digest_id,
+                    r.session_id,
                     ROW_NUMBER() OVER (
                       PARTITION BY de.digest_id ORDER BY de.id ASC
                     ) AS display_rank
                   FROM digest_entries de
                   JOIN digests d ON d.id = de.digest_id
+                  LEFT JOIN runs r ON r.id = d.run_id
                 )
                 SELECT * FROM ranked_entries re
                 {where_sql}

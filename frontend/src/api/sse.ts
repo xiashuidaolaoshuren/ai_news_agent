@@ -1,3 +1,4 @@
+import { authHeader, notifyUnauthorized } from '@/api/auth'
 import { API_BASE_URL } from '@/api/config'
 import type {
   DeltaPayload,
@@ -124,31 +125,32 @@ function extractDetailCode(payload: unknown): string | null {
 }
 
 /**
- * POST a chat message and return the parsed SSE event stream.
+ * POST to a streaming endpoint and return the parsed SSE event stream.
  *
  * `EventSource` cannot POST, so the response body is read directly.
  */
-export async function postMessageStream(
-  sessionId: string,
-  body: PostMessageBody,
-  options: PostMessageStreamOptions = {},
+async function postSseStream(
+  url: string,
+  body: unknown,
+  label: string,
+  options: PostMessageStreamOptions,
 ): Promise<AsyncGenerator<SseEvent>> {
   const doFetch = options.fetch ?? fetch
-  const baseUrl = options.baseUrl ?? API_BASE_URL
-  const response = await doFetch(
-    `${baseUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
-    {
-      method: 'POST',
-      headers: {
-        Accept: 'text/event-stream',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-      signal: options.signal,
+  const response = await doFetch(url, {
+    method: 'POST',
+    headers: {
+      ...authHeader(),
+      Accept: 'text/event-stream',
+      'Content-Type': 'application/json',
     },
-  )
+    body: JSON.stringify(body),
+    signal: options.signal,
+  })
 
   if (!response.ok) {
+    if (response.status === 401) {
+      notifyUnauthorized()
+    }
     let code: string | null = null
     try {
       code = extractDetailCode(await response.json())
@@ -158,7 +160,7 @@ export async function postMessageStream(
     throw new SseHttpError(
       response.status,
       code,
-      `POST messages failed with status ${response.status}`,
+      `${label} failed with status ${response.status}`,
     )
   }
 
@@ -167,4 +169,34 @@ export async function postMessageStream(
     return (async function* empty() {})()
   }
   return parseSseStream(stream)
+}
+
+/** POST a chat message and return the parsed SSE event stream. */
+export async function postMessageStream(
+  sessionId: string,
+  body: PostMessageBody,
+  options: PostMessageStreamOptions = {},
+): Promise<AsyncGenerator<SseEvent>> {
+  const baseUrl = options.baseUrl ?? API_BASE_URL
+  return postSseStream(
+    `${baseUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
+    body,
+    'POST messages',
+    options,
+  )
+}
+
+/** Continue a confirmed Juya request; the digest streams the same chat events. */
+export async function continueJuyaStream(
+  sessionId: string,
+  requestId: string,
+  options: PostMessageStreamOptions = {},
+): Promise<AsyncGenerator<SseEvent>> {
+  const baseUrl = options.baseUrl ?? API_BASE_URL
+  return postSseStream(
+    `${baseUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}/requests/${encodeURIComponent(requestId)}/juya-confirmation`,
+    { action: 'continue' },
+    'POST juya confirmation',
+    options,
+  )
 }

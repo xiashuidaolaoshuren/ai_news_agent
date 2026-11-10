@@ -31,13 +31,18 @@ export {
   REQUEST_FAILED_MESSAGE,
   WORKFLOW_FAILED_MESSAGE,
   groupSessions,
+  summarizeRequest,
   toMessageVm,
+  toMessages,
   toRequestStateVm,
   toSentSourcesVm,
   toSessionVm,
 } from '@/vm/session'
 export type {
+  CollectionVm,
   MessageKind,
+  RepeatVm,
+  MessageMapContext,
   MessageVm,
   RequestStateInput,
   RequestStateVm,
@@ -83,7 +88,9 @@ export type {
   EntryKind,
   EntryVm,
   FollowUpKind,
+  FollowupActionVm,
   HfVariantVm,
   HfVm,
   JuyaVm,
+  RefVm,
 } from '@/vm/types'

@@ -230,17 +230,19 @@ def test_update_preferences_round_trip_and_empty_list_rejected(tmp_path: Path) -
 
 def test_build_request_applies_preferences_as_one_request_defaults(tmp_path: Path) -> None:
     from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.source_settings import SourceSettingsService
 
     db_path = tmp_path / "svc-build-req.db"
     _init_db(db_path)
-    service = SessionService(SessionStore(db_path))
+    settings = SourceSettingsService(db_path)
+    service = SessionService(SessionStore(db_path), source_settings_service=settings)
     created = service.create_session()
     service.update_preferences(created.id, connector_names=["github"], items_per_source=5)
 
     default_req = service.build_request(created.id, "Give me today's digest")
     assert default_req.connector_names == ["github"]
-    assert default_req.items_per_source == 5
-    assert default_req.max_items_per_source == 20
+    assert default_req.source_item_counts.get("github") == 5
+    assert default_req.items_per_source is None
 
     overridden = service.build_request(created.id, "zhihu only: give me a digest")
     assert overridden.connector_names == ["zhihu"]
@@ -251,28 +253,23 @@ def test_build_request_applies_preferences_as_one_request_defaults(tmp_path: Pat
     assert stored.items_per_source == 5
 
 
-def test_build_request_maps_preference_to_ranking_quota_not_collection_cap(
-    tmp_path: Path,
-) -> None:
+def test_build_request_uses_global_profile_not_session_stepper(tmp_path: Path) -> None:
     from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.source_settings import SourceSettingsService
 
     db_path = tmp_path / "svc-build-quota.db"
     _init_db(db_path)
-    service = SessionService(SessionStore(db_path))
+    settings = SourceSettingsService(db_path)
+    settings.save_profile("juya", {"item_count": 8})
+    service = SessionService(SessionStore(db_path), source_settings_service=settings)
     created = service.create_session()
-    service.update_preferences(created.id, connector_names=None, items_per_source=5)
+    service.update_preferences(created.id, connector_names=["juya"], items_per_source=50)
 
     req = service.build_request(created.id, "Give me today's digest")
 
-    assert req.items_per_source == 5
-    assert req.max_items_per_source == 20
-
-    service.update_preferences(created.id, connector_names=None, items_per_source=50)
-    raised = service.build_request(created.id, "Give me today's digest")
-
-    assert raised.items_per_source == 50
-    assert raised.max_items_per_source == 50
-    assert raised.top_n == req.top_n
+    assert req.source_item_counts.get("juya") == 8
+    assert req.items_per_source is None
+    assert req.max_items_per_source >= 8
 
 
 def test_build_request_forwards_juya_item_mode_per_message(tmp_path: Path) -> None:
@@ -458,6 +455,135 @@ def test_begin_request_uses_provided_request_id(tmp_path: Path) -> None:
     assert record.status == "active"
 
 
+def test_begin_request_rejects_changed_submission_on_terminal_replay(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import (
+        RequestConflictError,
+        SessionService,
+    )
+
+    db_path = tmp_path / "svc-submission-conflict.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(
+        created.id,
+        content="First",
+        request_id="req-1",
+        juya_item_mode="issue",
+    )
+    store.mark_terminal(created.id, "req-1", status="succeeded")
+
+    with pytest.raises(RequestConflictError):
+        service.begin_request(
+            created.id,
+            content="Different",
+            request_id="req-1",
+            juya_item_mode="issue",
+        )
+
+
+def test_begin_request_repeat_fields_join_the_submission_comparison(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import (
+        RequestConflictError,
+        SessionService,
+    )
+
+    db_path = tmp_path / "svc-repeat-submission.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(
+        created.id,
+        content="Run again",
+        request_id="req-repeat",
+        repeat_of_user_message_id=4,
+        replace_source="huggingface",
+    )
+    store.mark_terminal(created.id, "req-repeat", status="succeeded")
+
+    replay = service.begin_request(
+        created.id,
+        content="Run again",
+        request_id="req-repeat",
+        repeat_of_user_message_id=4,
+        replace_source="huggingface",
+    )
+    assert replay.status == "succeeded"
+    assert len(store.list_messages(created.id)) == 1
+
+    with pytest.raises(RequestConflictError):
+        service.begin_request(
+            created.id,
+            content="Run again",
+            request_id="req-repeat",
+            repeat_of_user_message_id=4,
+            replace_source="github",
+        )
+    with pytest.raises(RequestConflictError):
+        service.begin_request(
+            created.id,
+            content="Run again",
+            request_id="req-repeat",
+            repeat_of_user_message_id=5,
+            replace_source="huggingface",
+        )
+
+
+def test_begin_request_replays_when_submission_matches(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-submission-replay.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(
+        created.id,
+        content="First",
+        request_id="req-1",
+        juya_item_mode="stories",
+        followup_target={"digest_id": 3, "display_rank": 1},
+        followup_action="ask",
+    )
+    store.mark_terminal(created.id, "req-1", status="succeeded")
+
+    replay = service.begin_request(
+        created.id,
+        content="First",
+        request_id="req-1",
+        juya_item_mode="stories",
+        followup_target={"digest_id": 3, "display_rank": 1},
+        followup_action="ask",
+    )
+
+    assert replay.status == "succeeded"
+    assert len(store.list_messages(created.id)) == 1
+
+
+def test_begin_request_replay_ignores_session_preference_changes(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-submission-settings.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    service.begin_request(created.id, content="Plain", request_id="req-1")
+    store.mark_terminal(created.id, "req-1", status="succeeded")
+    service.update_preferences(created.id, connector_names=["github"], items_per_source=10)
+
+    replay = service.begin_request(created.id, content="Plain", request_id="req-1")
+
+    assert replay.status == "succeeded"
+    assert len(store.list_messages(created.id)) == 1
+
+
 def test_idempotent_replay_returns_terminal_request_without_new_message(
     tmp_path: Path,
 ) -> None:
@@ -476,7 +602,7 @@ def test_idempotent_replay_returns_terminal_request_without_new_message(
     )
     store.mark_terminal(created.id, "req-1", status="succeeded")
 
-    replay = service.begin_request(created.id, content="Retry", request_id="req-1")
+    replay = service.begin_request(created.id, content="First", request_id="req-1")
 
     assert replay.id == "req-1"
     assert replay.status == "succeeded"
@@ -503,7 +629,7 @@ def test_idempotent_replay_returns_interrupted_request_without_new_message(
     )
     store.mark_terminal(created.id, "req-1", status="interrupted")
 
-    replay = service.begin_request(created.id, content="Retry", request_id="req-1")
+    replay = service.begin_request(created.id, content="First", request_id="req-1")
 
     assert replay.id == "req-1"
     assert replay.status == "interrupted"
@@ -531,6 +657,118 @@ def test_idempotent_duplicate_active_request_raises_request_in_progress(
         service.begin_request(created.id, content="Retry", request_id="req-1")
 
     assert len(SessionStore(db_path).list_messages(created.id)) == 1
+
+
+def test_begin_request_replaces_pending_juya_confirmation(tmp_path: Path) -> None:
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "pending-juya.db"
+    DigestStore(db_path).init_schema()
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    pending = service.begin_request(
+        created.id,
+        content="Digest juya all",
+        request_id="req-pending",
+    )
+    service.set_request_interpretation(
+        created.id,
+        pending.id,
+        {
+            "juya_confirmation": {
+                "story_count": 25,
+                "issue": "2026-06-16",
+                "issue_number": "juya-rss-1",
+            },
+        },
+    )
+    replacement = service.begin_request(
+        created.id,
+        content="Digest github only",
+        request_id="req-new",
+    )
+    assert replacement.id == "req-new"
+    old = service.get_request(created.id, "req-pending")
+    assert old is not None
+    assert old.status == "cancelled"
+
+
+def test_juya_confirmation_projection_drops_a_settled_request(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.session_service import SessionService
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "pending-juya-projection.db"
+    DigestStore(db_path).init_schema()
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+    pending = service.begin_request(
+        created.id,
+        content="Digest juya all",
+        request_id="req-pending",
+    )
+    service.set_request_interpretation(
+        created.id,
+        pending.id,
+        {
+            "juya_confirmation": {
+                "story_count": 25,
+                "issue": "2026-06-16",
+                "issue_number": "juya-rss-1",
+            },
+        },
+    )
+
+    assert pending.user_message_id in service.juya_confirmation_projection(created.id)
+
+    service.cancel_request(created.id, pending.id)
+
+    assert service.juya_confirmation_projection(created.id) == {}
+
+
+def test_claim_juya_confirmation_is_once_only(tmp_path: Path) -> None:
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.services.session_service import (
+        SessionService,
+        is_pending_juya_confirmation,
+    )
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "claim-juya.db"
+    DigestStore(db_path).init_schema()
+    service = SessionService(SessionStore(db_path))
+    created = service.create_session()
+    pending = service.begin_request(
+        created.id,
+        content="Digest juya all",
+        request_id="req-pending",
+    )
+    confirmation = {
+        "story_count": 25,
+        "issue": "2026-06-16",
+        "issue_number": "juya-rss-1",
+        "request": {"connector_names": ["juya"], "juya_item_count_all": True},
+    }
+    service.set_request_interpretation(
+        created.id,
+        pending.id,
+        {"juya_confirmation": confirmation},
+    )
+
+    first = service.claim_juya_confirmation(created.id, pending.id)
+    second = service.claim_juya_confirmation(created.id, pending.id)
+
+    assert first == confirmation
+    assert second is None
+    claimed = service.get_request(created.id, pending.id)
+    assert claimed is not None
+    assert is_pending_juya_confirmation(claimed) is False
+    assert service.juya_confirmation_projection(created.id) == {}
 
 
 def test_begin_request_raises_session_busy_for_different_active_id(
@@ -594,7 +832,7 @@ def test_interrupt_replay_returns_interrupted_outcome_without_rerun(
 
     service.interrupt_active_requests()
 
-    replay = service.begin_request(created.id, content="Retry", request_id="req-1")
+    replay = service.begin_request(created.id, content="First", request_id="req-1")
     assert replay.status == "interrupted"
     assert len(store.list_messages(created.id)) == 1
 

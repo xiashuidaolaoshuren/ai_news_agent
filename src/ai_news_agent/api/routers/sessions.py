@@ -16,6 +16,10 @@ from fastapi.responses import Response, StreamingResponse
 from ai_news_agent.api.deps import get_application
 from ai_news_agent.api.schemas.digests import build_digest_view
 from ai_news_agent.api.schemas.sessions import (
+    FollowupAction,
+    FollowupTarget,
+    JuyaConfirmationBody,
+    JuyaConfirmationOut,
     MessageListPage,
     MessageOut,
     PostMessageBody,
@@ -38,6 +42,10 @@ from ai_news_agent.api.schemas.streaming import (
     session_message_stream_openapi_schema,
 )
 from ai_news_agent.api.sse import encode_sse
+from ai_news_agent.collection_outcomes import (
+    CollectionOutcome,
+    collection_outcome as classify_collection_outcome,
+)
 from ai_news_agent.graph.nodes.collect import parse_connector_progress
 from ai_news_agent.models import ConnectorWarning
 from ai_news_agent.services.chat import (
@@ -50,6 +58,7 @@ from ai_news_agent.services.chat import (
     StartedEvent,
 )
 from ai_news_agent.services.composition import Application
+from ai_news_agent.services.conversation import request_from_payload
 from ai_news_agent.services.session_search import SessionSearchHit, search_sessions
 from ai_news_agent.services.session_records import (
     MessageRecord,
@@ -58,6 +67,7 @@ from ai_news_agent.services.session_records import (
     SessionRequestStats,
 )
 from ai_news_agent.services.session_service import (
+    RequestConflictError,
     RequestInProgressError,
     SessionBusyError,
     SessionService,
@@ -263,23 +273,109 @@ async def shielded_event_stream(
         await pump_task
 
 
+def _validate_followup_target(
+    application: Application,
+    session_id: str,
+    target: FollowupTarget,
+) -> None:
+    ctx = application.digest_store.get_followup_context_for_digest(target.digest_id)
+    if ctx is None or ctx.digest is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="follow-up target digest not found",
+        )
+    entry_count = len(ctx.digest.entries)
+    if target.display_rank < 1 or target.display_rank > entry_count:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="follow-up target rank not found on digest",
+        )
+    session_run_ids = {
+        request.run_id
+        for request in application.session_service.list_requests(session_id)
+        if request.run_id is not None
+    }
+    if ctx.run_id not in session_run_ids:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="follow-up target digest not in session",
+        )
+
+
+def _validate_repeat(
+    application: Application,
+    session_id: str,
+    body: PostMessageBody,
+) -> None:
+    """Reject a repeat that names no stored resolution or an unknown source."""
+
+    if body.repeat_of_user_message_id is None:
+        return
+    if body.replace_source is not None and body.replace_source not in ALLOWED_SOURCES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"code": "repeat_source_unknown"},
+        )
+    stored = application.session_service.stored_digest_request(
+        session_id, body.repeat_of_user_message_id
+    )
+    if request_from_payload(stored) is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"code": "repeat_resolution_missing"},
+        )
+
+
 def _message_out(
     message: MessageRecord,
     digest_store: DigestStore,
     request: dict[str, Any] | None = None,
+    followup: dict[str, Any] | None = None,
+    juya_confirmation: dict[str, Any] | None = None,
 ) -> MessageOut:
     digest = None
     digest_id = None
     warnings: list[ConnectorWarning] = []
+    collection_outcome: CollectionOutcome | None = None
     if message.role == "assistant" and message.run_id is not None:
         stored = digest_store.get_digest_by_run_id(message.run_id)
         if stored is not None:
             digest_id = digest_store.get_digest_id_for_run(message.run_id)
             warnings = digest_store.get_connector_warnings_for_run(message.run_id)
+            collection_outcome = classify_collection_outcome(
+                entry_count=len(stored.entries), warnings=warnings
+            )
             digest = build_digest_view(
                 stored,
                 news_items=digest_store.get_news_items_for_run(message.run_id),
             )
+    followup_target = None
+    followup_action: FollowupAction | None = None
+    if followup is not None:
+        raw_target = followup.get("followup_target")
+        raw_action = followup.get("followup_action")
+        if isinstance(raw_target, dict):
+            followup_target = FollowupTarget(**raw_target)
+        if raw_action in ("deep_dive", "ask"):
+            followup_action = raw_action
+
+    juya_out = None
+    if juya_confirmation is not None:
+        confirm_view = {
+            key: value
+            for key, value in juya_confirmation.items()
+            if key != "request"
+        }
+        try:
+            juya_out = JuyaConfirmationOut(
+                story_count=int(confirm_view["story_count"]),
+                issue=str(confirm_view["issue"]),
+                issue_number=str(confirm_view["issue_number"]),
+                issues=confirm_view.get("issues"),
+            )
+        except (KeyError, TypeError, ValueError):
+            juya_out = None
+
     return MessageOut(
         id=message.id,
         session_id=message.session_id,
@@ -292,6 +388,10 @@ def _message_out(
         warnings=warnings,
         digest=digest,
         request=ResolvedRequestOut(**request) if request else None,
+        followup_target=followup_target,
+        followup_action=followup_action,
+        juya_confirmation=juya_out,
+        collection_outcome=collection_outcome,
     )
 
 
@@ -302,6 +402,8 @@ def _page_messages(
     cursor: str | None,
     digest_store: DigestStore,
     requests: dict[int, dict[str, Any]] | None = None,
+    followups: dict[int, dict[str, Any]] | None = None,
+    juya_confirmations: dict[int, dict[str, Any]] | None = None,
 ) -> MessageListPage:
     ordered = sorted(messages, key=lambda message: message.sequence, reverse=True)
     if cursor is not None:
@@ -320,6 +422,8 @@ def _page_messages(
                 message,
                 digest_store,
                 (requests or {}).get(message.id),
+                (followups or {}).get(message.id),
+                (juya_confirmations or {}).get(message.id),
             )
             for message in page
         ],
@@ -486,6 +590,61 @@ def get_request_status(
 
 
 @router.post(
+    "/{session_id}/requests/{request_id}/juya-confirmation",
+    response_model=None,
+    responses={
+        status.HTTP_200_OK: {
+            "description": "Continue streams digest events; cancel returns empty body",
+            "content": {
+                "text/event-stream": {
+                    "schema": session_message_stream_openapi_schema(),
+                },
+            },
+        },
+    },
+)
+async def post_juya_confirmation(
+    session_id: str,
+    request_id: str,
+    body: JuyaConfirmationBody,
+    application: Application = Depends(get_application),
+):
+    if application.session_service.get_session(session_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
+    if body.action == "cancel":
+        accepted = application.session_service.cancel_request(session_id, request_id)
+        if accepted:
+            return Response(status_code=status.HTTP_202_ACCEPTED)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    try:
+        stream = application.chat_service.continue_juya_all(
+            session_id,
+            request_id,
+        )
+        first_event = await anext(stream)
+    except StopAsyncIteration as exc:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="stream ended before first event",
+        ) from exc
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="request not found") from exc
+
+    async def all_events() -> AsyncIterator[ChatEvent]:
+        yield first_event
+        async for event in stream:
+            yield event
+
+    async def sse_body() -> AsyncIterator[str]:
+        async for event in shielded_event_stream(all_events()):
+            event_name, payload = _chat_event_payload(event, application.digest_store)
+            yield encode_sse(event_name, payload)
+
+    return StreamingResponse(sse_body(), media_type="text/event-stream")
+
+
+@router.post(
     "/{session_id}/requests/{request_id}/cancel",
     status_code=status.HTTP_202_ACCEPTED,
     response_class=Response,
@@ -520,6 +679,10 @@ def list_messages(
         cursor=cursor,
         digest_store=application.digest_store,
         requests=application.session_service.request_interpretations(session_id),
+        followups=application.session_service.followup_projection(session_id),
+        juya_confirmations=application.session_service.juya_confirmation_projection(
+            session_id
+        ),
     )
 
 
@@ -548,11 +711,20 @@ async def post_message(
     if application.session_service.get_session(session_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
 
+    if body.followup_target is not None:
+        _validate_followup_target(application, session_id, body.followup_target)
+
+    _validate_repeat(application, session_id, body)
+
     stream = application.chat_service.stream_events(
         body.content,
         session_id=session_id,
         request_id=body.client_request_id,
         juya_item_mode=body.juya_item_mode,
+        followup_target=body.followup_target,
+        followup_action=body.followup_action,
+        repeat_of_user_message_id=body.repeat_of_user_message_id,
+        replace_source=body.replace_source,
     )
 
     try:
@@ -573,6 +745,11 @@ async def post_message(
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail={"code": "request_in_progress"},
+        ) from exc
+    except RequestConflictError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"code": "request_conflict"},
         ) from exc
 
     async def all_events() -> AsyncIterator[ChatEvent]:

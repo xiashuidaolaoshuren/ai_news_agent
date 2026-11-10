@@ -75,8 +75,8 @@ The Hugging Face presentation unit: Hub repositories that share architecture ver
 _Avoid_: Grouping different sizes or product SKUs together, splitting the same size/version across multiple visible rows because of GGUF/MLX/quant/Instruct/Chat/Uncensored suffixes
 
 **Family representative**:
-The Hub repository shown for a model family — the member with the highest Hub trending score. Other format or packaging variants may appear on an **Also:** line but do not occupy their own slot.
-_Avoid_: Picking a representative by downloads alone when trending score is available, hiding that sibling variants exist when they were collected
+The Hub repository shown for a model family — the member with the highest Hub trending score. The **Also** line shows the entry's declared base-model relationship, such as a GGUF or MLX quantization or a fine-tune of another model, mirroring the comparison table's Variants column; those repositories do not occupy their own slot.
+_Avoid_: Picking a representative by downloads alone when trending score is available, limiting Also to packaging variants when the table declares a fine-tune, hiding that a declared base model exists
 
 **Display rank**:
 The 1-based position shown before each digest entry or search row. In digests it is the continuous index across the full entry list (mixed sections do not restart at 1). In search lists it is the order of rows actually shown after any Hugging Face family collapse.
@@ -129,8 +129,8 @@ Whitelisted API fields derived from persisted connector evidence: publisher owne
 _Avoid_: Exposing raw evidence, inventing daily star deltas or issue numbers, treating UI initials as a backend field
 
 **Hugging Face family card**:
-The Hugging Face rank deep-dive — the **model family** at that display rank: representative, comparison-table Hub stats, Also variants, publisher, card snippet, and the popularity-not-quality caveat. English chrome matching the comparison table. Snippet may come from collect-time card data or a once-fetched live model-card README (ADR-0006).
-_Avoid_: Repeating only the table with no snippet, dumping every Hub key, git clone, Also-variant READMEs, treating the row as a raw weights repo rather than a family, inventing description from HTML
+The Hugging Face rank deep-dive — the **model family** at that display rank: representative, comparison-table Hub stats, **Also** line, publisher, card snippet, and the popularity-not-quality caveat. English chrome matching the comparison table. The Also line mirrors the comparison table's Variants column, including a declared fine-tune of another model. A field the digest never recorded reads `Not saved` rather than being inferred. Snippet may come from collect-time card data or a once-fetched live model-card README (ADR-0006); an older entry's snippet is labelled as saved with its digest.
+_Avoid_: Repeating only the table with no snippet, dumping every Hub key, git clone, Also-variant READMEs, treating the row as a raw weights repo rather than a family, inventing description from HTML, inferring a missing stat, implying a live fetch for an older entry
 
 **Zhihu practitioner-insight card**:
 The Zhihu rank deep-dive — that rank’s single **practitioner insight**: Chinese chrome, evidence-first snippet/lens/author, 搜索相关性 labeled as search relevance not 热度, optional labeled LLM 摘要 / 为什么值得看, thin-evidence and no-freshness caveats.
@@ -159,6 +159,40 @@ _Avoid_: Global latest across every interface, a Session's context, a browser-cr
 **Session Request**:
 One durable user-initiated chat execution within a Session, from accepted user message to one terminal outcome: succeeded, failed, cancelled, or interrupted. Its identity is bound to the original submission: message, target, action, and explicit options. An identical retry replays it; a different submission under that identity is refused.
 _Avoid_: The user message itself, a Digest run, a transient delivery channel, automatically retrying an interrupted request, returning an old result for changed input
+
+### Research
+
+**Evidence-only follow-up**:
+An explanation or inspection limited to its permitted saved evidence, with missing information stated explicitly. An offer to research does not authorize retrieval; separately defined source-specific enrichment exceptions retain their own meaning.
+_Avoid_: Silently researching an evidence gap, assuming every follow-up has live retrieval permission, treating saved evidence as freshly checked
+
+**Research request**:
+An explicitly authorized investigation of a question about one selected saved entry in the current conversation. It may gather additional evidence within that entry's permitted source scope without changing the original digest or latest-digest context.
+_Avoid_: Ordinary Ask about this, a new digest, standalone discovery, multi-entry comparison, blanket permission to browse
+
+**Research record**:
+The saved question, target entry, bounded evidence actually supplied for the investigation, source attribution and retrieval times, answer, and limitations from one research request. It is separate from the original digest and linked to the entry and conversation.
+_Avoid_: Rewriting digest-time evidence, an archive of complete source documents, only an answer with URLs, conversation-wide retrieval permission
+
+**Research follow-up**:
+A question explicitly referring to a research record and answered from that record's saved evidence. It does not authorize another retrieval or make the evidence current.
+_Avoid_: Automatically refreshing research, silently broadening an entry-only Ask about this action, presenting saved research as newly verified
+
+**Research continuation**:
+A new explicitly authorized research request linked to a prior research record to investigate its unresolved question further. It may reuse attributed saved evidence while preserving the prior record and outcome.
+_Avoid_: Replay, automatic retry, silently extending a budget, rewriting a previous result
+
+**Original source (research)**:
+The page or repository represented by the selected entry and permitted as the starting source for its research. It may be community-maintained or third-party coverage; its inclusion does not establish authority for every claim it makes.
+_Avoid_: Always the original model developer, permission for every linked site, treating coverage as publisher-verified requirements
+
+**Verified maintainer documentation**:
+Documentation whose publisher's responsibility for the exact researched project, model, or variant has been established. It may belong to the original developer or a community maintainer; the publisher remains explicitly identified.
+_Avoid_: Official because a page says so, a model's unsupported authority claim, treating base-model guidance as verification of a community variant
+
+**Verified documentation scope**:
+The approved project-specific area within verified maintainer documentation that an authorized investigation may navigate. Links within it do not authorize other publishers or projects, even on the same shared host.
+_Avoid_: Whole-domain trust, unrestricted web research, a link granting permission, a documentation homepage being the only permitted page
 
 ### Browser conversation
 

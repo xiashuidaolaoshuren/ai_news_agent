@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ai_news_agent.api.schemas.digests import DigestView
+from ai_news_agent.collection_outcomes import CollectionOutcome
 from ai_news_agent.models import ConnectorWarning
 
 
@@ -39,6 +40,25 @@ class SessionPatch(BaseModel):
     items_per_source: int | None = None
 
 
+FollowupAction = Literal["deep_dive", "ask"]
+
+
+class FollowupTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    digest_id: int
+    display_rank: int
+
+
+class JuyaConfirmationOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    story_count: int
+    issue: str
+    issue_number: str
+    issues: list[dict[str, str]] | None = None
+
+
 class ResolvedRequestOut(BaseModel):
     """Public, user-relevant options of one resolved digest request."""
 
@@ -46,6 +66,7 @@ class ResolvedRequestOut(BaseModel):
 
     sources: list[str] = Field(default_factory=list)
     per_source: int | None = None
+    counts: dict[str, str] = Field(default_factory=dict)
     timeframe: str | None = None
     topics: list[str] = Field(default_factory=list)
     language: str | None = None
@@ -67,6 +88,11 @@ class MessageOut(BaseModel):
     digest: DigestView | None = None
     #: What a user message's digest run actually used, when it started one.
     request: ResolvedRequestOut | None = None
+    followup_target: FollowupTarget | None = None
+    followup_action: FollowupAction | None = None
+    juya_confirmation: JuyaConfirmationOut | None = None
+    #: How the assistant message's digest run ended, when it saved one.
+    collection_outcome: CollectionOutcome | None = None
 
 
 class MessageListPage(BaseModel):
@@ -76,12 +102,42 @@ class MessageListPage(BaseModel):
     next_cursor: str | None
 
 
+class JuyaConfirmationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["continue", "cancel"]
+
+
 class PostMessageBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str
     client_request_id: str | None = Field(default=None)
     juya_item_mode: Literal["issue", "stories"] = "issue"
+    followup_target: FollowupTarget | None = None
+    followup_action: FollowupAction | None = None
+    #: Start a fresh run from the resolution stored for this earlier user message.
+    repeat_of_user_message_id: int | None = None
+    #: With a repeat id: use this catalog source instead of the stored sources.
+    replace_source: str | None = None
+
+    @model_validator(mode="after")
+    def _followup_target_and_action_paired(self) -> PostMessageBody:
+        has_target = self.followup_target is not None
+        has_action = self.followup_action is not None
+        if has_target != has_action:
+            raise ValueError(
+                "followup_target and followup_action must both be present or both absent"
+            )
+        if self.replace_source is not None and self.repeat_of_user_message_id is None:
+            raise ValueError(
+                "replace_source requires repeat_of_user_message_id"
+            )
+        if self.repeat_of_user_message_id is not None and (has_target or has_action):
+            raise ValueError(
+                "repeat_of_user_message_id and followup fields are mutually exclusive"
+            )
+        return self
 
 
 MatchKind = Literal["title", "user", "assistant"]

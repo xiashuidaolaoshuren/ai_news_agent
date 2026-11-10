@@ -92,6 +92,11 @@ const rendered = computed(() =>
     ? truncateAt(html.value, revealed.value)
     : html.value,
 )
+
+/** The prototype names a reply still typing itself apart from a settled one. */
+const anchor = computed(() =>
+  props.streaming === true && !finished.value ? 'streaming-text-reply' : 'markdown-reply',
+)
 </script>
 
 <template>
@@ -99,7 +104,7 @@ const rendered = computed(() =>
     ref="root"
     class="md"
     :class="{ streaming: props.streaming === true }"
-    data-od-id="markdown-reply"
+    :data-od-id="anchor"
     v-html="rendered"
   ></div>
 </template>

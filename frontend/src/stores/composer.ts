@@ -1,22 +1,21 @@
 import { defineStore, storeToRefs } from 'pinia'
 import { computed, getCurrentScope, onScopeDispose, ref, watch, type Ref } from 'vue'
 
-import type { SessionOut, SessionPatch } from '@/api/generated/types.gen'
+import type { PostMessageBody, SessionOut, SessionPatch } from '@/api/generated/types.gen'
 import {
   patchSessionApiV1SessionsSessionIdPatch,
   sourcesApiV1SourcesGet,
 } from '@/api/generated/sdk.gen'
 import type { RequestLifecycle, RequestSnapshot } from '@/api/lifecycle'
+import { SseHttpError } from '@/api/sse'
 import { setupApiClient } from '@/api/setupClient'
 import { useSessionsStore } from '@/stores/sessions'
 import { useThreadStore } from '@/stores/thread'
 import {
-  COUNT_INVALID,
-  COUNT_MAX,
-  COUNT_MIN,
-  DEFAULT_ITEMS_PER_SOURCE,
   PREFS_FAILED,
   SEND_FAILED,
+  FOLLOWUP_TARGET_UNAVAILABLE,
+  REPEAT_UNAVAILABLE,
   parseSources,
   prefsFor,
   toComposerVm,
@@ -27,10 +26,18 @@ import {
   type SourceOption,
 } from '@/vm/composer'
 import type { SentSourcesInput } from '@/vm/session'
+import type { RefVm } from '@/vm/types'
 
 /** Server calls and shared state the composer needs, injected for tests. */
 export interface ComposerDeps {
   loadSources(): Promise<SourceOption[]>
+  hiddenSources(): Promise<string[]>
+  countsSeen(): boolean
+  writeCountsSeen(): void
+  /** The transcript failed to load, so a send is refused. */
+  loadFailed(): boolean
+  /** A Juya request is waiting for Continue or Cancel. */
+  confirmPending(): boolean
   session(): SessionOut | null
   draft: Ref<string>
   snapshot(): RequestSnapshot
@@ -38,9 +45,12 @@ export interface ComposerDeps {
   patchPrefs(sessionId: string, body: SessionPatch): Promise<SessionOut>
   applySession(next: SessionOut): void
   runAgain(): void
-  markUserSent(text: string, sources: SentSourcesInput): void
+  markUserSent(text: string, sources: SentSourcesInput, ref?: RefVm | null): void
   newId(): string
 }
+
+/** One-time notice: new requests use the global source counts from Settings. */
+const COUNTS_SEEN_KEY = 'anra-counts-seen'
 
 /** A UUID for `client_request_id`, with a fallback for older runtimes. */
 function randomId(): string {
@@ -62,6 +72,37 @@ export function defaultComposerDeps(): ComposerDeps {
       const result = await sourcesApiV1SourcesGet()
       return parseSources(result.data ?? null)
     },
+    async hiddenSources(): Promise<string[]> {
+      const { listSourceProfilesApiV1SettingsSourcesGet } = await import(
+        '@/api/generated/sdk.gen'
+      )
+      const { toSourceProfilesVm } = await import('@/vm/settings')
+      try {
+        const result = await listSourceProfilesApiV1SettingsSourcesGet()
+        return toSourceProfilesVm(result.data ?? null)
+          .filter((profile) => profile.hidden)
+          .map((profile) => profile.name)
+      } catch {
+        return []
+      }
+    },
+    countsSeen: () => {
+      try {
+        return localStorage.getItem(COUNTS_SEEN_KEY) === '1'
+      } catch {
+        return false
+      }
+    },
+    writeCountsSeen: () => {
+      try {
+        localStorage.setItem(COUNTS_SEEN_KEY, '1')
+      } catch {
+        // A private window that blocks storage still hides the notice for this page.
+      }
+    },
+    loadFailed: () => thread.loadError !== null,
+    confirmPending: () =>
+      thread.visibleMessages.some((message) => message.juyaConfirm !== undefined),
     session: () => thread.session,
     draft,
     snapshot: () => thread.snapshot,
@@ -82,8 +123,8 @@ export function defaultComposerDeps(): ComposerDeps {
     runAgain: () => {
       thread.runAgain()
     },
-    markUserSent: (text, sources) => {
-      thread.markUserSent(text, sources)
+    markUserSent: (text, sources, ref) => {
+      thread.markUserSent(text, sources, ref)
     },
     newId: randomId,
   }
@@ -96,8 +137,12 @@ export function defaultComposerDeps(): ComposerDeps {
 export function createComposerController(deps: ComposerDeps) {
   const sources = ref<SourceOption[]>([])
   const selected = ref<string[]>([])
-  const count = ref(String(DEFAULT_ITEMS_PER_SOURCE))
   const errors = ref<ComposerErrors>({})
+  /** Follow-up target for "Ask about this" messages; cleared after send. */
+  const targetRef = ref<RefVm | null>(null)
+
+  /** The one-time count notice, reactive so a dismissal hides it at once. */
+  const countsSeen = ref(deps.countsSeen())
 
   /** Bumped whenever something outside the composer asks for the caret. */
   const focusToken = ref(0)
@@ -106,13 +151,17 @@ export function createComposerController(deps: ComposerDeps) {
   function syncPrefs(): void {
     const prefs = prefsFor(deps.session(), sources.value)
     selected.value = [...prefs.selected]
-    count.value = prefs.count
     errors.value = {}
+    targetRef.value = null
   }
 
   async function load(): Promise<void> {
     try {
-      sources.value = await deps.loadSources()
+      const [catalog, hidden] = await Promise.all([
+        deps.loadSources(),
+        deps.hiddenSources(),
+      ])
+      sources.value = catalog.filter((source) => !hidden.includes(source.name))
     } catch {
       sources.value = []
     }
@@ -128,11 +177,30 @@ export function createComposerController(deps: ComposerDeps) {
 
   const sendBlocked = ref(false)
 
+  /** Set when a send hits an unanswered Juya confirmation. */
+  const confirmBlocked = ref(false)
+
+  /** The prototype's note after Cancel; cleared by the next send. */
+  const confirmCancelled = ref<string | null>(null)
+
   /** A request owns this conversation while its stream is open or being polled. */
   const active = computed(() => {
     const state = deps.snapshot().state
     return state === 'streaming' || state === 'reconnecting'
   })
+
+  const confirmPending = computed(() => deps.confirmPending())
+
+  // The confirmation was answered (or the conversation changed), so the refusal note goes.
+  watch(
+    confirmPending,
+    (pending) => {
+      if (!pending) {
+        confirmBlocked.value = false
+      }
+    },
+    { flush: 'sync' },
+  )
 
   /** The notice above the textarea; a blocked send outranks the running notice. */
   const notice = computed<ComposerNotice>(() => {
@@ -168,10 +236,14 @@ export function createComposerController(deps: ComposerDeps) {
       text: deps.draft.value,
       sources: sources.value,
       selected: selected.value,
-      count: count.value,
       errors: errors.value,
       busy: active.value,
       notice: notice.value,
+      ref: targetRef.value,
+      countsSeen: countsSeen.value,
+      loadFailed: deps.loadFailed(),
+      confirmPending: confirmPending.value && confirmBlocked.value,
+      confirmCancelled: confirmCancelled.value,
     }),
   )
 
@@ -191,17 +263,12 @@ export function createComposerController(deps: ComposerDeps) {
    */
   async function persistPrefs(): Promise<boolean> {
     const sessionId = deps.session()?.id
-    const items = Number(count.value)
     if (sessionId === undefined || selected.value.length === 0) {
-      return false
-    }
-    if (!Number.isInteger(items) || items < COUNT_MIN || items > COUNT_MAX) {
       return false
     }
     try {
       const next = await deps.patchPrefs(sessionId, {
         connector_names: [...selected.value],
-        items_per_source: items,
       })
       deps.applySession(next)
       clearError('prefs')
@@ -224,29 +291,37 @@ export function createComposerController(deps: ComposerDeps) {
     await persistPrefs()
   }
 
-  /** Take a typed count once the field is committed, and persist it when usable. */
-  async function commitCount(raw: string): Promise<void> {
-    count.value = raw
-    const value = Number(raw)
-    if (!Number.isInteger(value) || value < COUNT_MIN || value > COUNT_MAX) {
-      errors.value = { ...errors.value, count: COUNT_INVALID }
-      return
-    }
-    clearError('count')
-    await persistPrefs()
+  function followupTargetPayload(ref: RefVm): NonNullable<PostMessageBody['followup_target']> {
+    return { digest_id: ref.digestId, display_rank: ref.rank }
   }
 
-  /** One stepper click, clamped into the spec's range. */
-  async function stepCount(delta: number): Promise<void> {
-    const current = Number(count.value)
-    const base = Number.isFinite(current) ? Math.round(current) : COUNT_MIN
-    const before = count.value
-    count.value = String(Math.min(COUNT_MAX, Math.max(COUNT_MIN, base + delta)))
-    clearError('count')
-    if (count.value === before) {
+  function isFollowupTargetHttpError(caught: unknown): boolean {
+    if (!(caught instanceof SseHttpError) || caught.status !== 400) {
+      return false
+    }
+    const raw = `${caught.code ?? ''} ${caught.message}`.toLowerCase()
+    return raw.includes('follow-up target') || raw.includes('followup target')
+  }
+
+  function isRepeatHttpError(caught: unknown): boolean {
+    return (
+      caught instanceof SseHttpError &&
+      caught.status === 400 &&
+      (caught.code === 'repeat_resolution_missing' || caught.code === 'repeat_source_unknown')
+    )
+  }
+
+  function handleSendFailure(caught: unknown): void {
+    if (isFollowupTargetHttpError(caught)) {
+      targetRef.value = null
+      errors.value = { send: FOLLOWUP_TARGET_UNAVAILABLE }
       return
     }
-    await persistPrefs()
+    if (isRepeatHttpError(caught)) {
+      errors.value = { send: REPEAT_UNAVAILABLE }
+      return
+    }
+    errors.value = { send: SEND_FAILED }
   }
 
   /** Validate, then start one run. Returns false when nothing was sent. */
@@ -255,11 +330,17 @@ export function createComposerController(deps: ComposerDeps) {
       sendBlocked.value = true
       return false
     }
-    const draft = deps.draft.value
+    if (deps.loadFailed()) {
+      return false
+    }
+    if (confirmPending.value) {
+      confirmBlocked.value = true
+      return false
+    }
+    const draftText = deps.draft.value
     const nextErrors = validateComposer({
-      text: draft,
+      text: draftText,
       selected: selected.value,
-      count: count.value,
     })
     if (Object.keys(nextErrors).length > 0) {
       errors.value = nextErrors
@@ -271,22 +352,111 @@ export function createComposerController(deps: ComposerDeps) {
     }
     errors.value = {}
     sendBlocked.value = false
-    const content = draft.trim()
+    confirmCancelled.value = null
+    const content = draftText.trim()
     deps.draft.value = ''
-    deps.markUserSent(content, {
-      names: [...selected.value],
-      perSource: Number(count.value),
-    })
-    void deps.lifecycle
-      .send(sessionId, {
-        content,
-        client_request_id: deps.newId(),
-        juya_item_mode: 'stories',
-      })
-      .catch(() => {
-        errors.value = { send: SEND_FAILED }
-      })
+    const ref = targetRef.value
+    targetRef.value = null
+    const body: PostMessageBody = {
+      content,
+      client_request_id: deps.newId(),
+      juya_item_mode: 'stories',
+    }
+    if (ref !== null) {
+      body.followup_target = followupTargetPayload(ref)
+      body.followup_action = 'ask'
+    }
+    deps.markUserSent(
+      content,
+      {
+        names: [...selected.value],
+        // The resolved request reports the global counts once the run starts.
+        perSource: null,
+      },
+      ref ?? undefined,
+    )
+    void deps.lifecycle.send(sessionId, body).catch(handleSendFailure)
     return true
+  }
+
+  /** Send a deep-dive follow-up immediately for one digest entry. */
+  function deepDive(ref: RefVm): boolean {
+    if (active.value) {
+      sendBlocked.value = true
+      return false
+    }
+    const sessionId = deps.session()?.id
+    if (sessionId === undefined) {
+      return false
+    }
+    errors.value = {}
+    sendBlocked.value = false
+    const content = `Deep dive: ${ref.title}`
+    const body: PostMessageBody = {
+      content,
+      client_request_id: deps.newId(),
+      juya_item_mode: 'stories',
+      followup_target: followupTargetPayload(ref),
+      followup_action: 'deep_dive',
+    }
+    deps.markUserSent(
+      content,
+      {
+        names: [...selected.value],
+        // The resolved request reports the global counts once the run starts.
+        perSource: null,
+      },
+      ref,
+    )
+    void deps.lifecycle.send(sessionId, body).catch(handleSendFailure)
+    return true
+  }
+
+  /** Start a new run from a stored resolution, optionally on one replacement source. */
+  function repeat(input: {
+    userMessageId: number
+    text: string
+    sources: string[]
+    perSource: number | null
+    replaceSource?: string
+  }): boolean {
+    if (active.value) {
+      sendBlocked.value = true
+      return false
+    }
+    const sessionId = deps.session()?.id
+    if (sessionId === undefined) {
+      return false
+    }
+    errors.value = {}
+    sendBlocked.value = false
+    const body: PostMessageBody = {
+      content: input.text,
+      client_request_id: deps.newId(),
+      juya_item_mode: 'stories',
+      repeat_of_user_message_id: input.userMessageId,
+    }
+    if (input.replaceSource !== undefined) {
+      body.replace_source = input.replaceSource
+    }
+    deps.markUserSent(input.text, {
+      names: input.sources,
+      perSource: input.perSource,
+    })
+    void deps.lifecycle.send(sessionId, body).catch(handleSendFailure)
+    return true
+  }
+
+  /** Set the ask-about target and focus the composer (no send). */
+  function askAbout(ref: RefVm): void {
+    targetRef.value = ref
+    deps.draft.value = ''
+    clearError('text')
+    focusToken.value += 1
+  }
+
+  function removeRef(): void {
+    targetRef.value = null
   }
 
   /** Stop the run this conversation owns. */
@@ -308,34 +478,48 @@ export function createComposerController(deps: ComposerDeps) {
     focusToken.value += 1
   }
 
-  /** "Ask a follow-up" on one entry. */
-  function prefillFollowUp(title: string): void {
-    prefill(`Tell me more about “${title}”: what it is and how I could try it.`)
-  }
-
-  /** "Run again" refills from the last user message; it never resends. */
+  /** “Run again” refills from the last user message; it never resends. */
   function runAgain(): void {
     deps.runAgain()
     focusToken.value += 1
+  }
+
+  /** Hide the one-time count notice for good and hand the caret back. */
+  function dismissCounts(): void {
+    deps.writeCountsSeen()
+    countsSeen.value = true
+    focusToken.value += 1
+  }
+
+  /**
+   * The user cancelled the Juya confirmation. Say so in the composer, as the
+   * prototype does; the next send clears the note.
+   */
+  function noteConfirmCancelled(): void {
+    confirmCancelled.value =
+      'Cancelled. No digest was written, and your request is back in the composer.'
   }
 
   return {
     vm,
     sources,
     selected,
-    count,
     errors,
     focusToken,
+    targetRef,
     load,
     send,
+    deepDive,
+    repeat,
+    askAbout,
+    removeRef,
     cancel,
     setText,
     prefill,
-    prefillFollowUp,
     runAgain,
+    dismissCounts,
+    noteConfirmCancelled,
     toggleSource,
-    commitCount,
-    stepCount,
   }
 }
 

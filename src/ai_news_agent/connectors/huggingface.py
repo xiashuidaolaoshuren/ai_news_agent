@@ -12,6 +12,7 @@ import httpx
 
 from ai_news_agent.connectors.base import ConnectorRequest, ConnectorResult
 from ai_news_agent.huggingface_families import group_huggingface_families, huggingface_collect_limit
+from ai_news_agent.huggingface_model_card import normalize_model_card_snippet
 from ai_news_agent.huggingface_profiles import (
     HF_PROFILE_BASE,
     OWNER_PROFILE_TIMEOUT,
@@ -160,18 +161,23 @@ class HuggingFaceConnector:
             if loader is None:
                 from huggingface_hub import ModelCard
 
-                loader = ModelCard.load
+                return ModelCard.load(repo_id, token=self._token)
             return loader(repo_id)
 
         try:
             card = await asyncio.to_thread(_load)
             text = _extract_model_card_text(card)
-            if not text:
+            cleaned = normalize_model_card_snippet(
+                text or "",
+                source_url=item.url,
+                max_chars=MODEL_CARD_LIVE_SNIPPET_MAX,
+            )
+            if not cleaned:
                 return item, [_model_card_unavailable_warning(repo_id, "empty model card")]
             new_evidence = {**evidence, "model_card_live_fetched": True}
             enriched = item.model_copy(
                 update={
-                    "raw_snippet": text[:MODEL_CARD_LIVE_SNIPPET_MAX],
+                    "raw_snippet": cleaned,
                     "source_evidence": new_evidence,
                     "content_confidence": ConfidenceLevel.MEDIUM,
                 }

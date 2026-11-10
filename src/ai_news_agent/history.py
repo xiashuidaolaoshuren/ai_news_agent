@@ -111,6 +111,7 @@ class HistorySearchMatch(BaseModel):
     excerpt: str | None = None
     score: float
     topics: list[str] = Field(default_factory=list)
+    session_id: str | None = None
 
 
 class HistorySearchResult(BaseModel):

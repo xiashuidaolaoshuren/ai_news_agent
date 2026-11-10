@@ -73,13 +73,43 @@ def test_vague_topic_request_asks_one_clarification() -> None:
         def interpret_conversation(self, context: dict[str, object]) -> dict[str, object]:
             return {"intent": "general", "question": str(context["message"])}
 
-    decision = interpret_message("Tell me about Qwen", model=_GeneralModel())
+    decision = interpret_message("What about Qwen", model=_GeneralModel())
 
     assert decision.intent == "clarify"
     assert decision.clarification is not None
     assert "Qwen" in decision.clarification
     assert decision.pending is not None
-    assert decision.pending["message"] == "Tell me about Qwen"
+    assert decision.pending["message"] == "What about Qwen"
+
+
+def test_tell_me_about_a_topic_is_a_general_explanation() -> None:
+    contexts = (
+        ConversationContext(),
+        ConversationContext(has_digest=True),
+        ConversationContext(connector_names=["github"]),
+        ConversationContext(has_digest=True, connector_names=["zhihu"]),
+    )
+
+    for context in contexts:
+        decision = interpret_message("Tell me about Qwen", context=context)
+        assert decision.intent == "general", context
+        assert decision.question == "Tell me about Qwen"
+        assert decision.request is None
+
+
+def test_tell_me_about_a_topic_stays_general_when_a_model_is_configured() -> None:
+    class _GeneralModel:
+        def interpret_conversation(self, context: dict[str, object]) -> dict[str, object]:
+            return {"intent": "general", "question": str(context["message"])}
+
+    decision = interpret_message(
+        "Tell me about Qwen",
+        context=ConversationContext(has_digest=True),
+        model=_GeneralModel(),
+    )
+
+    assert decision.intent == "general"
+    assert decision.question == "Tell me about Qwen"
 
 
 class _FakeModel:
@@ -113,7 +143,7 @@ def test_model_interprets_unmatched_message_and_clamps_invalid_options() -> None
     assert request.connector_names == ["huggingface"]
     assert request.topics == ["Qwen"]
     assert request.topics_are_filters is True
-    assert request.items_per_source == 20
+    assert request.items_per_source == 50
     assert request.output_language is None
     assert request.audience is None
     assert request.timeframe == "last_7_days"
@@ -132,8 +162,59 @@ def test_unusable_model_result_never_collects() -> None:
     assert decision.question == "Any Qwen movement?"
 
 
+def test_explain_entry_above_is_followup_with_or_without_digest() -> None:
+    message = "Explain the Qwen entry above"
+    for context in (ConversationContext(), ConversationContext(has_digest=True)):
+        decision = interpret_message(message, context=context)
+        assert decision.intent == "followup", context
+
+
+def test_recent_topic_updates_is_a_digest_regardless_of_context() -> None:
+    contexts = (
+        ConversationContext(),
+        ConversationContext(has_digest=True),
+        ConversationContext(connector_names=["zhihu"]),
+        ConversationContext(has_digest=True, connector_names=["zhihu"]),
+    )
+    for context in contexts:
+        decision = interpret_message("Recent Qwen updates", context=context)
+        assert decision.intent == "digest", context
+        assert decision.request is not None
+        assert decision.request.topics == ["Qwen"]
+
+
+def test_recent_updates_without_topic_stays_a_short_clarification_reply() -> None:
+    pending = {"message": "What about Qwen", "topic": "Qwen"}
+    decision = interpret_message(
+        "Recent updates",
+        context=ConversationContext(pending=pending),
+    )
+    assert decision.intent == "digest"
+    assert decision.request is not None
+    assert decision.request.topics == ["Qwen"]
+
+
+def test_self_contained_message_replaces_pending_clarification() -> None:
+    pending = {"message": "What about Qwen", "topic": "Qwen"}
+
+    llama = interpret_message(
+        "Recent Llama updates",
+        context=ConversationContext(pending=pending),
+    )
+    assert llama.intent == "digest"
+    assert llama.request is not None
+    assert llama.request.topics == ["Llama"]
+
+    rag = interpret_message(
+        "What is RAG?",
+        context=ConversationContext(pending=pending),
+    )
+    assert rag.intent == "general"
+    assert rag.question == "What is RAG?"
+
+
 def test_short_reply_completes_a_pending_clarification() -> None:
-    pending = {"message": "Tell me about Qwen", "topic": "Qwen"}
+    pending = {"message": "What about Qwen", "topic": "Qwen"}
 
     decision = interpret_message(
         "Recent updates",
@@ -149,7 +230,7 @@ def test_short_reply_completes_a_pending_clarification() -> None:
 
 
 def test_short_reply_can_choose_a_general_explanation() -> None:
-    pending = {"message": "Tell me about Qwen", "topic": "Qwen"}
+    pending = {"message": "What about Qwen", "topic": "Qwen"}
 
     decision = interpret_message(
         "A general explanation",
@@ -176,6 +257,7 @@ def test_request_metadata_describes_what_the_run_will_use() -> None:
     assert request_metadata(request) == {
         "sources": ["juya"],
         "per_source": 5,
+        "counts": {"juya": "5"},
         "timeframe": "latest",
         "topics": ["AI"],
         "language": "zh-CN",

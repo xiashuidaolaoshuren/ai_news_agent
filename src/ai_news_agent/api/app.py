@@ -10,14 +10,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from ai_news_agent.api.routers import history, meta, sessions
+from ai_news_agent.api.auth import OwnerAccessMiddleware
+from ai_news_agent.api.routers import history, meta, sessions, settings
 from ai_news_agent.services.composition import Application
-
-_LOOPBACK_CORS_ORIGINS: tuple[str, ...] = (
-    "http://127.0.0.1:5173",
-    "http://localhost:5173",
-)
-
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -90,11 +85,12 @@ def create_app(application: Application) -> FastAPI:
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"detail": detail},
         )
+    app.add_middleware(OwnerAccessMiddleware, access=application.access)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=list(_LOOPBACK_CORS_ORIGINS),
-        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Accept", "Content-Type"],
+        allow_origins=list(application.access.cors_origins),
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Accept", "Content-Type", "Authorization"],
     )
     @app.get("/")
     def root() -> dict[str, str]:
@@ -108,5 +104,6 @@ def create_app(application: Application) -> FastAPI:
     app.include_router(meta.router, prefix="/api/v1")
     app.include_router(sessions.router, prefix="/api/v1")
     app.include_router(history.router, prefix="/api/v1")
+    app.include_router(settings.router, prefix="/api/v1")
     _register_streaming_openapi_components(app)
     return app

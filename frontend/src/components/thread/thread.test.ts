@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import Thread from '@/components/thread/Thread.vue'
 import type { DigestView, MessageOut } from '@/api/generated/types.gen'
-import { toDigestVm, toMessageVm, toSentSourcesVm } from '@/vm'
+import { toDigestVm, toMessageVm, toMessages, toSentSourcesVm } from '@/vm'
 import { toRunVm } from '@/vm/run'
 
 const GITHUB_ENTRY = {
@@ -52,6 +52,228 @@ function assistantMessage(over: Partial<MessageOut> = {}): MessageOut {
 }
 
 describe('Thread', () => {
+  it('links an assistant reply to its reference as the prototype does', () => {
+    const [user, reply] = toMessages(
+      [
+        assistantMessage({
+          id: 1,
+          sequence: 1,
+          role: 'user',
+          content: 'What is this?',
+          digest: null,
+          digest_id: null,
+          warnings: [],
+          followup_target: { digest_id: 12, display_rank: 3 },
+        }),
+        assistantMessage({
+          id: 2,
+          sequence: 2,
+          content: 'It is a runtime.',
+          digest: null,
+          digest_id: null,
+          warnings: [],
+          created_at: '2026-10-01T20:14:00',
+        }),
+      ],
+    )
+    const wrapper = mount(Thread, { props: { messages: [user!, reply!] } })
+
+    const link = wrapper.get('[data-od-id="reply-ref-link"]')
+    expect(link.element.tagName).toBe('A')
+    expect(link.attributes('aria-label')).toBe('In reply to d12 #3')
+    expect(link.attributes('data-ref')).toBe('d12-3')
+
+    // The clock comes before the link, as in the prototype's label.
+    const label = wrapper.get('.msg-ai .ai-label')
+    expect(label.element.firstElementChild?.textContent).toBe('Agent')
+    const parts = Array.from(label.element.children).map((child) => child.className)
+    expect(parts).toEqual(['', 'mono', 're'])
+  })
+
+  it('shows a pending confirmation as an agent message, naming the issue publisher', () => {
+    const [user] = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        role: 'user',
+        content: 'Summarize this issue',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        juya_confirmation: {
+          story_count: 24,
+          issue: '2026-10',
+          issue_number: '42',
+        },
+      }),
+    ])
+    const wrapper = mount(Thread, { props: { messages: [user!] } })
+
+    const panel = wrapper.get('[data-od-id="juya-all-confirm"]')
+    expect(panel.element.closest('.msg-ai')).not.toBeNull()
+    expect(panel.element.closest('.msg-user')).toBeNull()
+    expect(panel.text()).toContain('from 橘鸦 AI 早报')
+  })
+
+  it('asks before a large Juya request and does not show a digest until Continue', async () => {
+    const [user] = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        role: 'user',
+        content: 'Summarize this issue',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        juya_confirmation: {
+          story_count: 24,
+          issue: '2026-10',
+          issue_number: '42',
+        },
+      }),
+    ])
+    const wrapper = mount(Thread, { props: { messages: [user!] } })
+    const panel = wrapper.get('[data-od-id="juya-all-confirm"]')
+
+    expect(panel.text()).toContain('24 stories')
+    expect(panel.text()).toContain('2026-10')
+    expect(panel.text()).toContain('42')
+    expect(wrapper.find('[data-od-id^="digest-"]').exists()).toBe(false)
+
+    await wrapper.get('[data-od-id="juya-confirm-continue"]').trigger('click')
+    expect(wrapper.emitted('confirmJuya')).toEqual([[{ messageId: 1, action: 'continue' }]])
+
+    await wrapper.get('[data-od-id="juya-confirm-cancel"]').trigger('click')
+    expect(wrapper.emitted('confirmJuya')?.[1]).toEqual([{ messageId: 1, action: 'cancel' }])
+  })
+
+  it('shows the loading skeleton instead of the empty conversation while opening', () => {
+    const wrapper = mount(Thread, { props: { messages: [], loading: true } })
+
+    expect(wrapper.get('[data-od-id="conversation-loading"]').attributes('aria-label')).toBe(
+      'Loading conversation',
+    )
+    expect(wrapper.find('[data-od-id="empty-conversation"]').exists()).toBe(false)
+  })
+
+  it('offers a retry when the conversation failed to load', async () => {
+    const wrapper = mount(Thread, {
+      props: { messages: [], loadError: 'backend down' },
+    })
+
+    expect(wrapper.get('[data-od-id="conversation-load-failed"]').text()).toContain(
+      'Couldn’t load this conversation.',
+    )
+    expect(wrapper.find('[data-od-id="empty-conversation"]').exists()).toBe(false)
+
+    await wrapper.get('[data-od-id="retry-load"]').trigger('click')
+
+    expect(wrapper.emitted('retryLoad')).toHaveLength(1)
+  })
+
+  it('suggests up to three other sources for a finished empty collect', async () => {
+    const [user, noResults] = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        role: 'user',
+        content: 'What shipped in speech models?',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        request: {
+          sources: ['github'],
+          per_source: 5,
+          timeframe: 'past week',
+          topics: ['speech models'],
+          language: 'en',
+          audience: null,
+        },
+      }),
+      assistantMessage({
+        id: 2,
+        sequence: 2,
+        content: '',
+        digest: { generated_at: '2026-10-01T20:04:00', entries: [] } as DigestView,
+        warnings: [],
+        collection_outcome: 'no_eligible',
+      }),
+    ])
+    const wrapper = mount(Thread, {
+      props: {
+        messages: [user!, noResults!],
+        catalog: [
+          { name: 'github', label: 'GitHub', kind: 'github' },
+          { name: 'juya', label: 'Juya', kind: 'juya' },
+          { name: 'huggingface', label: 'Hugging Face', kind: 'huggingface' },
+          { name: 'zhihu', label: 'Zhihu', kind: 'zhihu' },
+          { name: 'bilibili', label: 'Bilibili', kind: 'bilibili' },
+        ],
+      },
+    })
+
+    const block = wrapper.get('[data-od-id="no-eligible-results"]')
+    expect(block.text()).toContain('speech models')
+    expect(block.text()).toContain('past week')
+    const tries = block.findAll('[data-od-id^="try-"]')
+    expect(tries).toHaveLength(3)
+    expect(tries.map((button) => button.attributes('data-od-id'))).not.toContain('try-github')
+
+    await tries[0]!.trigger('click')
+
+    expect(wrapper.emitted('repeat')?.[0]?.[0]).toMatchObject({
+      userMessageId: 1,
+      text: 'What shipped in speech models?',
+      replaceSource: 'juya',
+    })
+  })
+
+  it('names the source that failed to collect instead of calling it no results', async () => {
+    const [, failed] = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        role: 'user',
+        content: 'What shipped in speech models?',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        request: {
+          sources: ['github'],
+          per_source: 5,
+          timeframe: null,
+          topics: [],
+          language: null,
+          audience: null,
+        },
+      }),
+      assistantMessage({
+        id: 2,
+        sequence: 2,
+        content: '',
+        digest: { generated_at: '2026-10-01T20:04:00', entries: [] } as DigestView,
+        warnings: [
+          { connector: 'github', code: 'search_failed', message: 'GitHub search returned 503.' },
+        ],
+        collection_outcome: 'failed',
+      }),
+    ])
+    const wrapper = mount(Thread, { props: { messages: [failed!] } })
+
+    const alert = wrapper.get('[data-od-id="collection-failed"]')
+    expect(alert.text()).toContain('Couldn’t collect from GitHub.')
+    expect(alert.text()).toContain('GitHub search returned 503.')
+    expect(alert.text()).not.toContain('No eligible results')
+
+    await wrapper.get('[data-od-id="retry-collection"]').trigger('click')
+
+    expect(wrapper.emitted('repeat')?.[0]?.[0]).toMatchObject({
+      userMessageId: 1,
+      text: 'What shipped in speech models?',
+    })
+    expect(wrapper.emitted('repeat')?.[0]?.[0]).not.toHaveProperty('replaceSource')
+  })
+
   it('renders a user message as a bubble with no agent label', () => {
     const wrapper = mount(Thread, {
       props: {
@@ -125,19 +347,17 @@ describe('Thread', () => {
     expect(reloaded.html()).toBe(live.html())
   })
 
-  it('shows the empty conversation state with three suggestions', async () => {
+  it('shows the empty conversation state with four suggestions', async () => {
     const wrapper = mount(Thread, { props: { messages: [] } })
 
     expect(wrapper.get('.empty h2').text()).toBe('Start a digest')
     const suggestions = wrapper.findAll('.suggest button')
 
-    expect(suggestions).toHaveLength(3)
+    expect(suggestions).toHaveLength(4)
 
     await suggestions[0]!.trigger('click')
 
-    expect(wrapper.emitted('suggest')).toEqual([
-      ['What shipped in open-weight models this week?'],
-    ])
+    expect(wrapper.emitted('suggest')).toEqual([["Digest today's AI news"]])
   })
 
   it('shows no suggestions once the conversation has messages', () => {
@@ -175,6 +395,41 @@ describe('Thread', () => {
     expect(wrapper.get('.live-slot .digest-reply .ref').text()).toBe('d15')
     expect(wrapper.find('[data-od-id="streaming-progress"]').exists()).toBe(false)
     expect(wrapper.find('.empty').exists()).toBe(false)
+  })
+
+  it('puts the reference chip above the bubble and the source chips below it', () => {
+    const [user] = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        role: 'user',
+        content: 'What is this?',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        followup_target: { digest_id: 12, display_rank: 3 },
+      }),
+    ])
+    const wrapper = mount(Thread, {
+      props: {
+        messages: [
+          {
+            ...user!,
+            chips: toSentSourcesVm({ names: ['juya'], perSource: 5 }),
+          },
+        ],
+      },
+    })
+
+    const order = Array.from(wrapper.get('.msg-user').element.children).map(
+      (child) =>
+        child.classList.contains('ref-chip')
+          ? 'chip'
+          : child.classList.contains('bubble')
+            ? 'bubble'
+            : 'sources',
+    )
+    expect(order).toEqual(['chip', 'bubble', 'sources'])
   })
 
   it('shows the source chips on a question sent in this page session', () => {

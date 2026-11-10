@@ -37,10 +37,15 @@ class ConnectorRequest:
     huggingface_pipeline_tag: str | None = None
     #: Juya collection mode: ``issue`` (default) or ``stories``.
     juya_item_mode: str | None = None
+    #: When set, story mode collects every eligible story (no per-request story cap).
+    juya_collect_all_stories: bool = False
     #: Browser focus request: connectors drop items unrelated to ``topics``.
     topics_are_filters: bool = False
     #: Browser dated request: items outside ``timeframe`` are ineligible.
     strict_timeframe: bool = False
+    github_keywords: list[str] | None = None
+    github_min_stars: int | None = None
+    github_language: str | None = None
 
 
 @dataclass

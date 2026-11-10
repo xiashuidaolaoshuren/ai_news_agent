@@ -83,15 +83,15 @@ class InterfaceToolRouter:
             huggingface_factory=self._huggingface_factory,
             zhihu_factory=self._zhihu_factory,
         )
-        runner = build_tool_agent_runner(
-            registry=registry,
-            model=self._tool_model,
-            fallback_text=self._fallback_text,
-        )
 
         agent_result: InterfaceAgentResult | None = None
         fallback_reason = "model_failure"
         try:
+            runner = build_tool_agent_runner(
+                registry=registry,
+                model=self._tool_model,
+                fallback_text=self._fallback_text,
+            )
             agent_result = await runner.run(message)
         except Exception as exc:
             logger.error(

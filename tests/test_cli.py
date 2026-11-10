@@ -89,6 +89,7 @@ def test_build_digest_request_maps_flags() -> None:
     assert req.topics == ["RAG", "agents"]
     assert req.connector_names == ["github", "bilibili"]
     assert req.top_n == 3
+    assert req.items_per_source == 7
     assert req.max_items_per_source == 7
 
 

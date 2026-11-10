@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  COUNT_INVALID,
+  healthHint,
   parseSources,
   prefsFor,
   TEXT_REQUIRED,
   SOURCE_REQUIRED,
+  toComposerVm,
   validateComposer,
 } from '@/vm/composer'
 
@@ -24,17 +25,63 @@ const CATALOG = {
 describe('parseSources', () => {
   it('labels each catalog entry in the order the API returns it', () => {
     expect(parseSources(CATALOG)).toEqual([
-      { name: 'juya', label: 'Juya', kind: 'juya', default: true },
-      { name: 'huggingface', label: 'Hugging Face', kind: 'huggingface', default: false },
-      { name: 'github', label: 'GitHub', kind: 'github', default: false },
-      { name: 'zhihu', label: 'Zhihu', kind: 'zhihu', default: false },
-      { name: 'bilibili', label: 'Bilibili', kind: 'bilibili', default: false },
+      { name: 'juya', label: 'Juya', kind: 'juya', default: true, health: 'unchecked' },
+      {
+        name: 'huggingface',
+        label: 'Hugging Face',
+        kind: 'huggingface',
+        default: false,
+        health: 'unchecked',
+      },
+      { name: 'github', label: 'GitHub', kind: 'github', default: false, health: 'unchecked' },
+      { name: 'zhihu', label: 'Zhihu', kind: 'zhihu', default: false, health: 'unchecked' },
+      { name: 'bilibili', label: 'Bilibili', kind: 'bilibili', default: false, health: 'unchecked' },
     ])
+  })
+
+  it('reads the credential health the catalog carries for the current version', () => {
+    const options = parseSources({
+      sources: [
+        {
+          name: 'github',
+          default: false,
+          health: {
+            current: 'auth_error',
+            stale: false,
+            credential_version: 'v1',
+            observed_at: '2026-10-01T19:58:00Z',
+            kind: 'connector',
+          },
+        },
+        {
+          name: 'huggingface',
+          default: false,
+          health: {
+            current: null,
+            stale: true,
+            credential_version: 'v2',
+            observed_at: null,
+            kind: null,
+          },
+        },
+        { name: 'juya', default: true },
+      ],
+    })
+
+    expect(options.map((option) => option.health)).toEqual(['auth_error', 'stale', 'unchecked'])
+  })
+
+  it('explains only the health states a chip can show', () => {
+    expect(healthHint('auth_error')).toBe('Last check: authentication error.')
+    expect(healthHint('stale')).toBe('Not checked since update.')
+    expect(healthHint('timeout')).toBe('Last check: timed out.')
+    expect(healthHint('ok')).toBe(null)
+    expect(healthHint('unchecked')).toBe(null)
   })
 
   it('keeps a connector the client does not know, without a logo', () => {
     expect(parseSources({ sources: [{ name: 'reddit', default: true }] })).toEqual([
-      { name: 'reddit', label: 'reddit', kind: null, default: true },
+      { name: 'reddit', label: 'reddit', kind: null, default: true, health: 'unchecked' },
     ])
   })
 
@@ -47,20 +94,20 @@ describe('parseSources', () => {
 describe('prefsFor', () => {
   const options = parseSources(CATALOG)
 
-  it('shows the catalog defaults and a count of 5 before the first PATCH', () => {
-    expect(prefsFor(null, options)).toEqual({ selected: ['juya'], count: '5' })
+  it('shows the catalog defaults before the first PATCH', () => {
+    expect(prefsFor(null, options)).toEqual({ selected: ['juya'] })
   })
 
-  it('prefers the preferences the session already stores', () => {
-    const session = { connector_names: ['github', 'zhihu'], items_per_source: 8 }
-    expect(prefsFor(session, options)).toEqual({ selected: ['github', 'zhihu'], count: '8' })
+  it('prefers the sources the session already stores', () => {
+    const session = { connector_names: ['github', 'zhihu'] }
+    expect(prefsFor(session, options)).toEqual({ selected: ['github', 'zhihu'] })
   })
 })
 
 describe('validateComposer', () => {
-  const valid = { text: 'What shipped?', selected: ['juya'], count: '5' }
+  const valid = { text: 'What shipped?', selected: ['juya'] }
 
-  it('accepts a question with one source and a count in range', () => {
+  it('accepts a question with one source', () => {
     expect(validateComposer(valid)).toEqual({})
   })
 
@@ -72,20 +119,33 @@ describe('validateComposer', () => {
     expect(validateComposer({ ...valid, selected: [] })).toEqual({ sources: SOURCE_REQUIRED })
   })
 
-  it('rejects a count that is not a whole number from 1 to 20', () => {
-    expect(validateComposer({ ...valid, count: '' }).count).toBe(COUNT_INVALID)
-    expect(validateComposer({ ...valid, count: '0' }).count).toBe(COUNT_INVALID)
-    expect(validateComposer({ ...valid, count: '21' }).count).toBe(COUNT_INVALID)
-    expect(validateComposer({ ...valid, count: '3.5' }).count).toBe(COUNT_INVALID)
-    expect(validateComposer({ ...valid, count: 'abc' }).count).toBe(COUNT_INVALID)
-    expect(validateComposer({ ...valid, count: '20' })).toEqual({})
-  })
-
   it('reports every failing rule at once', () => {
-    expect(validateComposer({ text: '  ', selected: [], count: 'x' })).toEqual({
+    expect(validateComposer({ text: '  ', selected: [] })).toEqual({
       text: TEXT_REQUIRED,
       sources: SOURCE_REQUIRED,
-      count: COUNT_INVALID,
     })
+  })
+})
+
+describe('toComposerVm placeholder', () => {
+  const INPUT = {
+    text: '',
+    sources: [],
+    selected: [],
+    errors: {},
+    busy: false,
+    notice: 'none' as const,
+    ref: null,
+    countsSeen: true,
+  }
+
+  it('asks for a digest or a follow-up, as the prototype does', () => {
+    expect(toComposerVm(INPUT).placeholder).toBe('Ask for a digest or a follow-up…')
+  })
+
+  it('names the reference while a chip is attached', () => {
+    const ref = { digestId: 12, rank: 3, title: 'mattpocock/skills', source: 'github' }
+
+    expect(toComposerVm({ ...INPUT, ref }).placeholder).toBe('Ask about d12 #3…')
   })
 })

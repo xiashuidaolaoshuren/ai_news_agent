@@ -367,4 +367,16 @@ describe('Hugging Face projection', () => {
       { sourceId: 'bad/model', title: 'bad/model', url: null },
     ])
   })
+
+  it('maps related_display_ranks onto relatedRanks for HF entries', () => {
+    const vm = toVm(hfEntry({ related_display_ranks: [2, 7, 9] }))
+
+    expect(vm.relatedRanks).toEqual([2, 7, 9])
+  })
+
+  it('leaves relatedRanks unset when the API omits related_display_ranks', () => {
+    const vm = toVm(hfEntry())
+
+    expect(vm.relatedRanks).toBeUndefined()
+  })
 })

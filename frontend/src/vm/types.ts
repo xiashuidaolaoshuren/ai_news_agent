@@ -38,6 +38,16 @@ export interface JuyaVm {
   background: string | null
 }
 
+/** Stable ref for Deep dive / Ask about this and transcript chips. */
+export interface RefVm {
+  digestId: number
+  rank: number
+  /** Resolved entry title when known; otherwise a short fallback. */
+  title: string
+}
+
+export type FollowupActionVm = 'deep_dive' | 'ask'
+
 export interface EntryVm {
   key: string
   kind: EntryKind
@@ -55,4 +65,6 @@ export interface EntryVm {
   meta?: string
   hf?: HfVm
   juya?: JuyaVm
+  /** Hugging Face only: ranks for Related chips. */
+  relatedRanks?: number[]
 }

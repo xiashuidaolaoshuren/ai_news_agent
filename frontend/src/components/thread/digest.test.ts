@@ -3,6 +3,16 @@ import { describe, expect, it } from 'vitest'
 
 import DigestReply from '@/components/thread/DigestReply.vue'
 import { digestVm, githubEntry, juyaEntry, juyaIssue, sectionVm, warningVm } from '@/components/thread/vm-builders'
+import type { RepeatVm } from '@/vm/session'
+import type { RefVm } from '@/vm/types'
+
+const REPEAT: RepeatVm = {
+  userMessageId: 7,
+  text: 'What shipped?',
+  summary: 'GitHub · 5 per source · past week · English',
+  sources: ['github'],
+  perSource: 5,
+}
 
 describe('DigestReply', () => {
   it('shows the digest reference, time, item count, and source tally', () => {
@@ -44,6 +54,30 @@ describe('DigestReply', () => {
     expect(alerts[0]!.text()).toContain('GitHub connector:')
     expect(alerts[0]!.text()).toContain('other sources completed normally')
     expect(alerts[1]!.text()).toContain('Bilibili connector:')
+  })
+
+  it('opens that connector settings from its warning', async () => {
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          warnings: [
+            warningVm(),
+            warningVm({ source: 'bilibili', label: 'Bilibili', code: 'timeout' }),
+          ],
+        }),
+      },
+    })
+
+    const github = wrapper.get('[data-od-id="connector-warning-github"]')
+    const button = github.get('button.act')
+    expect(button.text()).toBe('GitHub settings')
+    await button.trigger('click')
+
+    expect(wrapper.emitted('openSettings')).toEqual([['github']])
+    // Bilibili has no settings section, so its warning stays text only.
+    expect(
+      wrapper.get('[data-od-id="connector-warning-bilibili"]').find('button').exists(),
+    ).toBe(false)
   })
 
   it('renders one section per digest section with its head range', () => {
@@ -143,7 +177,8 @@ describe('DigestReply', () => {
     expect(wrapper.get('.issue-meta').text()).not.toContain('Lead story')
   })
 
-  it('shows the story topic and the original link on a Juya story row', () => {    const story = juyaEntry({
+  it('shows the story topic and the original link on a Juya story row', () => {
+    const story = juyaEntry({
       rank: 1,
       juya: {
         topic: 'Headlines',
@@ -176,11 +211,37 @@ describe('DigestReply', () => {
     expect(row.get('.entry-src .ext').attributes('href')).toBe('https://original.test/story-1')
   })
 
-  it('bubbles a follow-up from an entry row up to the digest reply', async () => {
-    const wrapper = mount(DigestReply, { props: { digest: digestVm() } })
+  it('bubbles ask from an entry row up to the digest reply', async () => {
+    const d = digestVm()
+    const wrapper = mount(DigestReply, { props: { digest: d } })
+    const expected: RefVm = {
+      digestId: d.digestId ?? 15,
+      rank: 1,
+      title: 'NVIDIA/OpenShell',
+    }
 
-    await wrapper.get('.entry-foot button').trigger('click')
+    const askBtn = wrapper
+      .findAll('.entry-foot .link-btn')
+      .find((b) => b.text().includes('Ask about this'))
+    await askBtn!.trigger('click')
 
-    expect(wrapper.emitted('followup')).toEqual([['NVIDIA/OpenShell']])
+    expect(wrapper.emitted('ask')).toEqual([[expected]])
+  })
+
+  it('offers to run the stored request again and hides it without one', async () => {
+    const withRepeat = mount(DigestReply, {
+      props: { digest: digestVm(), repeat: REPEAT },
+    })
+
+    const foot = withRepeat.get('[data-od-id="digest-run-again"]')
+    expect(foot.text()).toContain('Repeats the request behind d15')
+    expect(foot.text()).toContain('GitHub · 5 per source · past week · English')
+
+    await foot.get('button').trigger('click')
+
+    expect(withRepeat.emitted('repeat')).toEqual([[REPEAT]])
+
+    const without = mount(DigestReply, { props: { digest: digestVm() } })
+    expect(without.find('[data-od-id="digest-run-again"]').exists()).toBe(false)
   })
 })

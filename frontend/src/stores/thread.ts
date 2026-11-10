@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, shallowRef, type Ref } from 'vue'
 
 import type { MessageOut, SessionOut } from '@/api/generated/types.gen'
+import { postJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPost } from '@/api/generated/sdk.gen'
 import { listMessagesApiV1SessionsSessionIdMessagesGet } from '@/api/generated/sdk.gen'
 import {
   createRequestLifecycle,
@@ -15,7 +16,17 @@ import { setupApiClient } from '@/api/setupClient'
 import { prefersReducedMotion } from '@/lib/motion'
 import { useSessionsStore } from '@/stores/sessions'
 import { toDigestVm, type DigestVm } from '@/vm/digest'
-import { toMessageVm, toRequestStateVm, toResolvedSourcesVm, toSentSourcesVm, type MessageVm, type RequestStateVm, type SentSourcesInput, type SentSourcesVm } from '@/vm/session'
+import {
+  toMessages,
+  toRequestStateVm,
+  toResolvedSourcesVm,
+  toSentSourcesVm,
+  type MessageVm,
+  type RequestStateVm,
+  type SentSourcesInput,
+  type SentSourcesVm,
+} from '@/vm/session'
+import type { RefVm } from '@/vm/types'
 import {
   toCancelledVm,
   toRunVm,
@@ -51,6 +62,11 @@ export interface ThreadDeps {
    * it assigned to the first message, its digest count, or the request it is running.
    */
   onSessionChanged?(): void
+  confirmJuya(
+    sessionId: string,
+    requestId: string,
+    action: 'continue' | 'cancel',
+  ): Promise<void>
 }
 
 /** Production dependencies wired to the generated client and the request lifecycle. */
@@ -69,6 +85,13 @@ export function defaultThreadDeps(): ThreadDeps {
       return { messages: result.data.messages, nextCursor: result.data.next_cursor ?? null }
     },
     lifecycle: createRequestLifecycle(defaultLifecycleDeps()),
+    async confirmJuya(sessionId, requestId, action): Promise<void> {
+      await postJuyaConfirmationApiV1SessionsSessionIdRequestsRequestIdJuyaConfirmationPost({
+        path: { session_id: sessionId, request_id: requestId },
+        body: { action },
+        throwOnError: true,
+      })
+    },
     now: () => new Date(),
     schedule: (handler, ms) => {
       setTimeout(handler, ms)
@@ -91,17 +114,37 @@ export function clockLabel(date: Date): string {
     .join(':')
 }
 
+/** Merge new API rows into the accumulated transcript, deduping by id. */
+function mergeRawMessages(accumulated: MessageOut[], batch: MessageOut[]): MessageOut[] {
+  const byId = new Map<number, MessageOut>()
+  for (const message of accumulated) {
+    byId.set(message.id, message)
+  }
+  for (const message of batch) {
+    byId.set(message.id, message)
+  }
+  return [...byId.values()].sort((a, b) => a.sequence - b.sequence)
+}
+
 /** Reactive thread state: the transcript, the live run, and its terminal outcome. */
 export function createThreadController(deps: ThreadDeps) {
   const messages = ref<MessageVm[]>([])
+  /** All transcript rows loaded for this conversation, oldest-first by sequence. */
+  const rawMessages = ref<MessageOut[]>([])
   const loading = ref(false)
+  /** True only while the transcript for a newly opened conversation is loading. */
+  const opening = ref(false)
   const loadingOlder = ref(false)
   /** The cursor for the page before the oldest row on screen, or null at the start. */
   const nextCursor = ref<string | null>(null)
   const loadError = ref<string | null>(null)
   const session = shallowRef<SessionOut | null>(null)
   const draft = ref('')
-  const pendingUser = ref<{ text: string; chips: SentSourcesVm | null } | null>(null)
+  const pendingUser = ref<{
+    text: string
+    chips: SentSourcesVm | null
+    ref?: RefVm | null
+  } | null>(null)
   const freshIds = ref<number[]>([])
   const rawSnapshot = shallowRef<RequestSnapshot>(deps.lifecycle.state)
   const progressTimes = ref<string[]>([])
@@ -336,6 +379,12 @@ export function createThreadController(deps: ThreadDeps) {
   const run = computed<RunVm | null>(() => toRunVm(runInput()))
   const cancelled = computed<CancelledVm | null>(() => toCancelledVm(runInput()))
 
+  /** A run owns the conversation while its stream is open or being polled. */
+  const runActive = computed(() => {
+    const state = snapshot.value.state
+    return state === 'streaming' || state === 'reconnecting'
+  })
+
   /**
    * The live outcome occupies the last reply slot. The row the backend persists for
    * the same outcome reloads into the transcript, so hide that copy while the live
@@ -355,13 +404,16 @@ export function createThreadController(deps: ThreadDeps) {
               ...(pendingUser.value.chips === null
                 ? {}
                 : { chips: pendingUser.value.chips }),
+              ...(pendingUser.value.ref !== undefined && pendingUser.value.ref !== null
+                ? { ref: pendingUser.value.ref }
+                : {}),
               warnings: [],
             },
           ]
     const cancelledOutcome = cancelled.value !== null
     const outcome = cancelledOutcome ? null : (alert.value?.message ?? null)
     const digestRef = liveDigest.value?.ref ?? null
-    const rows = messages.value.map(withChips).filter((item) => {
+    const rows = messages.value.map(withChips).map(withoutAnsweredConfirm).filter((item) => {
       if (cancelledOutcome && item.kind === 'cancelled') {
         return false
       }
@@ -372,6 +424,18 @@ export function createThreadController(deps: ThreadDeps) {
     })
     return [...rows, ...pending]
   })
+
+  /**
+   * Once its run is live, the confirmation has been answered: the run card takes the
+   * panel's place until the reload brings the row back without it.
+   */
+  function withoutAnsweredConfirm(message: MessageVm): MessageVm {
+    if (!runActive.value || message.juyaConfirm === undefined) {
+      return message
+    }
+    const { juyaConfirm: _answered, ...rest } = message
+    return rest
+  }
 
   /** A question sent in this page session carries the sources it was sent with. */
   function withChips(message: MessageVm): MessageVm {
@@ -400,11 +464,6 @@ export function createThreadController(deps: ThreadDeps) {
     })
   })
 
-  /** Render the transcript in reading order; the API pages newest first. */
-  function toMessages(loaded: MessageOut[]): MessageVm[] {
-    return [...loaded].sort((a, b) => a.sequence - b.sequence).map(toMessageVm)
-  }
-
   /**
    * Load the transcript. A reload after a run marks the rows it adds as fresh so
    * the reveal animation plays for the reply that just landed; opening a
@@ -412,9 +471,12 @@ export function createThreadController(deps: ThreadDeps) {
    */
   async function loadMessages(
     sessionId: string,
-    options: { markFresh?: boolean } = {},
+    options: { markFresh?: boolean; opening?: boolean } = {},
   ): Promise<void> {
     loading.value = true
+    if (options.opening === true) {
+      opening.value = true
+    }
     loadError.value = null
     try {
       const page = await deps.loadMessages(sessionId)
@@ -422,7 +484,8 @@ export function createThreadController(deps: ThreadDeps) {
       if ((session.value?.id ?? null) !== sessionId) {
         return
       }
-      const next = toMessages(page.messages)
+      rawMessages.value = mergeRawMessages([], page.messages)
+      const next = toMessages(rawMessages.value)
       const known = new Set(messages.value.map((message) => message.id))
       messages.value = next
       nextCursor.value = page.nextCursor
@@ -439,6 +502,9 @@ export function createThreadController(deps: ThreadDeps) {
       }
     } finally {
       loading.value = false
+      if (options.opening === true) {
+        opening.value = false
+      }
     }
   }
 
@@ -459,11 +525,10 @@ export function createThreadController(deps: ThreadDeps) {
         return
       }
       nextCursor.value = page.nextCursor
-      const known = new Set(messages.value.map((message) => message.id))
-      const older = page.messages
-        .filter((message) => !known.has(message.id))
-        .map(toMessageVm)
-      messages.value = [...older, ...messages.value].sort((a, b) => a.sequence - b.sequence)
+      const known = new Set(rawMessages.value.map((message) => message.id))
+      const olderRaw = page.messages.filter((message) => !known.has(message.id))
+      rawMessages.value = mergeRawMessages(rawMessages.value, olderRaw)
+      messages.value = toMessages(rawMessages.value)
     } catch (caught) {
       if ((session.value?.id ?? null) === sessionId) {
         loadError.value =
@@ -485,6 +550,7 @@ export function createThreadController(deps: ThreadDeps) {
       return
     }
     messages.value = []
+    rawMessages.value = []
     loadError.value = null
     draft.value = ''
     pendingUser.value = null
@@ -499,9 +565,13 @@ export function createThreadController(deps: ThreadDeps) {
     if (next === null) {
       return
     }
-    await loadMessages(next.id)
+    await loadMessages(next.id, { opening: true })
     const active = next.active_request_id ?? null
-    if (active !== null) {
+    // A request that only waits for the Juya confirmation has no stream to rejoin;
+    // the transcript already shows the panel, so resuming would poll it into a
+    // failure over a healthy confirmation.
+    const awaitingConfirmation = messages.value.some((item) => item.juyaConfirm !== undefined)
+    if (active !== null && !awaitingConfirmation) {
       await deps.lifecycle.resume(next.id, active)
     }
   }
@@ -518,6 +588,15 @@ export function createThreadController(deps: ThreadDeps) {
     session.value = next
   }
 
+  /** Load the open conversation again after a failed load. */
+  async function retryLoad(): Promise<void> {
+    const sessionId = session.value?.id
+    if (sessionId === undefined) {
+      return
+    }
+    await loadMessages(sessionId, { opening: true })
+  }
+
   /** "Run again" refills the composer; it never resends by itself. */
   function runAgain(): void {
     const last = [...messages.value].reverse().find((message) => message.kind === 'user')
@@ -529,7 +608,7 @@ export function createThreadController(deps: ThreadDeps) {
    * running it, and the outcome is what ends the alert.
    */
   async function retryPoll(): Promise<void> {
-    const requestId = rawSnapshot.value.requestId
+    const requestId = snapshot.value.requestId
     const sessionId = session.value?.id
     if (requestId === null || sessionId === undefined) {
       return
@@ -542,8 +621,40 @@ export function createThreadController(deps: ThreadDeps) {
    * for the row the backend persists until the terminal reload brings that row back
    * with the reply.
    */
-  function markUserSent(text: string, sources: SentSourcesInput): void {
-    pendingUser.value = { text, chips: toSentSourcesVm(sources) }
+  /**
+   * Answer a pending large Juya request. Continue resumes the same request;
+   * cancel stores the cancellation. Either way the transcript reloads.
+   */
+  async function confirmJuya(
+    messageId: number,
+    action: 'continue' | 'cancel',
+  ): Promise<void> {
+    const current = session.value
+    const sessionId = current?.id
+    const requestId = snapshot.value.requestId ?? current?.active_request_id ?? null
+    if (sessionId === undefined || requestId === null || messageId < 0) {
+      return
+    }
+    if (action === 'continue') {
+      // Continue streams the digest, so the run card, progress and Cancel all work.
+      // A stale panel means the request already moved on; the reload says how.
+      try {
+        await deps.lifecycle.continueJuya(sessionId, requestId)
+      } catch {
+        // The transcript below is the source of truth.
+      }
+    } else {
+      await deps.confirmJuya(sessionId, requestId, action)
+    }
+    await loadMessages(sessionId)
+  }
+
+  function markUserSent(text: string, sources: SentSourcesInput, ref?: RefVm | null): void {
+    pendingUser.value = {
+      text,
+      chips: toSentSourcesVm(sources),
+      ...(ref !== undefined ? { ref } : {}),
+    }
   }
 
   return {
@@ -551,6 +662,7 @@ export function createThreadController(deps: ThreadDeps) {
     visibleMessages,
     freshIds,
     loading,
+    opening,
     loadingOlder,
     nextCursor,
     loadError,
@@ -565,10 +677,12 @@ export function createThreadController(deps: ThreadDeps) {
     loadMessages,
     loadOlder,
     openSession,
+    retryLoad,
     syncSession,
     runAgain,
     retryPoll,
     markUserSent,
+    confirmJuya,
     revealFinished,
   }
 }

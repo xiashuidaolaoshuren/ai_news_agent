@@ -355,6 +355,29 @@ def test_enrich_skips_hub_when_model_card_already_fetched() -> None:
     asyncio.run(main())
 
 
+def test_enrich_loads_model_card_with_connector_token(monkeypatch: Any) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_load(repo_id: str, **kwargs: Any) -> SimpleNamespace:
+        calls.append({"repo_id": repo_id, **kwargs})
+        return SimpleNamespace(content="README body")
+
+    from huggingface_hub import ModelCard
+
+    monkeypatch.setattr(ModelCard, "load", fake_load)
+
+    item = _hf_enrich_item(raw_snippet=None, source_evidence={})
+    conn = HuggingFaceConnector(api=FakeHfApi(), token="hf_test_token")
+
+    async def main() -> None:
+        enriched, warnings = await conn.enrich_news_item(item)
+        assert warnings == []
+        assert enriched.raw_snippet is not None
+        assert calls == [{"repo_id": "org/demo-model", "token": "hf_test_token"}]
+
+    asyncio.run(main())
+
+
 def test_enrich_maps_readme_to_raw_snippet_and_marks_fetched() -> None:
     long_text = "x" * 5000
 
@@ -368,8 +391,66 @@ def test_enrich_maps_readme_to_raw_snippet_and_marks_fetched() -> None:
     async def main() -> None:
         enriched, warnings = await conn.enrich_news_item(item)
         assert warnings == []
-        assert enriched.raw_snippet == ("x" * 4000)
+        assert enriched.raw_snippet is not None
+        assert len(enriched.raw_snippet) <= 4000
+        assert enriched.raw_snippet.startswith("x")
+        assert "Excerpt shortened" in enriched.raw_snippet
         assert enriched.source_evidence.get("model_card_live_fetched") is True
+
+    asyncio.run(main())
+
+
+def test_enrich_normalizes_readme_before_bounding_snippet() -> None:
+    preamble = "<div>" + ("<img src=\"badge.svg\" alt=\"badge\">" * 300) + "</div>"
+    specs = """\
+<table><tr><td><strong>Architecture</strong></td><td>Mixture-of-Experts</td></tr></table>
+"""
+    readme = preamble + "\n\nUseful model overview.\n\n" + specs
+
+    def fake_load(repo_id: str) -> SimpleNamespace:
+        assert repo_id == "org/demo-model"
+        return SimpleNamespace(content=readme)
+
+    item = _hf_enrich_item(
+        raw_snippet="collect snippet",
+        source_evidence={"trending_score": 88.0, "downloads_30d": 1200},
+    )
+    conn = HuggingFaceConnector(api=FakeHfApi(), load_model_card=fake_load)
+
+    async def main() -> None:
+        enriched, warnings = await conn.enrich_news_item(item)
+        assert warnings == []
+        assert enriched.raw_snippet is not None
+        assert "Useful model overview." in enriched.raw_snippet
+        assert "**Architecture**" in enriched.raw_snippet
+        assert "Mixture-of-Experts" in enriched.raw_snippet
+        assert "<div" not in enriched.raw_snippet
+        assert "badge.svg" not in enriched.raw_snippet
+        assert len(enriched.raw_snippet) <= 4000
+        assert enriched.source_evidence["trending_score"] == 88.0
+        assert enriched.source_evidence["downloads_30d"] == 1200
+        assert enriched.source_evidence["model_card_live_fetched"] is True
+
+    asyncio.run(main())
+
+
+def test_enrich_treats_decoration_only_readme_as_unavailable() -> None:
+    def fake_load(_repo_id: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            content='<div><img src="logo.png" alt="logo"><a href="https://img.shields.io/badge/x"></a></div>'
+        )
+
+    item = _hf_enrich_item(
+        raw_snippet="collect snippet",
+        source_evidence={"trending_score": 1},
+    )
+    conn = HuggingFaceConnector(api=FakeHfApi(), load_model_card=fake_load)
+
+    async def main() -> None:
+        enriched, warnings = await conn.enrich_news_item(item)
+        assert enriched.raw_snippet == "collect snippet"
+        assert enriched.source_evidence.get("model_card_live_fetched") is not True
+        assert any(w.code == "model_card_unavailable" for w in warnings)
 
     asyncio.run(main())
 

@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import CancelledReply from '@/components/thread/CancelledReply.vue'
+import CollectionFailed from '@/components/thread/CollectionFailed.vue'
+import ConversationSkeleton from '@/components/thread/ConversationSkeleton.vue'
 import DigestReply from '@/components/thread/DigestReply.vue'
 import EmptyConversation from '@/components/thread/EmptyConversation.vue'
+import LoadFailed from '@/components/thread/LoadFailed.vue'
+import NoEligibleResults from '@/components/thread/NoEligibleResults.vue'
 import FailedReply from '@/components/thread/FailedReply.vue'
 import HoverPreview from '@/components/thread/HoverPreview.vue'
 import InterruptedReply from '@/components/thread/InterruptedReply.vue'
 import MarkdownReply from '@/components/thread/MarkdownReply.vue'
+import RefChip from '@/components/thread/RefChip.vue'
 import RunCard from '@/components/thread/RunCard.vue'
 import SourceLogo from '@/components/thread/SourceLogo.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -16,8 +21,11 @@ import { prefersReducedMotion } from '@/lib/motion'
 import { shouldStickToBottom } from '@/lib/scroll'
 import { PENDING_MESSAGE_ID } from '@/stores/thread'
 import type { MessageVm, RequestStateVm } from '@/vm'
+import type { RepeatVm } from '@/vm/session'
+import type { EntryKind } from '@/vm/types'
 import type { DigestVm } from '@/vm/digest'
 import type { CancelledVm, RunVm } from '@/vm/run'
+import type { RefVm } from '@/vm/types'
 
 const props = defineProps<{
   messages: MessageVm[]
@@ -31,18 +39,33 @@ const props = defineProps<{
   /** True while the transcript has a page before the oldest row on screen. */
   canLoadOlder?: boolean
   loadingOlder?: boolean
+  /** True while the conversation's first messages request is in flight. */
+  loading?: boolean
+  /** Set when that request failed. */
+  loadError?: string | null
+  /** Sources a no-results block can offer instead of the ones already checked. */
+  catalog?: { name: string; label: string; kind: EntryKind | null }[]
 }>()
 
 const emit = defineEmits<{
-  followup: [title: string]
+  deepdive: [ref: RefVm]
+  ask: [ref: RefVm]
   suggest: [text: string]
   runAgain: []
   /** Poll the request again after the reconnect attempts ran out. */
   retryPoll: []
   /** Ask for the page of messages before the oldest row on screen. */
   loadOlder: []
+  /** Try the failed messages request again. */
+  retryLoad: []
+  /** Repeat a stored digest request, optionally on one replacement source. */
+  repeat: [payload: RepeatVm & { replaceSource?: string }]
   /** The live reply finished typing itself out; the transcript can take over. */
   revealDone: []
+  /** Continue or cancel a pending large Juya request. */
+  confirmJuya: [payload: { messageId: number; action: 'continue' | 'cancel' }]
+  /** Open one source's section in Settings, from a connector warning. */
+  openSettings: [name: string]
 }>()
 
 /**
@@ -64,6 +87,9 @@ const liveSlot = ref<HTMLElement | null>(null)
 let uninstall: (() => void) | null = null
 let swapTimer: number | null = null
 let swapFrom: number | null = null
+/** Timeout for clearing `.hl` when reduced motion hides animationend. */
+let hlClearTimer: number | null = null
+const FLASH_MS = 1200
 
 /**
  * True while the reader is at the end of the transcript, so new content may follow
@@ -98,6 +124,47 @@ function scrollToLatest(): void {
   }
   element.scrollTop = element.scrollHeight
   stick.value = true
+}
+
+function dataRefAttr(refVm: RefVm): string {
+  return `d${refVm.digestId}-${refVm.rank}`
+}
+
+/**
+ * Scroll an entry into view and flash it. Uses `data-ref` on rows; related navigations
+ * emit from digest children with the same key shape.
+ */
+function gotoRef(refVm: RefVm): void {
+  const root = thread.value
+  if (root === null) {
+    return
+  }
+  const selector = `[data-ref="${dataRefAttr(refVm)}"]`
+  const el = root.querySelector<HTMLElement>(selector)
+  if (el === null) {
+    return
+  }
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  el.classList.add('hl')
+  if (hlClearTimer !== null) {
+    window.clearTimeout(hlClearTimer)
+    hlClearTimer = null
+  }
+  if (prefersReducedMotion()) {
+    hlClearTimer = window.setTimeout(() => {
+      el.classList.remove('hl')
+      hlClearTimer = null
+    }, FLASH_MS)
+    return
+  }
+  const onEnd = (event: AnimationEvent): void => {
+    if (event.animationName !== 'flash') {
+      return
+    }
+    el.removeEventListener('animationend', onEnd)
+    el.classList.remove('hl')
+  }
+  el.addEventListener('animationend', onEnd)
 }
 
 /**
@@ -202,7 +269,13 @@ onUnmounted(() => {
     window.clearTimeout(swapTimer)
     swapTimer = null
   }
+  if (hlClearTimer !== null) {
+    window.clearTimeout(hlClearTimer)
+    hlClearTimer = null
+  }
 })
+
+defineExpose({ gotoRef })
 </script>
 
 <template>
@@ -220,8 +293,15 @@ onUnmounted(() => {
           Load earlier messages
         </button>
       </div>
+      <ConversationSkeleton
+        v-if="props.loading === true && props.messages.length === 0"
+      />
+      <LoadFailed
+        v-else-if="props.loadError && props.messages.length === 0"
+        @retry="emit('retryLoad')"
+      />
       <EmptyConversation
-        v-if="
+        v-else-if="
           props.messages.length === 0 &&
           !props.run &&
           !props.cancelled &&
@@ -237,8 +317,13 @@ onUnmounted(() => {
           :class="{ rise: message.id === PENDING_MESSAGE_ID }"
           data-od-id="user-message"
         >
+          <RefChip
+            v-if="message.ref"
+            :ref-vm="message.ref"
+            od-id="message-ref-chip"
+          />
           <div class="bubble">{{ message.text }}</div>
-          <div v-if="message.chips" class="req-meta">
+          <div v-if="message.chips" class="req-meta" data-od-id="user-message-meta">
             <span
               v-for="source in message.chips.sources"
               :key="source.kind"
@@ -253,7 +338,60 @@ onUnmounted(() => {
         </div>
 
         <div
-          v-else
+          v-if="message.juyaConfirm"
+          class="msg-ai"
+          data-od-id="juya-confirm-reply"
+        >
+          <div class="ai-label"><b>Agent</b></div>
+          <section
+            class="section"
+            role="group"
+            :aria-labelledby="`cf-${message.id}`"
+            data-od-id="juya-all-confirm"
+          >
+            <div class="section-head">
+              <span class="tile"><SourceLogo kind="juya" /></span>
+              <h3 :id="`cf-${message.id}`">Confirm a large Juya request</h3>
+              <span class="sub">AI 早报 {{ message.juyaConfirm.issue }} · No. {{ message.juyaConfirm.issueNumber }}</span>
+            </div>
+            <div class="set-body">
+              <p style="margin: 0">
+                This request would include
+                <b class="num">{{ message.juyaConfirm.storyCount }} stories</b>
+                from 橘鸦 AI 早报 <b>{{ message.juyaConfirm.issue }}</b>, issue
+                {{ message.juyaConfirm.issueNumber }}. Requests over 20 stories need your
+                confirmation before the digest is written.
+              </p>
+              <p class="help">
+                Juya is set to All in Settings. Cancel to edit the request, or set a number for
+                Juya in Settings.
+              </p>
+              <div class="seg" style="justify-content: flex-end">
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  data-od-id="juya-confirm-cancel"
+                  @click="emit('confirmJuya', { messageId: message.id, action: 'cancel' })"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  data-od-id="juya-confirm-continue"
+                  @click="emit('confirmJuya', { messageId: message.id, action: 'continue' })"
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- The confirmation is its own agent message, as the prototype renders it,
+             so it is not nested in the user bubble. -->
+        <div
+          v-else-if="message.kind !== 'user'"
           class="msg-ai"
           :class="{ 'fade-in': isFresh(message) && message.kind !== 'digest' }"
           :data-od-id="message.kind === 'digest' ? 'digest-reply' : undefined"
@@ -263,12 +401,41 @@ onUnmounted(() => {
             <span v-if="formatClock(message.createdAt)" class="mono">{{
               formatClock(message.createdAt)
             }}</span>
+            <a
+              v-if="message.replyRef"
+              href="#"
+              class="re"
+              data-od-id="reply-ref-link"
+              :data-ref="dataRefAttr(message.replyRef)"
+              :aria-label="`In reply to d${message.replyRef.digestId} #${message.replyRef.rank}`"
+              @click.prevent="gotoRef(message.replyRef)"
+            >
+              re: #{{ message.replyRef.rank }}
+            </a>
           </div>
           <DigestReply
             v-if="message.kind === 'digest' && message.digest"
             :digest="message.digest"
             :animate="isFresh(message)"
-            @followup="emit('followup', $event)"
+            :repeat="message.repeat ?? null"
+            @deepdive="emit('deepdive', $event)"
+            @ask="emit('ask', $event)"
+            @goto-related="gotoRef($event)"
+            @repeat="emit('repeat', $event)"
+            @open-settings="emit('openSettings', $event)"
+          />
+          <NoEligibleResults
+            v-else-if="message.kind === 'noresults' && message.collection"
+            :collection="message.collection"
+            :repeat="message.repeat ?? null"
+            :catalog="props.catalog ?? []"
+            @repeat="emit('repeat', $event)"
+          />
+          <CollectionFailed
+            v-else-if="message.kind === 'collectfailed' && message.collection"
+            :collection="message.collection"
+            :repeat="message.repeat ?? null"
+            @repeat="emit('repeat', $event)"
           />
           <CancelledReply
             v-else-if="message.kind === 'cancelled'"
@@ -320,7 +487,10 @@ onUnmounted(() => {
           <DigestReply
             :digest="props.liveDigest"
             animate
-            @followup="emit('followup', $event)"
+            @deepdive="emit('deepdive', $event)"
+            @ask="emit('ask', $event)"
+            @goto-related="gotoRef($event)"
+            @open-settings="emit('openSettings', $event)"
           />
         </div>
 

@@ -96,6 +96,41 @@ function digestEvent(
 }
 
 describe('createRequestLifecycle streaming', () => {
+  it('continues a Juya confirmation as a live run with progress and a digest', async () => {
+    const requested: { sessionId: string; requestId: string }[] = []
+    const lifecycle = makeLifecycle({
+      continueJuya: async (sessionId, requestId) => {
+        requested.push({ sessionId, requestId })
+        return events([
+          started,
+          { event: 'progress', data: { stage: 'Calling juya…', source: 'juya', status: 'running' } },
+          digestEvent(),
+          { event: 'done', data: { request_id: 'r1', message_id: 2, run_id: 4, path: 'digest' } },
+        ])
+      },
+    })
+
+    const settling = lifecycle.continueJuya('s1', 'r1')
+    await when(lifecycle, (snapshot) => snapshot.state === 'succeeded')
+
+    expect(requested).toEqual([{ sessionId: 's1', requestId: 'r1' }])
+    expect(lifecycle.state.requestId).toBe('r1')
+    expect(lifecycle.state.progress).toHaveLength(1)
+    expect(lifecycle.state.digest?.digest_id).toBe(12)
+    await settling
+  })
+
+  it('surfaces a refused continue instead of waiting for a stream', async () => {
+    const lifecycle = makeLifecycle({
+      continueJuya: async () => {
+        throw new SseHttpError(404, null, 'request not found')
+      },
+    })
+
+    await expect(lifecycle.continueJuya('s1', 'old')).rejects.toBeInstanceOf(SseHttpError)
+    expect(lifecycle.state.state).toBe('idle')
+  })
+
   it('tracks requestId, appends progress, and replaces cumulative delta text', async () => {
     const hold = deferred()
     const lifecycle = makeLifecycle({
@@ -450,7 +485,7 @@ describe('createRequestLifecycle reconnect', () => {
     expect(lifecycle.state.state).toBe('succeeded')
   })
 
-  it('rethrows a send that never reached the server, so the composer can report it', async () => {
+  it('leaves the lifecycle idle when a send never reached the server', async () => {
     const lifecycle = makeLifecycle({
       post: async () => {
         throw new Error('backend unreachable')
@@ -460,7 +495,7 @@ describe('createRequestLifecycle reconnect', () => {
     await expect(lifecycle.send('s1', { content: 'hi' })).rejects.toThrow(
       'backend unreachable',
     )
-    expect(lifecycle.state.state).toBe('streaming')
+    expect(lifecycle.state.state).toBe('idle')
   })
 
   it('reconnects with backoff after a dropped stream and never reopens the stream', async () => {

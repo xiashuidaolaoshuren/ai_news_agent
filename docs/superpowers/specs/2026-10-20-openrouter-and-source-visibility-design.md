@@ -66,7 +66,7 @@ After ranking, a pure function links selected entries that confidently name the 
 
 - Each member gets `related_display_ranks: list[int]` on its API view. The default is empty.
 - Nothing is removed or reranked, so `dN:rN` tokens stay valid.
-- The frontend shows a "Related: #1" chip that scrolls to the other entry.
+- The frontend shows a "Related: #1" chip that scrolls to the other entry. The chip appears wherever the entry is shown — its digest row and its deep-dive card — and is absent when the list is empty.
 - Markdown rendering is unchanged.
 - This is not Hugging Face model-family grouping. Family grouping still collapses packaging variants before display. Related coverage links entries that remain separate.
 

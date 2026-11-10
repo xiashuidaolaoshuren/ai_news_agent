@@ -11,7 +11,13 @@ from typing import Any
 from ai_news_agent.graph.state import DigestResult, WorkflowError
 from ai_news_agent.models import ConnectorWarning, Digest
 from ai_news_agent.logging_setup import get_logger
-from ai_news_agent.followup_structured import NO_SAVED_DIGEST, answer_structured_followup
+from ai_news_agent.followup_structured import (
+    NO_SAVED_DIGEST,
+    answer_structured_followup,
+    answer_targeted_deep_dive,
+    build_targeted_card,
+)
+from ai_news_agent.juya_followup import match_news_item_for_digest_entry
 from ai_news_agent.history_interface import (
     HISTORY_NOT_FOUND,
     HistoryChatCommand,
@@ -25,6 +31,7 @@ from ai_news_agent.services.conversation import (
     ConversationContext,
     ConversationDecision,
     interpret_message,
+    request_from_payload,
     request_metadata,
     request_payload,
 )
@@ -32,6 +39,12 @@ from ai_news_agent.services.session_records import SessionRequestRecord
 from ai_news_agent.services.session_service import (
     CANCELLED_ASSISTANT_MESSAGE,
     SessionService,
+)
+from ai_news_agent.connectors.base import ConnectorRequest
+from ai_news_agent.source_settings import (
+    SourceSettingsService,
+    finalize_public_counts,
+    juya_all_confirmation,
 )
 from ai_news_agent.storage import DigestStore, FollowupContext
 from ai_news_agent.streaming import iter_text_chunks
@@ -48,6 +61,11 @@ StreamingWorkflowRunner = Callable[
 
 logger = get_logger("chat")
 
+_TARGETED_ASK_UNAVAILABLE = "Question-specific answering is unavailable."
+_LLM_UNCONFIGURED_MESSAGE = (
+    "Configure an LLM in Settings (API key) to generate digests."
+)
+
 _TERMINAL_REPLAY_STATUSES = frozenset(
     {"succeeded", "failed", "cancelled", "interrupted"}
 )
@@ -58,9 +76,16 @@ _REQUEST_FAILED_MESSAGE = "Request failed."
 _CLARIFY_FALLBACK = (
     "Tell me whether you want recent signals on that topic or a general explanation."
 )
+_GENERAL_KNOWLEDGE_LABEL = "*General knowledge.*"
 _GENERAL_FALLBACK = (
+    f"{_GENERAL_KNOWLEDGE_LABEL}\n\n"
     "I can answer general questions once a language model is configured. "
     "For collected signals, ask for a digest, for example: “Give me today's AI digest”."
+)
+
+_JUYA_ALL_CONFIRM_PROMPT = (
+    "This digest would summarize {story_count} Juya stories from {issue}. "
+    "Continue or cancel when you are ready."
 )
 
 
@@ -81,20 +106,12 @@ def _apply_session_defaults(
     juya_item_mode: str | None,
 ) -> DigestRequest:
     updates: dict[str, Any] = {}
-    if request.items_per_source is None and session is not None:
-        stored_count = getattr(session, "items_per_source", None)
-        if stored_count is not None:
-            updates["items_per_source"] = int(stored_count)
     sources = list(request.connector_names or [])
     if request.juya_item_mode is None:
         if juya_item_mode is not None:
             updates["juya_item_mode"] = juya_item_mode
         if "juya" in sources and request.topics_are_filters:
             updates["juya_item_mode"] = "stories"
-    if "items_per_source" in updates:
-        updates["max_items_per_source"] = max(
-            request.max_items_per_source, int(updates["items_per_source"])
-        )
     return replace(request, **updates) if updates else request
 
 
@@ -173,7 +190,10 @@ class ChatService:
         tool_agent_runner: Any | None = None,
         interface_router: Any | None = None,
         session_service: SessionService | None = None,
+        source_settings_service: SourceSettingsService | None = None,
         conversation_model: Any | None = None,
+        huggingface_connector_factory: Callable[[], Any] | None = None,
+        juya_connector_factory: Callable[[], Any] | None = None,
     ) -> None:
         self._store = store
         self._workflow_runner = workflow_runner
@@ -182,7 +202,10 @@ class ChatService:
         self._tool_agent_runner = tool_agent_runner
         self._interface_router = interface_router
         self._session_service = session_service
+        self._source_settings_service = source_settings_service
         self._conversation_model = conversation_model
+        self._huggingface_connector_factory = huggingface_connector_factory
+        self._juya_connector_factory = juya_connector_factory
 
     async def stream_events(
         self,
@@ -191,16 +214,33 @@ class ChatService:
         session_id: str,
         request_id: str | None = None,
         juya_item_mode: str | None = None,
+        followup_target: Any | None = None,
+        followup_action: str | None = None,
+        repeat_of_user_message_id: int | None = None,
+        replace_source: str | None = None,
         chunk_size: int = 80,
         chunk_delay_s: float = 0.02,
     ) -> AsyncIterator[ChatEvent]:
         if self._session_service is None:
             raise RuntimeError("session_service is required for stream_events")
 
+        followup_target_payload: dict[str, object] | None = None
+        if followup_target is not None:
+            followup_target_payload = (
+                followup_target.model_dump()
+                if hasattr(followup_target, "model_dump")
+                else dict(followup_target)
+            )
+
         record = self._session_service.begin_request(
             session_id,
             content=message,
             request_id=request_id,
+            juya_item_mode=juya_item_mode,
+            followup_target=followup_target_payload,
+            followup_action=followup_action,
+            repeat_of_user_message_id=repeat_of_user_message_id,
+            replace_source=replace_source,
         )
         if record.status in _TERMINAL_REPLAY_STATUSES:
             async for event in self._replay_terminal_events(
@@ -212,8 +252,83 @@ class ChatService:
                 yield event
             return
 
+        if followup_target_payload is not None and followup_action is not None:
+            interpretation: dict[str, Any] = {
+                "intent": "followup",
+                "followup": {
+                    "digest_id": int(followup_target_payload["digest_id"]),
+                    "display_rank": int(followup_target_payload["display_rank"]),
+                    "action": followup_action,
+                },
+            }
+            self._session_service.set_request_interpretation(
+                session_id,
+                record.id,
+                interpretation,
+            )
+            yield StartedEvent(
+                request_id=record.id,
+                user_message_id=record.user_message_id,
+                intent="followup",
+            )
+            async for event in self._stream_session_targeted_followup_events(
+                session_id=session_id,
+                record=record,
+                message=message,
+                digest_id=int(followup_target_payload["digest_id"]),
+                display_rank=int(followup_target_payload["display_rank"]),
+                followup_action=followup_action,
+                chunk_size=chunk_size,
+                chunk_delay_s=chunk_delay_s,
+            ):
+                yield event
+            return
+
         history_cmd = parse_history_chat_message(message)
         try:
+            if repeat_of_user_message_id is not None:
+                stored = self._session_service.stored_digest_request(
+                    session_id, repeat_of_user_message_id
+                )
+                repeat_request = request_from_payload(stored)
+                if repeat_request is not None:
+                    replaced = replace_source is not None
+                    if replaced:
+                        repeat_request = replace(
+                            repeat_request,
+                            connector_names=[replace_source],
+                            primary_source=replace_source,
+                        )
+                        if self._source_settings_service is not None:
+                            repeat_request = self._source_settings_service.apply(
+                                repeat_request
+                            )
+                    repeat_interpretation: dict[str, Any] = {
+                        "intent": "digest",
+                        "request": request_payload(repeat_request),
+                        "public": request_metadata(repeat_request),
+                    }
+                    self._session_service.set_request_interpretation(
+                        session_id,
+                        record.id,
+                        repeat_interpretation,
+                    )
+                    yield StartedEvent(
+                        request_id=record.id,
+                        user_message_id=record.user_message_id,
+                        request=repeat_interpretation.get("public") or None,
+                        intent="digest",
+                    )
+                    async for event in self._stream_confirmation_gated_digest_events(
+                        session_id=session_id,
+                        record=record,
+                        request=repeat_request,
+                        chunk_size=chunk_size,
+                        chunk_delay_s=chunk_delay_s,
+                    ):
+                        yield event
+                    return
+
             if history_cmd is not None:
                 yield StartedEvent(
                     request_id=record.id,
@@ -231,6 +346,11 @@ class ChatService:
                 return
 
             decision = await self._resolve_conversation_decision(session_id, message)
+            logger.info(
+                "conversation branch=%s session_id=%s",
+                decision.intent,
+                session_id,
+            )
             request = decision.request
             if decision.intent == "digest" and request is not None:
                 request = _apply_session_defaults(
@@ -238,6 +358,8 @@ class ChatService:
                     session=self._session_service.get_session(session_id),
                     juya_item_mode=juya_item_mode,
                 )
+                if self._source_settings_service is not None:
+                    request = self._source_settings_service.apply(request)
                 decision = replace(decision, request=request)
             interpretation = _interpretation_payload(decision)
             self._session_service.set_request_interpretation(
@@ -253,7 +375,7 @@ class ChatService:
             )
 
             if decision.intent == "digest" and request is not None:
-                async for event in self._stream_session_digest_events(
+                async for event in self._stream_confirmation_gated_digest_events(
                     session_id=session_id,
                     record=record,
                     request=request,
@@ -331,10 +453,165 @@ class ChatService:
         answer = getattr(self._conversation_model, "generate_general_answer", None)
         if answer is not None and callable(answer):
             try:
-                return str(await asyncio.to_thread(answer, question=question))
+                return _format_general_answer(str(await asyncio.to_thread(answer, question=question)))
             except Exception:  # noqa: BLE001 - a model failure gets guidance
                 logger.exception("general answer failed")
         return _GENERAL_FALLBACK
+
+    async def _stream_confirmation_gated_digest_events(
+        self,
+        *,
+        session_id: str,
+        record: SessionRequestRecord,
+        request: DigestRequest,
+        chunk_size: int,
+        chunk_delay_s: float,
+    ) -> AsyncIterator[ChatEvent]:
+        """Run a digest, asking first when a large Juya-all selection needs confirmation."""
+        if request.juya_item_count_all and not request.juya_all_confirmed:
+            preview_items = await self._preview_juya_items(request)
+            confirm_payload = juya_all_confirmation(request, preview_items)
+            if confirm_payload is not None:
+                async for event in self._stream_juya_confirmation_events(
+                    session_id=session_id,
+                    record=record,
+                    request=request,
+                    confirm_payload=confirm_payload,
+                    chunk_size=chunk_size,
+                    chunk_delay_s=chunk_delay_s,
+                ):
+                    yield event
+                return
+        async for event in self._stream_session_digest_events(
+            session_id=session_id,
+            record=record,
+            request=request,
+            chunk_size=chunk_size,
+            chunk_delay_s=chunk_delay_s,
+        ):
+            yield event
+
+    async def _preview_juya_items(self, request: DigestRequest) -> list[Any]:
+        if self._juya_connector_factory is None:
+            return []
+        connector = self._juya_connector_factory()
+        try:
+            result = await connector.collect(
+                ConnectorRequest(
+                    topics=list(request.topics or []),
+                    timeframe=request.timeframe,
+                    max_items=request.max_items_per_source,
+                    juya_manual_urls=list(request.juya_manual_urls),
+                    juya_item_mode="stories",
+                    juya_collect_all_stories=True,
+                    topics_are_filters=request.topics_are_filters,
+                    strict_timeframe=request.strict_timeframe,
+                )
+            )
+            return list(result.items)
+        finally:
+            if hasattr(connector, "aclose"):
+                await connector.aclose()
+
+    async def _stream_juya_confirmation_events(
+        self,
+        *,
+        session_id: str,
+        record: SessionRequestRecord,
+        request: DigestRequest,
+        confirm_payload: dict[str, object],
+        chunk_size: int,
+        chunk_delay_s: float,
+    ) -> AsyncIterator[ChatEvent]:
+        assert self._session_service is not None
+        text = _JUYA_ALL_CONFIRM_PROMPT.format(
+            story_count=confirm_payload["story_count"],
+            issue=confirm_payload["issue"],
+        )
+        async for chunk in iter_text_chunks(
+            text,
+            chunk_size=chunk_size,
+            delay_s=chunk_delay_s,
+        ):
+            cancelled = self._cancelled_error_event(session_id, record)
+            if cancelled is not None:
+                yield cancelled
+                return
+            yield DeltaEvent(text=chunk)
+        cancelled = self._cancelled_error_event(session_id, record)
+        if cancelled is not None:
+            yield cancelled
+            return
+        try:
+            message_id = self._session_service.attach_interim_assistant(
+                session_id,
+                record.id,
+                content=text,
+            )
+        except KeyError:
+            cancelled = self._cancelled_error_event(session_id, record)
+            if cancelled is not None:
+                yield cancelled
+                return
+            raise
+        self._session_service.set_request_interpretation(
+            session_id,
+            record.id,
+            {
+                "juya_confirmation": {
+                    **confirm_payload,
+                    "request": request_payload(request),
+                },
+            },
+        )
+        yield DoneEvent(
+            request_id=record.id,
+            message_id=message_id,
+            run_id=None,
+            path="juya_confirmation",
+        )
+
+    async def continue_juya_all(
+        self,
+        session_id: str,
+        request_id: str,
+        *,
+        chunk_size: int = 80,
+        chunk_delay_s: float = 0.02,
+    ) -> AsyncIterator[ChatEvent]:
+        assert self._session_service is not None
+        stored = self._session_service.claim_juya_confirmation(
+            session_id, request_id
+        )
+        if stored is None:
+            raise KeyError(
+                f"pending Juya confirmation not found: session={session_id!r} "
+                f"request={request_id!r}"
+            )
+        record = self._session_service.get_request(session_id, request_id)
+        if record is None:
+            raise KeyError(
+                f"pending Juya confirmation not found: session={session_id!r} "
+                f"request={request_id!r}"
+            )
+        req = request_from_payload(stored.get("request"))
+        if req is None:
+            raise KeyError("stored Juya confirmation request payload missing")
+        req = replace(req, juya_all_confirmed=True)
+        yield StartedEvent(
+            request_id=record.id,
+            user_message_id=record.user_message_id,
+            request=request_metadata(req),
+            intent="digest",
+        )
+        async for event in self._stream_session_digest_events(
+            session_id=session_id,
+            record=record,
+            request=req,
+            chunk_size=chunk_size,
+            chunk_delay_s=chunk_delay_s,
+        ):
+            yield event
 
     async def _stream_session_digest_events(
         self,
@@ -461,6 +738,27 @@ class ChatService:
                     yield cancelled
                     return
                 raise
+            if result.digest is not None:
+                from collections import Counter
+
+                entry_counts = Counter(
+                    entry.source_kind.value for entry in result.digest.entries
+                )
+                self._session_service.set_request_interpretation(
+                    session_id,
+                    record.id,
+                    {
+                        "public": {
+                            **(
+                                request_metadata(req)
+                            ),
+                            "counts": finalize_public_counts(
+                                req,
+                                entry_counts=dict(entry_counts),
+                            ),
+                        }
+                    },
+                )
             yield DoneEvent(
                 request_id=record.id,
                 message_id=message_id,
@@ -524,6 +822,39 @@ class ChatService:
             correlation_id=record.correlation_id,
         )
 
+    async def _stream_session_targeted_followup_events(
+        self,
+        *,
+        session_id: str,
+        record: SessionRequestRecord,
+        message: str,
+        digest_id: int,
+        display_rank: int,
+        followup_action: str,
+        chunk_size: int,
+        chunk_delay_s: float,
+    ) -> AsyncIterator[ChatEvent]:
+        text = await self._handle_targeted_followup_async(
+            session_id,
+            message,
+            digest_id=digest_id,
+            display_rank=display_rank,
+            followup_action=followup_action,
+        )
+        cancelled = self._cancelled_error_event(session_id, record)
+        if cancelled is not None:
+            yield cancelled
+            return
+        async for event in self._stream_session_text_events(
+            session_id=session_id,
+            record=record,
+            text=text,
+            path="followup",
+            chunk_size=chunk_size,
+            chunk_delay_s=chunk_delay_s,
+        ):
+            yield event
+
     async def _stream_session_followup_events(
         self,
         *,
@@ -533,7 +864,10 @@ class ChatService:
         chunk_size: int,
         chunk_delay_s: float,
     ) -> AsyncIterator[ChatEvent]:
-        text = await self._handle_session_followup_message_async(session_id, message)
+        text = await self._handle_session_followup_message_async(
+            session_id,
+            message,
+        )
         cancelled = self._cancelled_error_event(session_id, record)
         if cancelled is not None:
             yield cancelled
@@ -676,6 +1010,81 @@ class ChatService:
             result = await self._workflow_runner(req)
         yield "", True, result
 
+    async def _handle_targeted_followup_async(
+        self,
+        session_id: str,
+        message: str,
+        *,
+        digest_id: int,
+        display_rank: int,
+        followup_action: str,
+    ) -> str:
+        ctx = self._store.get_followup_context_for_digest(digest_id)
+        if ctx is None:
+            return NO_SAVED_DIGEST
+        if ctx.run_id is None and ctx.digest is None:
+            logger.info(
+                "targeted follow-up path=no_saved_digest session_id=%s digest_id=%s",
+                session_id,
+                digest_id,
+            )
+            return NO_SAVED_DIGEST
+
+        latest = self._store.get_followup_context_for_session(session_id)
+        fetch_allowed = (
+            ctx.run_id is not None
+            and latest.run_id is not None
+            and ctx.run_id == latest.run_id
+        )
+
+        if followup_action == "deep_dive":
+            logger.info(
+                "targeted follow-up path=deep_dive session_id=%s rank=%s",
+                session_id,
+                display_rank,
+            )
+            return await answer_targeted_deep_dive(
+                ctx,
+                display_rank,
+                self._store,
+                fetch_allowed=fetch_allowed,
+                digest_id=digest_id,
+                huggingface_connector_factory=self._huggingface_connector_factory,
+            )
+
+        if followup_action == "ask":
+            logger.info(
+                "targeted follow-up path=ask session_id=%s rank=%s",
+                session_id,
+                display_rank,
+            )
+            fn = getattr(self._chat_model, "generate_followup_reply", None)
+            if fn is None or not callable(fn):
+                card = build_targeted_card(
+                    ctx,
+                    display_rank,
+                    saved_with_digest=not fetch_allowed,
+                )
+                return f"{card}\n\n{_TARGETED_ASK_UNAVAILABLE}"
+            grounding = _build_targeted_grounding(ctx, display_rank)
+            try:
+                return str(fn(question=message, grounding=grounding))
+            except ValueError as exc:
+                if str(exc) != _LLM_UNCONFIGURED_MESSAGE:
+                    raise
+                card = build_targeted_card(
+                    ctx,
+                    display_rank,
+                    saved_with_digest=not fetch_allowed,
+                )
+                return f"{card}\n\n{_TARGETED_ASK_UNAVAILABLE}"
+
+        return build_targeted_card(
+            ctx,
+            display_rank,
+            saved_with_digest=not fetch_allowed,
+        )
+
     async def _handle_session_followup_message_async(
         self,
         session_id: str,
@@ -738,6 +1147,11 @@ class ChatService:
         raise NotImplementedError
 
 
+def _format_general_answer(text: str) -> str:
+    body = text.strip()
+    if "general knowledge" in body.lower():
+        return body
+    return f"{_GENERAL_KNOWLEDGE_LABEL}\n\n{body}"
 
 
 def _tool_agent_result_to_text(result: Any, *, store: DigestStore | None = None) -> str:
@@ -795,6 +1209,35 @@ def _try_llm_followup(model: Any | None, question: str, ctx: FollowupContext) ->
         return None
     grounding = _build_grounding_context(ctx)
     return str(fn(question=question, grounding=grounding))
+
+
+def _build_targeted_grounding(ctx: FollowupContext, rank: int) -> dict[str, Any]:
+    if ctx.digest is None or rank < 1 or rank > len(ctx.digest.entries):
+        return {"entry": None, "news_item": None}
+    entry = ctx.digest.entries[rank - 1]
+    news_item = match_news_item_for_digest_entry(entry, ctx.news_items)
+    payload: dict[str, Any] = {
+        "entry": {
+            "title": entry.title,
+            "source_url": entry.source_url,
+            "summary": entry.summary,
+            "why_it_matters": entry.why_it_matters,
+            "background_knowledge": entry.background_knowledge,
+            "confidence_caveat": entry.confidence_caveat,
+            "source_kind": entry.source_kind.value,
+            "source_id": entry.source_id,
+        }
+    }
+    if news_item is not None:
+        payload["news_item"] = {
+            "title": news_item.title,
+            "url": news_item.url,
+            "raw_snippet": news_item.raw_snippet,
+            "source_evidence": dict(news_item.source_evidence),
+        }
+    else:
+        payload["news_item"] = None
+    return payload
 
 
 def _build_grounding_context(ctx: FollowupContext) -> dict[str, Any]:

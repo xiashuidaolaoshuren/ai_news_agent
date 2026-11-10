@@ -99,6 +99,7 @@ function at(hour: number, minute: number, second: number): Date {
 
 interface StoreOptions {
   post?: LifecycleDeps['post']
+  continueJuya?: LifecycleDeps['continueJuya']
   getRequest?: LifecycleDeps['getRequest']
   loadMessages?: (
     sessionId: string,
@@ -107,12 +108,14 @@ interface StoreOptions {
   schedule?: ThreadDeps['schedule']
   now?: () => Date
   onSessionChanged?: ThreadDeps['onSessionChanged']
+  confirmJuya?: ThreadDeps['confirmJuya']
 }
 
 function makeStore(options: StoreOptions = {}) {
   const reloads: string[] = []
   const lifecycle = createRequestLifecycle({
     post: options.post ?? (async () => events([])),
+    continueJuya: options.continueJuya,
     getRequest: options.getRequest ?? (async () => requestOut()),
     cancel: async () => 202,
     reloadMessages: async (sessionId) => {
@@ -133,6 +136,7 @@ function makeStore(options: StoreOptions = {}) {
     now: options.now ?? (() => at(20, 14, 1)),
     schedule: options.schedule ?? (() => undefined),
     onSessionChanged: options.onSessionChanged,
+    confirmJuya: options.confirmJuya ?? (async () => undefined),
   })
   return { controller, lifecycle, reloads }
 }
@@ -141,6 +145,156 @@ function makeStore(options: StoreOptions = {}) {
 const SENT_SOURCES = { names: ['juya', 'github'], perSource: 5 }
 
 describe('thread store session loading', () => {
+  it('does not resume a request that only waits for the Juya confirmation', async () => {
+    const store = makeStore({
+      loadMessages: async () => [
+        message({
+          juya_confirmation: {
+            story_count: 25,
+            issue: '2026-06-16',
+            issue_number: 'juya-rss-1',
+          },
+        }),
+      ],
+    })
+
+    await store.controller.openSession(sessionOut({ active_request_id: 'r1' }))
+
+    expect(store.controller.snapshot.value.state).toBe('idle')
+    expect(store.controller.alert.value).toBeNull()
+  })
+
+  it('continues a confirmed Juya request as a streamed run', async () => {
+    const gate = deferred()
+    const confirms: string[] = []
+    const store = makeStore({
+      post: async () =>
+        events([
+          started,
+          { event: 'done', data: { request_id: 'r1', message_id: 1, run_id: null, path: 'juya_confirmation' } },
+        ]),
+      continueJuya: async () =>
+        (async function* generate() {
+          yield started
+          yield progress('Calling juya…', 'juya', 'running')
+          await gate.promise
+          yield {
+            event: 'done',
+            data: { request_id: 'r1', message_id: 2, run_id: 9, path: 'digest' },
+          }
+        })(),
+      loadMessages: async () => [
+        message({
+          juya_confirmation: {
+            story_count: 25,
+            issue: '2026-06-16',
+            issue_number: 'juya-rss-1',
+          },
+        }),
+      ],
+      confirmJuya: async (_sessionId, _requestId, action) => {
+        confirms.push(action)
+      },
+    })
+    await store.controller.openSession(sessionOut())
+    store.controller.markUserSent('Digest juya all', SENT_SOURCES)
+    await store.lifecycle.send('s1', { content: 'Digest juya all' })
+    expect(store.controller.visibleMessages.value.some((item) => item.juyaConfirm)).toBe(true)
+
+    const continuing = store.controller.confirmJuya(1, 'continue')
+    await waitFor(() => store.controller.snapshot.value.progress.length === 1)
+
+    expect(store.controller.snapshot.value.state).toBe('streaming')
+    expect(store.controller.snapshot.value.requestId).toBe('r1')
+    expect(store.controller.visibleMessages.value.some((item) => item.juyaConfirm)).toBe(false)
+
+    gate.resolve()
+    await continuing
+
+    expect(store.controller.snapshot.value.state).toBe('succeeded')
+    expect(confirms).toEqual([])
+  })
+
+  it('cancels a pending Juya confirmation without starting a run', async () => {
+    const confirms: string[] = []
+    const store = makeStore({
+      post: async () =>
+        events([
+          started,
+          { event: 'done', data: { request_id: 'r1', message_id: 1, run_id: null, path: 'juya_confirmation' } },
+        ]),
+      confirmJuya: async (_sessionId, _requestId, action) => {
+        confirms.push(action)
+      },
+    })
+    await store.controller.openSession(sessionOut())
+    store.controller.markUserSent('Digest juya all', SENT_SOURCES)
+    await store.lifecycle.send('s1', { content: 'Digest juya all', client_request_id: 'c1' })
+
+    await store.controller.confirmJuya(1, 'cancel')
+
+    expect(confirms).toEqual(['cancel'])
+    expect(store.controller.snapshot.value.state).not.toBe('streaming')
+  })
+
+  it('marks the conversation opening only for the load that opens it', async () => {
+    const gate = deferred<MessageOut[]>()
+    let opened = false
+    let seenWhileReloading: boolean | null = null
+    const store = makeStore({
+      loadMessages: async () => {
+        if (!opened) {
+          opened = true
+          return gate.promise
+        }
+        seenWhileReloading = store.controller.opening.value
+        return []
+      },
+      post: async () =>
+        (async function* generate() {
+          yield started
+          yield {
+            event: 'done',
+            data: { request_id: 'r1', message_id: 2, run_id: 9, path: 'digest' },
+          }
+        })(),
+    })
+
+    const opening = store.controller.openSession(sessionOut())
+    expect(store.controller.opening.value).toBe(true)
+    gate.resolve([])
+    await opening
+    expect(store.controller.opening.value).toBe(false)
+
+    await store.lifecycle.send('s1', { content: 'What shipped?' })
+    expect(seenWhileReloading).toBe(false)
+    expect(store.controller.opening.value).toBe(false)
+  })
+
+  it('retries a failed load without dropping messages already on screen', async () => {    let fail = false
+    const store = makeStore({
+      loadMessages: async () => {
+        if (fail) {
+          throw new Error('backend down')
+        }
+        return [message({ id: 1, sequence: 1, content: 'Kept' })]
+      },
+    })
+    await store.controller.openSession(sessionOut())
+
+    fail = true
+    await store.controller.retryLoad()
+
+    expect(store.controller.messages.value.map((item) => item.text)).toEqual(['Kept'])
+    expect(store.controller.loadError.value).toBe('backend down')
+
+    fail = false
+    await store.controller.retryLoad()
+
+    expect(store.controller.loadError.value).toBeNull()
+    expect(store.controller.messages.value.map((item) => item.text)).toEqual(['Kept'])
+  })
+
   it('renders a loaded page in reading order and resumes an active request', async () => {
     const store = makeStore({
       loadMessages: async () => [
@@ -350,6 +504,53 @@ describe('thread store run ownership', () => {
     await sending
 
     expect(store.controller.alert.value).toBeNull()
+  })
+
+  it('confirms a Juya request with the open conversation\'s id, not another run\'s', async () => {
+    const hold = deferred()
+    const confirms: [string, string, string][] = []
+    const continues: [string, string][] = []
+    const store = makeStore({
+      loadMessages: async () => [
+        message({
+          session_id: 's2',
+          juya_confirmation: {
+            story_count: 25,
+            issue: '2026-06-16',
+            issue_number: 'juya-rss-1',
+          },
+        }),
+      ],
+      post: async () =>
+        (async function* generate() {
+          yield started
+          await hold.promise
+        })(),
+      continueJuya: async (sessionId, requestId) => {
+        continues.push([sessionId, requestId])
+        return events([
+          { event: 'done', data: { request_id: requestId, message_id: 2, run_id: 9, path: 'digest' } },
+        ])
+      },
+      confirmJuya: async (sessionId, requestId, action) => {
+        confirms.push([sessionId, requestId, action])
+      },
+    })
+
+    await store.controller.openSession(sessionOut({ id: 's1' }))
+    const sending = store.lifecycle.send('s1', { content: 'digest please' })
+    await waitFor(() => store.controller.snapshot.value.requestId === 'r1')
+
+    await store.controller.openSession(sessionOut({ id: 's2', active_request_id: 'r2' }))
+
+    await store.controller.confirmJuya(1, 'cancel')
+    expect(confirms).toEqual([['s2', 'r2', 'cancel']])
+
+    await store.controller.confirmJuya(1, 'continue')
+    expect(continues).toEqual([['s2', 'r2']])
+
+    hold.resolve()
+    await sending
   })
 })
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { clearToken, onUnauthorized, setToken } from '@/api/auth'
 import { SseHttpError, parseSseStream, postMessageStream, type SseEvent } from '@/api/sse'
 
 /** Build a one-shot byte stream from raw byte chunks (no implicit framing). */
@@ -170,8 +171,7 @@ describe('postMessageStream', () => {
     })
   })
 
-  it('throws SseHttpError carrying the 409 detail code', async () => {
-    const fakeFetch = (async () =>
+  it('throws SseHttpError carrying the 409 detail code', async () => {    const fakeFetch = (async () =>
       new Response(JSON.stringify({ detail: { code: 'session_busy' } }), {
         status: 409,
         headers: { 'Content-Type': 'application/json' },
@@ -186,5 +186,30 @@ describe('postMessageStream', () => {
     ).rejects.toMatchObject({ name: 'SseHttpError', status: 409, code: 'session_busy' })
 
     expect(new SseHttpError(500, null, 'boom')).toBeInstanceOf(Error)
+  })
+
+  it('sends the owner token, and reports a 401 to the auth listener', async () => {
+    setToken('sekret')
+    const calls: RequestInit[] = []
+    const unauthorized: string[] = []
+    const off = onUnauthorized(() => unauthorized.push('401'))
+    const fakeFetch = (async (_url: string | URL, init: RequestInit) => {
+      calls.push(init)
+      return new Response('', { status: calls.length === 1 ? 200 : 401 })
+    }) as unknown as typeof fetch
+    const options = { fetch: fakeFetch, baseUrl: 'http://api.test' }
+
+    const stream = await postMessageStream('s1', { content: 'hi' }, options)
+    await collect(stream)
+    await expect(postMessageStream('s1', { content: 'hi' }, options)).rejects.toMatchObject({
+      name: 'SseHttpError',
+      status: 401,
+    })
+
+    expect(calls[0]?.headers).toMatchObject({ Authorization: 'Bearer sekret' })
+    expect(calls[1]?.headers).toMatchObject({ Authorization: 'Bearer sekret' })
+    expect(unauthorized).toEqual(['401'])
+    off()
+    clearToken()
   })
 })

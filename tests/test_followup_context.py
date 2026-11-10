@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 from ai_news_agent.connectors.base import ConnectorResult
-from ai_news_agent.models import Digest, DigestEntry, FollowUpAction, NewsItem, SourceKind
+from ai_news_agent.followup_enrich import enrich_huggingface_for_rank
+from ai_news_agent.models import (
+    ConfidenceLevel,
+    Digest,
+    DigestEntry,
+    FollowUpAction,
+    NewsItem,
+    RankedItem,
+    SourceKind,
+)
 from ai_news_agent.repositories.session_store import SessionStore
 from ai_news_agent.storage import DigestStore
 
@@ -151,3 +162,103 @@ def test_get_followup_context_for_session_excludes_interrupted_requests(tmp_path
     assert ctx.run_id == succeeded_run_id
     assert ctx.digest is not None
     assert ctx.digest.topics == ["succeeded"]
+
+
+def _seed_hf_run(
+    store: DigestStore,
+    *,
+    topics: list[str],
+    session_id: str | None = None,
+) -> tuple[int, int]:
+    collected = datetime(2026, 5, 7, 10, 0, 0, tzinfo=UTC)
+    source_id = f"Org/Model-{topics[0]}"
+    item = NewsItem(
+        source=SourceKind.HUGGINGFACE,
+        source_id=source_id,
+        url=f"https://huggingface.co/{source_id}",
+        title=f"Model {topics[0]}",
+        collected_at=collected,
+        content_confidence=ConfidenceLevel.HIGH,
+        source_evidence={"trending_score": 1.0},
+    )
+    entry = DigestEntry(
+        source_kind=SourceKind.HUGGINGFACE,
+        source_id=source_id,
+        title=item.title,
+        source_name="Hugging Face",
+        source_url=item.url,
+        summary="summary",
+        why_it_matters="why",
+        background_knowledge="bg",
+        follow_up_action=FollowUpAction.READ,
+    )
+    digest = Digest(
+        generated_at=collected,
+        entries=[entry],
+        topics=topics,
+        timeframe="today",
+    )
+    run_id = store.save_run(
+        requested_at=collected,
+        timeframe="today",
+        topics=topics,
+        connector_names=["huggingface"],
+    )
+    if session_id is not None:
+        with sqlite3.connect(store.db_path) as conn:
+            conn.execute("UPDATE runs SET session_id = ? WHERE id = ?", (session_id, run_id))
+            conn.commit()
+    store.save_connector_result(run_id, ConnectorResult(items=[item], warnings=[]))
+    store.save_ranked_items(run_id, [RankedItem(item=item, score_total=1.0, selected=True)])
+    store.save_digest(run_id, digest)
+    digest_id = store.get_digest_id_for_run(run_id)
+    assert digest_id is not None
+    return run_id, digest_id
+
+
+def test_enrich_huggingface_for_rank_reloads_target_digest_not_global_latest(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "enrich-target.db"
+    _init_db(db_path)
+    store = DigestStore(db_path)
+    session_store = SessionStore(db_path)
+    session_store.create_session("sess-a")
+
+    _run_a, digest_a = _seed_hf_run(store, topics=["session-a"], session_id="sess-a")
+    _run_g, _digest_g = _seed_hf_run(store, topics=["global-latest"], session_id=None)
+
+    ctx_a = store.get_followup_context_for_digest(digest_a)
+    assert ctx_a is not None
+    enriched = NewsItem(
+        source=SourceKind.HUGGINGFACE,
+        source_id=ctx_a.news_items[0].source_id,
+        url=ctx_a.news_items[0].url,
+        title=ctx_a.news_items[0].title,
+        collected_at=ctx_a.news_items[0].collected_at,
+        content_confidence=ConfidenceLevel.HIGH,
+        raw_snippet="Live card.",
+        source_evidence={
+            "trending_score": 1.0,
+            "model_card_live_fetched": True,
+        },
+    )
+    mock_connector = MagicMock()
+    mock_connector.enrich_news_item = AsyncMock(return_value=(enriched, []))
+
+    async def _enrich() -> object:
+        new_ctx, _failed = await enrich_huggingface_for_rank(
+            ctx_a,
+            store,
+            1,
+            huggingface_connector=mock_connector,
+            digest_id=digest_a,
+        )
+        return new_ctx
+
+    new_ctx = asyncio.run(_enrich())
+    assert new_ctx.digest is not None
+    assert new_ctx.digest.topics == ["session-a"]
+    latest = store.get_latest_followup_context()
+    assert latest.digest is not None
+    assert latest.digest.topics == ["global-latest"]

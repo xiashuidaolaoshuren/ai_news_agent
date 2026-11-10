@@ -76,6 +76,7 @@ def _seed_run_with_digest(
     topics: list[str],
     entries: list[DigestEntry],
     news_items: list[NewsItem] | None = None,
+    session_id: str | None = None,
 ) -> tuple[int, int]:
     collected = datetime(2026, 8, 1, 10, 0, 0, tzinfo=UTC)
     run_id = store.save_run(
@@ -83,6 +84,7 @@ def _seed_run_with_digest(
         timeframe="today",
         topics=topics,
         connector_names=[item.source.value for item in (news_items or [])] or ["github"],
+        session_id=session_id,
     )
     if news_items:
         store.save_connector_result(
@@ -138,6 +140,37 @@ def test_history_search_returns_matches_envelope(tmp_path: Path) -> None:
     assert match["url"] == "https://example.com/repo-1"
     assert match["source_kind"] == "github"
     assert match["score"] > 0
+    assert match["session_id"] is None
+
+
+def test_history_search_match_carries_the_owning_session(tmp_path: Path) -> None:
+    from ai_news_agent.repositories.session_store import SessionStore
+    from ai_news_agent.storage import DigestStore
+
+    db_path = tmp_path / "history-session.db"
+    client = _build_test_client(fake=True, db_path=db_path)
+    store = DigestStore(db_path)
+    SessionStore(db_path).create_session("s1")
+    _seed_run_with_digest(
+        store,
+        generated_at=datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+        topics=["agents"],
+        session_id="s1",
+        entries=[
+            _make_digest_entry(
+                source_kind=SourceKind.GITHUB,
+                source_id="repo-owned",
+                title="Owned agents repo",
+                url="https://example.com/repo-owned",
+                summary="Agents framework",
+            )
+        ],
+    )
+
+    response = client.get("/api/v1/history/search", params={"text": "owned"})
+
+    assert response.status_code == 200
+    assert response.json()["matches"][0]["session_id"] == "s1"
 
 
 def test_history_search_match_topics_preserves_saved_order(tmp_path: Path) -> None:
