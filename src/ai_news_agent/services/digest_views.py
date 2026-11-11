@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from ai_news_agent.digest_content import extract_digest_fields
-from ai_news_agent.huggingface_families import family_key
+from ai_news_agent.related_coverage import related_display_ranks as _related_display_ranks
 from ai_news_agent.juya_content import clean_lead_title, is_image_url, split_linked_title
 from ai_news_agent.models import Digest, DigestEntry, NewsItem, SourceKind
 
@@ -21,10 +21,11 @@ def build_digest_view_payload(
 ) -> dict[str, Any]:
     """Map a saved digest and optional news evidence to a DigestView-shaped dict."""
     lookup = _news_items_by_key(news_items)
-    related_by_rank = _huggingface_related_ranks_by_display_rank(
-        digest,
-        news_items=lookup,
-    )
+    pairs = [
+        (entry, lookup.get((entry.source_kind, entry.source_id)))
+        for entry in digest.entries
+    ]
+    related_by_rank = _related_display_ranks(pairs)
     entries = [
         _build_entry_payload(
             entry,
@@ -50,41 +51,6 @@ def _news_items_by_key(
     return {(item.source, item.source_id): item for item in news_items}
 
 
-def huggingface_related_display_ranks(
-    digest: Digest,
-    *,
-    news_items: list[NewsItem] | None,
-    display_rank: int,
-) -> list[int]:
-    """Other HF entries in the same digest that share saved model identity."""
-    lookup = _news_items_by_key(news_items)
-    return _huggingface_related_ranks_by_display_rank(digest, news_items=lookup).get(
-        display_rank,
-        [],
-    )
-
-
-def _huggingface_related_ranks_by_display_rank(
-    digest: Digest,
-    *,
-    news_items: dict[tuple[SourceKind, str], NewsItem],
-) -> dict[int, list[int]]:
-    keys_by_rank: dict[int, str] = {}
-    for index, entry in enumerate(digest.entries, start=1):
-        if entry.source_kind is not SourceKind.HUGGINGFACE:
-            continue
-        news_item = news_items.get((entry.source_kind, entry.source_id))
-        if news_item is None:
-            continue
-        keys_by_rank[index] = family_key(news_item)
-
-    related: dict[int, list[int]] = {}
-    for rank, key in keys_by_rank.items():
-        siblings = sorted(r for r, other in keys_by_rank.items() if other == key and r != rank)
-        related[rank] = siblings
-    return related
-
-
 def _build_entry_payload(
     entry: DigestEntry,
     *,
@@ -92,7 +58,11 @@ def _build_entry_payload(
     news_items: dict[tuple[SourceKind, str], NewsItem],
     related_display_ranks: list[int] | None = None,
 ) -> dict[str, Any]:
-    payload = _entry_common_fields(entry, display_rank=display_rank)
+    payload = _entry_common_fields(
+        entry,
+        display_rank=display_rank,
+        related_display_ranks=related_display_ranks,
+    )
     news_item = news_items.get((entry.source_kind, entry.source_id))
     evidence = news_item.source_evidence if news_item is not None else {}
 
@@ -101,7 +71,6 @@ def _build_entry_payload(
     elif entry.source_kind is SourceKind.HUGGINGFACE:
         payload.update(extract_huggingface_evidence(evidence))
         payload.update(extract_owner_evidence(evidence))
-        payload["related_display_ranks"] = list(related_display_ranks or [])
     elif entry.source_kind is SourceKind.JUYA:
         text_fields, title_url = _juya_text_fields(entry)
         payload.update(text_fields)
@@ -158,7 +127,12 @@ def _append_caveat(existing: str | None, phrase: str) -> str:
     return phrase
 
 
-def _entry_common_fields(entry: DigestEntry, *, display_rank: int) -> dict[str, Any]:
+def _entry_common_fields(
+    entry: DigestEntry,
+    *,
+    display_rank: int,
+    related_display_ranks: list[int] | None = None,
+) -> dict[str, Any]:
     return {
         "source_kind": entry.source_kind,
         "source_id": entry.source_id,
@@ -172,6 +146,7 @@ def _entry_common_fields(entry: DigestEntry, *, display_rank: int) -> dict[str, 
         "confidence_caveat": entry.confidence_caveat,
         "display_rank": display_rank,
         "output_language": entry.language,
+        "related_display_ranks": list(related_display_ranks or []),
     }
 
 

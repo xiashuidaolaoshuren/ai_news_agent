@@ -56,6 +56,7 @@ class DigestEntryView(BaseModel):
     confidence_caveat: str | None = None
     display_rank: int
     output_language: str | None = None
+    related_display_ranks: list[int] = Field(default_factory=list)
 
 
 class FamilyVariant(BaseModel):
@@ -92,7 +93,6 @@ class HuggingFaceDigestEntryView(DigestEntryView):
     likes: int | None = None
     pipeline_tag: str | None = None
     family_variants: list[FamilyVariant] = Field(default_factory=list)
-    related_display_ranks: list[int] = Field(default_factory=list)
 
 
 class JuyaDigestEntryView(DigestEntryView):

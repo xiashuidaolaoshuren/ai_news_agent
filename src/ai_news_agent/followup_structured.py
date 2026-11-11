@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from ai_news_agent.followup_enrich import enrich_huggingface_for_rank
 from ai_news_agent.huggingface_followup import format_huggingface_family_card
-from ai_news_agent.services.digest_views import huggingface_related_display_ranks
+from ai_news_agent.services.digest_views import build_digest_view_payload
 from ai_news_agent.juya_followup import (
     format_juya_issue_deep_dive,
     format_juya_story_deep_dive,
@@ -236,11 +236,8 @@ def build_targeted_card(
     entry = ctx.digest.entries[rank - 1]
     news_item = match_news_item_for_digest_entry(entry, ctx.news_items)
     if entry.source_kind is SourceKind.HUGGINGFACE:
-        related = huggingface_related_display_ranks(
-            ctx.digest,
-            news_items=ctx.news_items,
-            display_rank=rank,
-        )
+        payload = build_digest_view_payload(ctx.digest, news_items=ctx.news_items)
+        related = payload["entries"][rank - 1]["related_display_ranks"]
         return format_huggingface_family_card(
             entry,
             news_item,

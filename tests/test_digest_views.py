@@ -646,13 +646,19 @@ def test_build_digest_view_related_display_ranks_same_hf_family() -> None:
     base = "Qwen/Qwen3.8-27B"
     hf_a = _huggingface_entry(source_id=f"{base}-A").model_copy(update={"title": "Qwen A"})
     hf_b = _huggingface_entry(source_id=f"{base}-B").model_copy(update={"title": "Qwen B"})
+    hf_matched = _huggingface_entry(source_id="org/match").model_copy(
+        update={"title": "M3.1 8B"}
+    )
+    hf_matched_b = _huggingface_entry(source_id="org/match2").model_copy(
+        update={"title": "M3.1 8B"}
+    )
     hf_other = _huggingface_entry(source_id="Other/Model").model_copy(
         update={"title": "Other model"}
     )
-    gh = _github_entry()
+    gh = _github_entry().model_copy(update={"title": "M3.1 8B", "source_id": "gh/m3"})
     digest = Digest(
         generated_at=_fixture_dt(),
-        entries=[hf_a, hf_b, hf_other, gh],
+        entries=[hf_a, hf_b, hf_matched, hf_matched_b, hf_other, gh],
     )
     news_items = [
         NewsItem(
@@ -683,6 +689,22 @@ def test_build_digest_view_related_display_ranks_same_hf_family() -> None:
             source_evidence={"base_model": "Other/Model"},
         ),
         NewsItem(
+            source=SourceKind.HUGGINGFACE,
+            source_id=hf_matched.source_id,
+            url=hf_matched.source_url,
+            title=hf_matched.title,
+            collected_at=_fixture_dt(),
+            content_confidence=ConfidenceLevel.HIGH,
+        ),
+        NewsItem(
+            source=SourceKind.HUGGINGFACE,
+            source_id=hf_matched_b.source_id,
+            url=hf_matched_b.source_url,
+            title=hf_matched_b.title,
+            collected_at=_fixture_dt(),
+            content_confidence=ConfidenceLevel.HIGH,
+        ),
+        NewsItem(
             source=SourceKind.GITHUB,
             source_id=gh.source_id,
             url=gh.source_url,
@@ -692,17 +714,20 @@ def test_build_digest_view_related_display_ranks_same_hf_family() -> None:
     ]
 
     payload = build_digest_view_payload(digest, news_items=news_items)
-    assert payload["entries"][0]["related_display_ranks"] == [2]
-    assert payload["entries"][1]["related_display_ranks"] == [1]
+    assert payload["entries"][0]["related_display_ranks"] == []
+    assert payload["entries"][1]["related_display_ranks"] == []
+    assert payload["entries"][2]["related_display_ranks"] == [4, 6]
+    assert payload["entries"][3]["related_display_ranks"] == [3, 6]
+    assert payload["entries"][4]["related_display_ranks"] == []
+    assert payload["entries"][5]["related_display_ranks"] == [3, 4]
 
     view = build_digest_view(digest, news_items=news_items)
     assert isinstance(view.entries[0], HuggingFaceDigestEntryView)
-    assert view.entries[0].related_display_ranks == [2]
-    assert view.entries[1].related_display_ranks == [1]
-    assert isinstance(view.entries[2], HuggingFaceDigestEntryView)
-    assert view.entries[2].related_display_ranks == []
-    assert isinstance(view.entries[3], GitHubDigestEntryView)
-    assert "related_display_ranks" not in view.entries[3].model_dump()
+    assert view.entries[0].related_display_ranks == []
+    assert view.entries[1].related_display_ranks == []
+    assert view.entries[2].related_display_ranks == [4, 6]
+    assert isinstance(view.entries[5], GitHubDigestEntryView)
+    assert view.entries[5].related_display_ranks == [3, 4]
 
 
 def test_build_digest_view_payload_exposes_entry_output_language() -> None:
