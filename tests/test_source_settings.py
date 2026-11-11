@@ -392,6 +392,40 @@ def test_source_settings_schema_defaults_and_validation(tmp_path: Path) -> None:
         service.save_profile("nope", {"item_count": 5})
 
 
+def test_hidden_source_names_defaults_to_bilibili_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AI_NEWS_AGENT_HIDDEN_SOURCES", raising=False)
+    from ai_news_agent.source_settings import hidden_source_names
+
+    assert hidden_source_names() == frozenset({"bilibili"})
+
+
+def test_hidden_source_names_empty_env_hides_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_NEWS_AGENT_HIDDEN_SOURCES", "")
+    from ai_news_agent.source_settings import hidden_source_names
+
+    assert hidden_source_names() == frozenset()
+
+
+def test_hidden_source_names_parses_list_and_ignores_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_NEWS_AGENT_HIDDEN_SOURCES", "bilibili, zhihu, nope")
+    from ai_news_agent.source_settings import hidden_source_names
+
+    assert hidden_source_names() == frozenset({"bilibili", "zhihu"})
+
+
+def test_hidden_source_names_reads_env_each_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_news_agent.source_settings import hidden_source_names
+
+    monkeypatch.delenv("AI_NEWS_AGENT_HIDDEN_SOURCES", raising=False)
+    assert hidden_source_names() == frozenset({"bilibili"})
+    monkeypatch.setenv("AI_NEWS_AGENT_HIDDEN_SOURCES", "")
+    assert hidden_source_names() == frozenset()
+
+
 def test_apply_uses_profile_defaults_and_explicit_counts(tmp_path: Path) -> None:
     from ai_news_agent.request import DigestRequest
     from ai_news_agent.services.session_service import SessionService

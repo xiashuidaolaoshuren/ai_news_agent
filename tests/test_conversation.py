@@ -351,6 +351,15 @@ def test_explicit_timeframe_fills_windows_for_every_source() -> None:
     }
 
 
+def test_typed_bilibili_request_selects_bilibili_while_hidden_by_default() -> None:
+    decision = interpret_message("Summarize bilibili AI news")
+
+    assert decision.intent == "digest"
+    request = decision.request
+    assert request is not None
+    assert "bilibili" in request.connector_names
+
+
 def test_explicit_repo_url_keeps_its_target_and_selection() -> None:
     decision = interpret_message("Summarize https://github.com/org/repo")
 

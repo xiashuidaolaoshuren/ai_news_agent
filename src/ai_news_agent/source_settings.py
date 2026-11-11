@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -115,7 +116,26 @@ SOURCE_CATALOG_ORDER: tuple[str, ...] = (
     "bilibili",
 )
 
-HIDDEN_SOURCES: frozenset[str] = frozenset({"bilibili"})
+_HIDDEN_SOURCES_ENV = "AI_NEWS_AGENT_HIDDEN_SOURCES"
+_DEFAULT_HIDDEN: frozenset[str] = frozenset({"bilibili"})
+
+
+def hidden_source_names() -> frozenset[str]:
+    """Names hidden from discovery; read from the environment on each call."""
+    raw = os.environ.get(_HIDDEN_SOURCES_ENV)
+    if raw is None:
+        return _DEFAULT_HIDDEN
+    stripped = raw.strip()
+    if not stripped:
+        return frozenset()
+    from ai_news_agent.sources import ALLOWED_SOURCES
+
+    names: set[str] = set()
+    for part in stripped.split(","):
+        name = part.strip().lower()
+        if name and name in ALLOWED_SOURCES:
+            names.add(name)
+    return frozenset(names)
 
 DEFAULT_ITEM_COUNT: int | Literal["all"] = 5
 
@@ -223,7 +243,7 @@ _PROFILE_MODELS: dict[str, type[BaseModel]] = {
 def _profile_to_dict(name: str, model: BaseModel) -> dict[str, Any]:
     payload = model.model_dump()
     payload["name"] = name
-    payload["hidden"] = name in HIDDEN_SOURCES
+    payload["hidden"] = name in hidden_source_names()
     return payload
 
 
@@ -529,7 +549,7 @@ def _message_has_no_topic(request: DigestRequest) -> bool:
 
 __all__ = [
     "DEFAULT_ITEM_COUNT",
-    "HIDDEN_SOURCES",
+    "hidden_source_names",
     "OutputLanguagePreference",
     "SOURCE_CATALOG_ORDER",
     "SourceSettingsService",

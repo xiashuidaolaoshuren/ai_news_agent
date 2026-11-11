@@ -607,7 +607,10 @@ def test_api_v1_health_reports_status_and_fake_mode(tmp_path: Path) -> None:
     assert response.json() == {"status": "ok", "fake": True}
 
 
-def test_api_v1_sources_lists_defaults_and_opt_in_metadata(tmp_path: Path) -> None:
+def test_api_v1_sources_default_hides_bilibili_and_lists_openrouter(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("AI_NEWS_AGENT_HIDDEN_SOURCES", raising=False)
     client = _build_test_client(fake=True, db_path=tmp_path / "digest.db")
 
     response = client.get("/api/v1/sources")
@@ -615,12 +618,13 @@ def test_api_v1_sources_lists_defaults_and_opt_in_metadata(tmp_path: Path) -> No
     assert response.status_code == 200
     payload = response.json()
     assert payload["defaults"] == ["juya"]
+    assert payload["hidden"] == ["bilibili"]
     assert [item["name"] for item in payload["sources"]] == [
         "juya",
-        "huggingface",
         "github",
+        "huggingface",
+        "openrouter",
         "zhihu",
-        "bilibili",
     ]
     by_name = {item["name"]: item for item in payload["sources"]}
     _unchecked = {
@@ -642,6 +646,38 @@ def test_api_v1_sources_lists_defaults_and_opt_in_metadata(tmp_path: Path) -> No
         "opt_in": True,
         "health": _unchecked,
     }
+
+
+def test_api_v1_sources_empty_hidden_env_lists_all_catalog_names(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AI_NEWS_AGENT_HIDDEN_SOURCES", "")
+    client = _build_test_client(fake=True, db_path=tmp_path / "digest.db")
+    response = client.get("/api/v1/sources")
+    payload = response.json()
+    assert payload["hidden"] == []
+    assert [item["name"] for item in payload["sources"]] == [
+        "juya",
+        "github",
+        "huggingface",
+        "openrouter",
+        "zhihu",
+        "bilibili",
+    ]
+
+
+def test_api_v1_sources_custom_hidden_list(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AI_NEWS_AGENT_HIDDEN_SOURCES", "bilibili,zhihu")
+    client = _build_test_client(fake=True, db_path=tmp_path / "digest.db")
+    response = client.get("/api/v1/sources")
+    payload = response.json()
+    assert payload["hidden"] == ["zhihu", "bilibili"]
+    assert [item["name"] for item in payload["sources"]] == [
+        "juya",
+        "github",
+        "huggingface",
+        "openrouter",
+    ]
 
 
 def test_api_v1_allows_loopback_cors_origins_only(tmp_path: Path) -> None:
