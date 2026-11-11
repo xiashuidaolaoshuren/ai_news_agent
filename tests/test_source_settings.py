@@ -366,7 +366,7 @@ def test_source_settings_schema_defaults_and_validation(tmp_path: Path) -> None:
 
     profiles = service.list_profiles()
     names = [profile["name"] for profile in profiles]
-    assert names == ["juya", "github", "huggingface", "openrouter", "zhihu", "bilibili"]
+    assert names == ["juya", "huggingface", "openrouter", "github", "zhihu", "bilibili"]
     juya = next(p for p in profiles if p["name"] == "juya")
     assert juya["item_count"] == 5
     assert juya["hidden"] is False

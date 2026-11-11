@@ -107,11 +107,12 @@ class SourceSettingsValidationError(SourceSettingsError):
         self.message = message
 
 
+#: Canonical discovery order (`GET /sources`), per the source-visibility spec.
 SOURCE_CATALOG_ORDER: tuple[str, ...] = (
     "juya",
-    "github",
     "huggingface",
     "openrouter",
+    "github",
     "zhihu",
     "bilibili",
 )

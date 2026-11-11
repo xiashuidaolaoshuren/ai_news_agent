@@ -621,9 +621,9 @@ def test_api_v1_sources_default_hides_bilibili_and_lists_openrouter(
     assert payload["hidden"] == ["bilibili"]
     assert [item["name"] for item in payload["sources"]] == [
         "juya",
-        "github",
         "huggingface",
         "openrouter",
+        "github",
         "zhihu",
     ]
     by_name = {item["name"]: item for item in payload["sources"]}
@@ -658,9 +658,9 @@ def test_api_v1_sources_empty_hidden_env_lists_all_catalog_names(
     assert payload["hidden"] == []
     assert [item["name"] for item in payload["sources"]] == [
         "juya",
-        "github",
         "huggingface",
         "openrouter",
+        "github",
         "zhihu",
         "bilibili",
     ]
@@ -674,9 +674,9 @@ def test_api_v1_sources_custom_hidden_list(monkeypatch: pytest.MonkeyPatch, tmp_
     assert payload["hidden"] == ["zhihu", "bilibili"]
     assert [item["name"] for item in payload["sources"]] == [
         "juya",
-        "github",
         "huggingface",
         "openrouter",
+        "github",
     ]
 
 
