@@ -410,6 +410,7 @@ def test_search_openrouter_models_sets_free_only_topics_and_max_items() -> None:
     assert connector.calls == 1
     assert connector.last_request is not None
     assert connector.last_request.topics == ["RAG"]
+    assert connector.last_request.topics_are_filters is True
     assert connector.last_request.max_items == 4
     assert connector.last_request.free_only is True
 

@@ -99,6 +99,7 @@ async def search_openrouter_models(
 ) -> ToolObservation:
     request = ConnectorRequest(
         topics=list(args.topics),
+        topics_are_filters=True,
         max_items=args.max_results,
         free_only=args.free_only,
     )

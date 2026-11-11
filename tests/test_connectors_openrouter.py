@@ -223,6 +223,51 @@ def test_topics_filter_only_when_topics_are_filters() -> None:
     asyncio.run(main())
 
 
+def test_collect_caps_items_to_max_items_keeping_newest() -> None:
+    newest = int(FIXED_NOW.timestamp()) - 60
+    middle = int(FIXED_NOW.timestamp()) - 3600
+    oldest = int(FIXED_NOW.timestamp()) - 7200
+    rows = [
+        {
+            "id": "lab/oldest",
+            "name": "Oldest",
+            "created": oldest,
+            "pricing": {"prompt": "0", "completion": "0"},
+            "architecture": {"input_modalities": []},
+        },
+        {
+            "id": "lab/newest",
+            "name": "Newest",
+            "created": newest,
+            "pricing": {"prompt": "0", "completion": "0"},
+            "architecture": {"input_modalities": []},
+        },
+        {
+            "id": "lab/middle",
+            "name": "Middle",
+            "created": middle,
+            "pricing": {"prompt": "0", "completion": "0"},
+            "architecture": {"input_modalities": []},
+        },
+    ]
+
+    async def main() -> None:
+        capped = await _collect(
+            {"data": rows},
+            ConnectorRequest(topics=[], timeframe="last_7_days", max_items=2),
+        )
+        assert [i.source_id for i in capped.items] == ["lab/newest", "lab/middle"]
+        assert capped.raw_count == 3
+
+        uncapped = await _collect(
+            {"data": rows},
+            ConnectorRequest(topics=[], timeframe="last_7_days"),
+        )
+        assert len(uncapped.items) == 3
+
+    asyncio.run(main())
+
+
 def test_free_only_flag_on_request() -> None:
     recent = int(FIXED_NOW.timestamp()) - 3600
     rows = [

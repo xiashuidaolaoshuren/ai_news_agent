@@ -230,5 +230,15 @@ class OpenRouterConnector:
             ):
                 continue
             items.append(item)
+        # Keep the newest listings when the payload exceeds the per-source cap;
+        # items without a publication time sort last.
+        items.sort(
+            key=lambda item: (
+                item.published_at is not None,
+                item.published_at or datetime.min.replace(tzinfo=UTC),
+            ),
+            reverse=True,
+        )
+        items = items[: max(request.max_items, 1)]
         return ConnectorResult(items=items, warnings=[], raw_count=raw_count)
 
