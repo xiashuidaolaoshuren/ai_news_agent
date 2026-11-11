@@ -84,3 +84,43 @@ def test_one_sided_version_does_not_link() -> None:
     assert result[1] == []
     assert result[2] == []
 
+
+def test_different_products_with_same_version_and_size_do_not_link() -> None:
+    from ai_news_agent.related_coverage import related_display_ranks
+
+    llama = _entry("Llama 3.1 8B", source_id="1")
+    qwen = _entry("Qwen 3.1 8B", source_id="2")
+    result = related_display_ranks([_pair(llama), _pair(qwen)])
+    assert result[1] == []
+    assert result[2] == []
+
+
+def test_different_products_with_same_variant_do_not_link() -> None:
+    from ai_news_agent.related_coverage import related_display_ranks
+
+    claude = _entry("Claude Pro", source_id="1")
+    gemini = _entry("Gemini Pro", source_id="2")
+    result = related_display_ranks([_pair(claude), _pair(gemini)])
+    assert result[1] == []
+    assert result[2] == []
+
+
+def test_bare_integer_versions_are_part_of_the_product_name() -> None:
+    from ai_news_agent.related_coverage import related_display_ranks
+
+    qwen2 = _entry("Qwen2 7B", source_id="1")
+    qwen3 = _entry("Qwen3 7B", source_id="2")
+    result = related_display_ranks([_pair(qwen2), _pair(qwen3)])
+    assert result[1] == []
+    assert result[2] == []
+
+
+def test_same_product_same_version_and_size_links() -> None:
+    from ai_news_agent.related_coverage import related_display_ranks
+
+    a = _entry("Llama 3.1 8B", source_id="1")
+    b = _entry("Llama 3.1 8B", source_id="2")
+    result = related_display_ranks([_pair(a), _pair(b)])
+    assert result[1] == [2]
+    assert result[2] == [1]
+
