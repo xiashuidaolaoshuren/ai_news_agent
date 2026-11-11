@@ -133,7 +133,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B1 — OpenRouter parser, filters, and fixture
 
-- [ ] **Do:** Turn one captured `/models` payload into news items, and keep only the rows the request allows.
+- [x] **Do:** Turn one captured `/models` payload into news items, and keep only the rows the request allows.
 - **Consumes:** `NewsItem`, `ConnectorRequest`, `ConnectorResult`, `ConnectorWarning`, `SourceKind`. Juya topic match rule (`_text_matches_topic`): a topic matches when it appears in the model's id, name, or description. `within_timeframe` / `_timeframe_bounds_at` for the window.
 - **Produces:** `SourceKind.OPENROUTER`. `OpenRouterConnector.collect(request) -> ConnectorResult`. `ConnectorRequest.free_only: bool = False`. Evidence keys on each item: `provider` (id prefix), `created` (date), `context_length`, `prompt_price_per_million`, `completion_price_per_million`, `free_token_pricing` (true only when both prices are known zeroes), `free_route_suffix` (present or absent), `input_modalities`. `source_id` is the model id, `title` is the model name, `url` is `https://openrouter.ai/<model id>`. Warning code `request_failed` with connector `openrouter` on HTTP error, timeout, or malformed JSON, and zero items. `tests/fixtures/openrouter_models_sample.json` is the parser contract.
 - **Acceptance:**
@@ -150,7 +150,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B2 — OpenRouter on the digest path
 
-- [ ] **Do:** Select, rank, and section OpenRouter like the other sources, with the 7-day fallback limited to it and the free-price boost applied.
+- [x] **Do:** Select, rank, and section OpenRouter like the other sources, with the 7-day fallback limited to it and the free-price boost applied.
 - **Consumes:** B1 `SourceKind.OPENROUTER`, `OpenRouterConnector`, `ConnectorRequest.free_only`. `OpenRouterProfile.free_only`. `SourceSettingsService.apply`. `parse_request_node`. `_score_item`, `_FALLBACK_KIND_ORDER`, `order_selected_for_digest`. `request_metadata`, `ResolvedRequestOut`. `collection_outcome`.
 - **Produces:** `"openrouter"` in `ALLOWED_SOURCES`. `FakeOpenRouterConnector` returns at least one in-window item with known-zero prices and one priced item, so fake-mode digests are non-empty. `SourceSettingsService.apply` sets `DigestRequest.free_only` from the OpenRouter profile when OpenRouter is selected and the request left it false. `parse_request_node` copies `free_only` onto the connector request. Typed text matching `openrouter` (case-insensitive) selects the connector, including while the source is hidden. When `DigestRequest.timeframe` is unset and OpenRouter is selected, the connector request for OpenRouter uses `last_7_days` and every other selected source keeps a null timeframe. `request_metadata` includes `windows: dict[str, str]` mapping each selected source to its effective timeframe (`last_7_days` or the explicit value, or empty when that source has none). `_score_item` for OpenRouter is freshness first, plus a small positive term when `free_token_pricing` is true, and no engagement term. `_FALLBACK_KIND_ORDER` is Juya, Hugging Face, OpenRouter, GitHub, Zhihu, Bilibili. Markdown section label is `OpenRouter`.
 - **Acceptance:**
@@ -169,7 +169,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B3 — OpenRouter digest view and tool
 
-- [ ] **Do:** Expose OpenRouter entries on the digest view and register the search tool the way Zhihu is registered.
+- [x] **Do:** Expose OpenRouter entries on the digest view and register the search tool the way Zhihu is registered.
 - **Consumes:** B1 evidence keys. B2 `SourceKind.OPENROUTER` and the factory. `DigestEntryView` union, `build_digest_view_payload`, `search_zhihu_practitioner_insights`, `build_tools`.
 - **Produces:** `OpenRouterDigestEntryView` with `source_kind: Literal[SourceKind.OPENROUTER]`, `context_length: int | None`, `prompt_price_per_million: str | None`, `completion_price_per_million: str | None`, `free_token_pricing: bool`, `input_modalities: list[str]`, `provider: str | None`. `free_token_pricing` is true only when both prices are known zeroes. `search_openrouter_models(*, connector, args) -> ToolObservation`. `OpenRouterSearchArgs` with `max_results`, `free_only: bool = False`, and `topics: list[str]`. `build_tools(..., openrouter_factory=)` appends the tool when the factory is set. `build_application` passes that factory.
 - **Acceptance:**
@@ -184,7 +184,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B4 — Hidden sources
 
-- [ ] **Do:** Hide sources named by the environment from discovery, without disabling them.
+- [x] **Do:** Hide sources named by the environment from discovery, without disabling them.
 - **Consumes:** `GET /sources` in `api/routers/meta.py`. `HIDDEN_SOURCES` and `_profile_to_dict` in `source_settings.py`. `normalize_source_names` (still allows every `ALLOWED_SOURCES` name, including after B2 adds OpenRouter).
 - **Produces:** `hidden_source_names() -> frozenset[str]`, read from `AI_NEWS_AGENT_HIDDEN_SOURCES` on each call. Unset or missing variable defaults to `{"bilibili"}`. An empty value (the variable is set and blank) returns an empty set. Names are stripped and lowercased; unknown tokens are ignored. `GET /sources` returns `sources` in catalog order minus hidden names, and `hidden: list[str]` of the hidden names in that same order. Settings profile payloads use the same function for `hidden`. `ALLOWED_SOURCES` is not filtered.
 - **Acceptance:**
@@ -202,7 +202,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### B5 — Related coverage
 
-- [ ] **Do:** Link selected entries that confidently name the same model or product, without changing rank or membership.
+- [x] **Do:** Link selected entries that confidently name the same model or product, without changing rank or membership.
 - **Consumes:** B3 digest view union. Selected `DigestEntry` rows plus their `NewsItem` titles and source ids. `family_key` is not an input.
 - **Produces:** `related_display_ranks(entries) -> dict[int, list[int]]` in `related_coverage.py`. Keys and values are 1-based display ranks. Each list is the other members of a confident identity group, sorted, and is empty when the entry has no link. `build_digest_view_payload` writes that map onto every entry. `DigestEntryView.related_display_ranks: list[int]` defaults to empty, so GitHub, Juya, Zhihu, Bilibili, Hugging Face, and OpenRouter views all carry it. The Hugging Face family-key filler for this field is removed.
 - **Acceptance:**
@@ -280,3 +280,4 @@ B1 starts from the fixture. If the first live call shows different field names o
 | Date | Change | Kind |
 |------|--------|------|
 | 2026-10-20 | Initial plan. Backend B1–B5, frontend F1–F3, one plan. | — |
+| 2026-11-11 | Review-driven corrections to B3/B4/B5: `SOURCE_CATALOG_ORDER` reordered to the spec catalog order (juya, huggingface, openrouter, github, zhihu, bilibili); related-coverage signatures now include the product name (with version/size/variant), so different products with equal attributes no longer link; the OpenRouter search tool sets `topics_are_filters`, and the connector honors `max_items` (newest kept). | equivalent internal fix |
