@@ -404,6 +404,9 @@ def _build_chat_service(
             zhihu_factory=build_connector_factory(
                 fake=fake, name="zhihu", credentials=credentials_service
             ),
+            openrouter_factory=build_connector_factory(
+                fake=fake, name="openrouter", credentials=credentials_service
+            ),
             interface_name="api",
         )
 

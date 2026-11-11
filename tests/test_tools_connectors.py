@@ -392,3 +392,75 @@ def test_search_zhihu_practitioner_insights_connector_raises_becomes_error() -> 
     assert obs.status is ToolObservationStatus.ERROR
     assert obs.data["connector"] == "zhihu"
     assert any("zhihu down" in caveat for caveat in obs.caveats)
+
+
+def test_search_openrouter_models_sets_free_only_topics_and_max_items() -> None:
+    from ai_news_agent.tools.connectors import search_openrouter_models
+    from ai_news_agent.tools.schemas import OpenRouterSearchArgs
+
+    connector = _FakeConnector(name="openrouter")
+
+    asyncio.run(
+        search_openrouter_models(
+            connector=connector,
+            args=OpenRouterSearchArgs(topics=["RAG"], max_results=4, free_only=True),
+        )
+    )
+
+    assert connector.calls == 1
+    assert connector.last_request is not None
+    assert connector.last_request.topics == ["RAG"]
+    assert connector.last_request.max_items == 4
+    assert connector.last_request.free_only is True
+
+
+def test_search_openrouter_models_ok_is_json_safe() -> None:
+    from ai_news_agent.tools.connectors import search_openrouter_models
+    from ai_news_agent.tools.schemas import OpenRouterSearchArgs
+
+    item = _sample_item(
+        source=SourceKind.OPENROUTER, source_id="openai/gpt-4o", title="GPT-4o"
+    )
+    connector = _FakeConnector(name="openrouter", items=[item], raw_count=2)
+
+    obs = asyncio.run(
+        search_openrouter_models(
+            connector=connector,
+            args=OpenRouterSearchArgs(topics=[], max_results=5),
+        )
+    )
+
+    assert obs.status is ToolObservationStatus.OK
+    assert obs.data["connector"] == "openrouter"
+    assert obs.data["item_count"] == 1
+    assert obs.data["raw_count"] == 2
+    assert obs.data["items"][0] == item.model_dump(mode="json")
+    json.dumps(obs.model_dump(mode="json"))
+
+
+def test_search_openrouter_models_warning_becomes_caveat() -> None:
+    from ai_news_agent.tools.connectors import search_openrouter_models
+    from ai_news_agent.tools.schemas import OpenRouterSearchArgs
+
+    connector = _FakeConnector(
+        name="openrouter",
+        warnings=[
+            ConnectorWarning(
+                connector="openrouter",
+                code="request_failed",
+                message="OpenRouter models request failed",
+                detail="timeout",
+            )
+        ],
+    )
+
+    obs = asyncio.run(
+        search_openrouter_models(
+            connector=connector,
+            args=OpenRouterSearchArgs(topics=["llama"]),
+        )
+    )
+
+    assert obs.status is ToolObservationStatus.OK
+    assert obs.data["item_count"] == 0
+    assert any("openrouter:request_failed" in caveat for caveat in obs.caveats)

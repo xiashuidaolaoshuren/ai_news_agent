@@ -104,10 +104,23 @@ class JuyaDigestEntryView(DigestEntryView):
     story: JuyaStoryView | None = None
 
 
+class OpenRouterDigestEntryView(DigestEntryView):
+    """OpenRouter digest entry with callable-model listing metadata."""
+
+    source_kind: Literal[SourceKind.OPENROUTER] = SourceKind.OPENROUTER
+    context_length: int | None = None
+    prompt_price_per_million: str | None = None
+    completion_price_per_million: str | None = None
+    free_token_pricing: bool = False
+    input_modalities: list[str] = Field(default_factory=list)
+    provider: str | None = None
+
+
 DigestEntryViewUnion = Annotated[
     GitHubDigestEntryView
     | HuggingFaceDigestEntryView
     | JuyaDigestEntryView
+    | OpenRouterDigestEntryView
     | DigestEntryView,
     Field(discriminator="source_kind"),
 ]

@@ -147,6 +147,16 @@ class ZhihuSearchArgs(BaseModel):
         return value
 
 
+class OpenRouterSearchArgs(BaseModel):
+    """LLM-facing args for OpenRouter model listing search."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    topics: list[str] = Field(default_factory=list)
+    max_results: int = Field(default=5, ge=1)
+    free_only: bool = False
+
+
 class DigestItemRankArgs(BaseModel):
     """LLM-facing args for structured digest item-detail by rank (Milestone 4 T9)."""
 

@@ -831,6 +831,44 @@ def test_tools_package_surface_exports_huggingface_and_zhihu_search() -> None:
     assert callable(search_zhihu_practitioner_insights)
 
 
+def test_build_tool_registry_omits_openrouter_search_without_factory(
+    tmp_path: Path,
+) -> None:
+    registry = _build_registry_for_tests(tmp_path)
+    assert "search_openrouter_models" not in registry.tool_names()
+
+
+def test_build_tool_registry_openrouter_factory_registers_search_tool(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.tools.schemas import OpenRouterSearchArgs
+
+    store = DigestStore(tmp_path / "openrouter-registry.db")
+    store.init_schema()
+    openrouter_factory = _CountingConnectorFactory(name="openrouter")
+    registry = build_tool_registry(
+        store=store,
+        github_factory=_CountingConnectorFactory(name="github"),
+        bilibili_factory=_CountingConnectorFactory(name="bilibili"),
+        juya_factory=_CountingConnectorFactory(name="juya"),
+        openrouter_factory=openrouter_factory,
+    )
+    assert "search_openrouter_models" in registry.tool_names()
+    tool = registry.get_tool("search_openrouter_models")
+    assert tool.args_schema is OpenRouterSearchArgs
+    asyncio.run(tool.ainvoke({"topics": ["llama"], "free_only": True}))
+    assert openrouter_factory.calls == 1
+
+
+def test_tools_package_surface_exports_openrouter_search() -> None:
+    import ai_news_agent.tools as tools_package
+
+    assert "search_openrouter_models" in tools_package.__all__
+    from ai_news_agent.tools import search_openrouter_models
+
+    assert callable(search_openrouter_models)
+
+
 def test_registry_module_has_no_legacy_tool_definition_or_handwritten_schemas() -> None:
     import ai_news_agent.tools.registry as registry_module
 

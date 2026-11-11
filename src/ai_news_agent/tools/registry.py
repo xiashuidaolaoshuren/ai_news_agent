@@ -27,6 +27,7 @@ from ai_news_agent.tools.connectors import (
     search_github_ai_news as _search_github_ai_news_pure,
     search_huggingface_trending_models as _search_huggingface_trending_models_pure,
     search_juya_ai_news as _search_juya_ai_news_pure,
+    search_openrouter_models as _search_openrouter_models_pure,
     search_zhihu_practitioner_insights as _search_zhihu_practitioner_insights_pure,
 )
 from ai_news_agent.tools.followup import (
@@ -44,6 +45,7 @@ from ai_news_agent.tools.schemas import (
     SearchArgs,
     SearchQueryInput,
     ToolObservation,
+    OpenRouterSearchArgs,
     ZhihuSearchArgs,
 )
 
@@ -100,6 +102,7 @@ def build_tool_registry(
     juya_factory: ConnectorFactory,
     huggingface_factory: ConnectorFactory | None = None,
     zhihu_factory: ConnectorFactory | None = None,
+    openrouter_factory: ConnectorFactory | None = None,
     digest_request: DigestRequest | None = None,
     register_structured_tools: bool = False,
     connectors: Sequence[SourceConnector] | None = None,
@@ -264,6 +267,27 @@ def build_tool_registry(
             )
 
         tools.append(search_zhihu_practitioner_insights)
+
+    if openrouter_factory is not None:
+
+        @tool(args_schema=OpenRouterSearchArgs)
+        async def search_openrouter_models(
+            topics: list[str] | None = None,
+            max_results: int = 5,
+            free_only: bool = False,
+        ) -> ToolObservation:
+            """Search OpenRouter for callable models through the OpenRouter connector."""
+            connector = openrouter_factory()
+            return await _search_openrouter_models_pure(
+                connector=connector,
+                args=OpenRouterSearchArgs(
+                    topics=list(topics or []),
+                    max_results=_clamp_max_results(max_results),
+                    free_only=free_only,
+                ),
+            )
+
+        tools.append(search_openrouter_models)
 
     include_structured_tools = register_structured_tools or digest_request is not None
 

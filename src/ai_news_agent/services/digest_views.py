@@ -106,6 +106,8 @@ def _build_entry_payload(
         text_fields, title_url = _juya_text_fields(entry)
         payload.update(text_fields)
         payload.update(extract_juya_evidence(evidence, title_url=title_url))
+    elif entry.source_kind is SourceKind.OPENROUTER:
+        payload.update(extract_openrouter_evidence(evidence))
     return payload
 
 
@@ -275,6 +277,30 @@ def extract_huggingface_evidence(source_evidence: dict[str, Any]) -> dict[str, A
         "likes": _optional_int(source_evidence.get("likes")),
         "pipeline_tag": _optional_str(source_evidence.get("pipeline_tag")),
         "family_variants": family_variants,
+    }
+
+
+def extract_openrouter_evidence(source_evidence: dict[str, Any]) -> dict[str, Any]:
+    """Return whitelisted OpenRouter model listing fields for digest views."""
+    prompt = _optional_str(source_evidence.get("prompt_price_per_million"))
+    completion = _optional_str(source_evidence.get("completion_price_per_million"))
+    modalities_raw = source_evidence.get("input_modalities")
+    modalities: list[str] = []
+    if isinstance(modalities_raw, list):
+        modalities = [str(m) for m in modalities_raw if m is not None]
+    free_token_pricing = False
+    if prompt is not None and completion is not None:
+        try:
+            free_token_pricing = float(prompt) == 0.0 and float(completion) == 0.0
+        except ValueError:
+            free_token_pricing = False
+    return {
+        "context_length": _optional_int(source_evidence.get("context_length")),
+        "prompt_price_per_million": prompt,
+        "completion_price_per_million": completion,
+        "free_token_pricing": free_token_pricing,
+        "input_modalities": modalities,
+        "provider": _optional_str(source_evidence.get("provider")),
     }
 
 

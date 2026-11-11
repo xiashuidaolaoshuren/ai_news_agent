@@ -53,6 +53,7 @@ class InterfaceToolRouter:
         juya_factory: ConnectorFactory,
         huggingface_factory: ConnectorFactory | None = None,
         zhihu_factory: ConnectorFactory | None = None,
+        openrouter_factory: ConnectorFactory | None = None,
         interface_name: str,
         fallback_text: str = _DEFAULT_FALLBACK,
     ) -> None:
@@ -63,6 +64,7 @@ class InterfaceToolRouter:
         self._juya_factory = juya_factory
         self._huggingface_factory = huggingface_factory
         self._zhihu_factory = zhihu_factory
+        self._openrouter_factory = openrouter_factory
         self._interface_name = interface_name
         self._fallback_text = fallback_text
 
@@ -82,6 +84,7 @@ class InterfaceToolRouter:
             juya_factory=self._juya_factory,
             huggingface_factory=self._huggingface_factory,
             zhihu_factory=self._zhihu_factory,
+            openrouter_factory=self._openrouter_factory,
         )
 
         agent_result: InterfaceAgentResult | None = None
@@ -143,6 +146,7 @@ def build_interface_tool_router(
     juya_factory: ConnectorFactory,
     huggingface_factory: ConnectorFactory | None = None,
     zhihu_factory: ConnectorFactory | None = None,
+    openrouter_factory: ConnectorFactory | None = None,
     interface_name: str,
     fallback_text: str = _DEFAULT_FALLBACK,
 ) -> InterfaceToolRouter:
@@ -155,6 +159,7 @@ def build_interface_tool_router(
         juya_factory=juya_factory,
         huggingface_factory=huggingface_factory,
         zhihu_factory=zhihu_factory,
+        openrouter_factory=openrouter_factory,
         interface_name=interface_name,
         fallback_text=fallback_text,
     )

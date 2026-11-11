@@ -7,6 +7,7 @@ from ai_news_agent.models import ConnectorWarning
 from ai_news_agent.rendering import render_search_items_text
 from ai_news_agent.tools.schemas import (
     HuggingFaceSearchArgs,
+    OpenRouterSearchArgs,
     SearchQueryInput,
     ToolObservation,
     ToolObservationStatus,
@@ -86,6 +87,23 @@ async def search_zhihu_practitioner_insights(
     )
     return await _collect_observation(
         connector_name="zhihu",
+        connector=connector,
+        request=request,
+    )
+
+
+async def search_openrouter_models(
+    *,
+    connector: SourceConnector,
+    args: OpenRouterSearchArgs,
+) -> ToolObservation:
+    request = ConnectorRequest(
+        topics=list(args.topics),
+        max_items=args.max_results,
+        free_only=args.free_only,
+    )
+    return await _collect_observation(
+        connector_name="openrouter",
         connector=connector,
         request=request,
     )
