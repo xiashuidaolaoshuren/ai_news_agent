@@ -12,6 +12,7 @@ from ai_news_agent.intent import parse_digest_intent
 from ai_news_agent.request import DigestRequest
 from ai_news_agent.source_settings import (
     build_public_counts,
+    hidden_source_names,
     parse_message_item_counts,
     public_per_source,
 )
@@ -217,6 +218,19 @@ def _explicit_sources(text: str) -> list[str] | None:
     return normalize_source_names(names)
 
 
+def _session_sources(context: ConversationContext) -> list[str]:
+    """Stored session sources minus the names hidden from discovery.
+
+    The composer shows the visible catalog, so a hidden stored name must not reach
+    the run either. An empty result falls back to the message's own inference.
+    """
+    if not context.connector_names:
+        return []
+    hidden = hidden_source_names()
+    visible = [name for name in context.connector_names if name not in hidden]
+    return normalize_source_names(visible) if visible else []
+
+
 def _infer_sources(text: str) -> list[str]:
     if _HF_PURPOSE.search(text):
         return ["huggingface"]
@@ -240,8 +254,9 @@ def _digest_decision(text: str, *, context: ConversationContext) -> Conversation
         sources = list(resolve_digest_request(text).connector_names or ["juya"])
     else:
         sources = explicit or _infer_sources(text)
-        if context.connector_names and explicit is None:
-            sources = normalize_source_names(context.connector_names)
+        stored = _session_sources(context) if explicit is None else []
+        if stored:
+            sources = stored
     topics = [topic] if topic else []
     if topic is not None:
         cleaned = _clean_topic(topic)
@@ -344,8 +359,9 @@ def _model_decision(
         topics = _validated_topics(raw.get("topics"))
         timeframe = _validated_timeframe(raw.get("timeframe"))
         sources = _validated_sources(raw.get("sources")) or _infer_sources(text)
-        if context.connector_names and not raw.get("sources"):
-            sources = normalize_source_names(context.connector_names)
+        stored = _session_sources(context) if not raw.get("sources") else []
+        if stored:
+            sources = stored
         request = DigestRequest(
             topics=topics,
             topics_are_filters=bool(topics),

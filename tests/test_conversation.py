@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from ai_news_agent.services.conversation import (
     ConversationContext,
     ConversationDecision,
@@ -369,6 +371,68 @@ def test_explicit_repo_url_keeps_its_target_and_selection() -> None:
     assert request.connector_names == ["github"]
     assert request.github_manual_urls == ["https://github.com/org/repo"]
     assert request.topics_are_filters is False
+
+
+def test_untyped_message_drops_hidden_names_from_the_stored_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AI_NEWS_AGENT_HIDDEN_SOURCES", raising=False)
+
+    decision = interpret_message(
+        "Digest today's AI news",
+        context=ConversationContext(connector_names=["bilibili"]),
+    )
+
+    assert decision.intent == "digest"
+    request = decision.request
+    assert request is not None
+    assert request.connector_names == ["juya"]
+
+
+def test_stored_selection_keeps_its_visible_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AI_NEWS_AGENT_HIDDEN_SOURCES", raising=False)
+
+    decision = interpret_message(
+        "Digest today's AI news",
+        context=ConversationContext(connector_names=["juya", "bilibili"]),
+    )
+
+    assert decision.intent == "digest"
+    request = decision.request
+    assert request is not None
+    assert request.connector_names == ["juya"]
+
+
+def test_stored_selection_is_kept_when_nothing_is_hidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_NEWS_AGENT_HIDDEN_SOURCES", "")
+
+    decision = interpret_message(
+        "Digest today's AI news",
+        context=ConversationContext(connector_names=["bilibili"]),
+    )
+
+    assert decision.intent == "digest"
+    request = decision.request
+    assert request is not None
+    assert request.connector_names == ["bilibili"]
+
+
+def test_typed_hidden_source_still_routes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AI_NEWS_AGENT_HIDDEN_SOURCES", raising=False)
+
+    decision = interpret_message(
+        "Summarize bilibili AI news",
+        context=ConversationContext(connector_names=["juya"]),
+    )
+
+    assert decision.intent == "digest"
+    request = decision.request
+    assert request is not None
+    assert "bilibili" in request.connector_names
 
 
 __all__ = [
