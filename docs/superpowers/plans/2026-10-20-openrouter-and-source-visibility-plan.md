@@ -74,7 +74,11 @@ Out of scope: usage rankings, price-change history, removing the Bilibili connec
 | `frontend/src/vm/composer.ts` | modify | Drop hidden names from displayed selection; fall back to visible defaults; do not write the drop | `prefsFor(session, sources, hidden)` | verified |
 | `frontend/src/stores/composer.ts` | modify | Pass the catalog's hidden list into `prefsFor` | `load` / `syncPrefs` | verified |
 | `frontend/src/vm/history.ts` | modify | History source dropdown uses the visible catalog, not `SHOW_BILIBILI` | `historySourceOptions(catalog)` | verified |
-| `frontend/src/components/thread/EmptyConversation.vue` | modify | Orbit uses the visible catalog | orbit list | verified |
+| `frontend/src/stores/history.ts` | modify | Supply the catalog from the composer store | `HistoryDeps.catalog` | verified |
+| `frontend/src/components/thread/EmptyConversation.vue` | modify | Orbit uses the visible catalog | orbit `kinds` prop | verified |
+| `frontend/src/components/thread/Thread.vue` | modify | Pass the visible kinds into the orbit | `catalog` prop | verified |
+| `src/ai_news_agent/services/conversation.py` | modify | Untyped messages ignore hidden stored names | `_session_sources` | verified |
+| `tests/test_conversation.py` | modify | Hidden stored names | pytest | verified |
 | `frontend/src/lib/features.ts` | modify | Stop being the discovery switch | `SHOW_BILIBILI` removed once every caller reads the catalog | verified |
 | `frontend/src/vm/composer.test.ts`, `stores/composer.test.ts`, `vm/history.test.ts`, `components/thread/empty-conversation.test.ts` | modify | Hide-list acceptance | vitest | verified |
 
@@ -118,7 +122,7 @@ Out of scope: usage rankings, price-change history, removing the Bilibili connec
 | `services/digest_views.py` related ranks | HF follow-up cards already print family siblings | Family grouping still collapses packaging variants; the new linker does not call `family_key` and does not change who is selected |
 | `api/routers/meta.py` `GET /sources` | Composer, history, and empty-state catalogs | Defaults stay `juya`; health payloads stay; a hidden source is omitted from `sources` and listed in `hidden` |
 | `source_settings.py` `HIDDEN_SOURCES` | Settings already labels Bilibili hidden | Profile fields do not change; an empty env value shows every source, including in Settings |
-| `services/conversation.py` source routing | Typed requests select connectors | Existing juya, github, huggingface, zhihu, and bilibili patterns still match; a typed Bilibili request still selects Bilibili while it is hidden |
+| `services/conversation.py` source routing | Typed requests select connectors | Existing juya, github, huggingface, zhihu, and bilibili patterns still match; a typed Bilibili request still selects Bilibili while it is hidden; an untyped message drops hidden names from the stored session list |
 | `collection_outcomes.py` | Empty-state copy | A completed empty collect stays `no_eligible`; only an abort warning becomes `failed` |
 
 ## Workflow (for implementers)
@@ -239,20 +243,21 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### F2 — Composer, history, and empty state follow the hidden list
 
-- [ ] **Do:** Stop using `SHOW_BILIBILI` as the discovery switch. Displayed source lists come from the visible catalog.
-- **Consumes:** B4 `GET /sources` shape: `sources` is the visible catalog, `hidden` names the rest. `prefsFor`, `historySourceOptions`, `EmptyConversation` orbit, `NoEligibleResults` (already filters the catalog it is given).
-- **Produces:** `prefsFor(session, sources, hidden)` drops any session `connector_names` that are in `hidden`. If none remain, the selected list is the visible catalog's defaults. The function does not return a write. `load` in the composer store passes `hidden` and does not PATCH. `historySourceOptions` lists the visible catalog only. The empty-state orbit lists the visible catalog only. `SHOW_BILIBILI` is deleted, and settings or keys tests that flipped it assert against the profile `hidden` flag instead.
+- [x] **Do:** Stop using `SHOW_BILIBILI` as the discovery switch. Displayed source lists come from the visible catalog.
+- **Consumes:** B4 `GET /sources` shape: `sources` is the visible catalog, `hidden` names the rest. `hidden_source_names()` and the untyped source resolution in `services/conversation.py`. `prefsFor`, `historySourceOptions`, `EmptyConversation` orbit, `NoEligibleResults` (already filters the catalog it is given).
+- **Produces:** `prefsFor(session, sources, hidden)` drops any session `connector_names` that are in `hidden`. If none remain, the selected list is the visible catalog's defaults. The function does not return a write. `load` in the composer store passes `hidden` and does not PATCH. `historySourceOptions(catalog)` lists the visible catalog only, which adds OpenRouter. The empty-state orbit lists the visible catalog only. `SHOW_BILIBILI` is deleted, and settings or keys tests that flipped it assert against the profile `hidden` flag instead. `_session_sources` makes an untyped message ignore hidden names in the session's stored list, so the displayed and sent sources agree.
 - **Acceptance:**
   - A session stored as `["bilibili"]` with `hidden` `["bilibili"]` displays the visible defaults, and no preference PATCH is sent by the load.
   - A session stored as `["juya", "bilibili"]` displays `["juya"]` only.
   - The history dropdown and the empty-state orbit omit `bilibili` under that hidden list and include it when `hidden` is empty.
   - Empty-result suggestions receive the visible catalog, so a hidden source is not offered.
   - Settings still renders a profile with `hidden: true`, including its credential group.
-- **Compatibility:** The drop is display-only. The stored `connector_names` stay until the user changes a preference. Typed Bilibili send behavior is backend (B4) and is not reimplemented here.
+  - A session stored as `["bilibili"]` and an untyped message resolve `["juya"]` under the default env. A typed "bilibili videos about X" still resolves `bilibili`. With the env variable set to empty, the stored list is kept.
+- **Compatibility:** The load never writes the drop; the stored `connector_names` stay until the user changes a preference. The backend also ignores hidden names in the stored list for untyped messages. Typed Bilibili requests still route.
 - **Blocked by:** F1, B4
 - **Plan mode:** medium — the named unknown is which components still import `SHOW_BILIBILI` after the composer and history move. Grep it and switch each caller in this task; do not leave a second switch.
-- **TDD suitable:** yes
-- **Verification:** `cd frontend && npm test -- src/vm/composer.test.ts src/stores/composer.test.ts src/vm/history.test.ts src/components/thread/empty-conversation.test.ts src/components/settings/source-settings.test.ts`.
+- **TDD suitable:** partial — frontend view-model and store behavior, plus the backend `_session_sources` slice. Deleting `SHOW_BILIBILI` and its mocks is wiring.
+- **Verification:** `cd frontend && npm test -- src/vm/composer.test.ts src/stores/composer.test.ts src/vm/history.test.ts src/components/thread/empty-conversation.test.ts src/components/settings/source-settings.test.ts`, plus `uv run pytest tests/test_conversation.py -q --tb=line -k hidden`.
 
 ### F3 — Related chip on the digest row and the deep-dive card
 
@@ -282,5 +287,6 @@ B1 starts from the fixture. If the first live call shows different field names o
 | Date | Change | Kind |
 |------|--------|------|
 | 2026-10-20 | Initial plan. Backend B1–B5, frontend F1–F3, one plan. | — |
+| 2026-11-12 | F2 gains a backend slice: untyped messages ignore hidden names in a session's stored `connector_names`, so the displayed and sent sources agree. History and the orbit become catalog-driven, which adds OpenRouter to both. | material (user-approved) |
 | 2026-11-12 | F1 file map gains `frontend/src/vm/run.ts` (the `KINDS` map is `Record<string, EntryKind>`, so a missing kind fails silently) and `frontend/src/styles/thread.css` (badge modifier). | equivalent internal fix |
 | 2026-11-11 | Review-driven corrections to B3/B4/B5: `SOURCE_CATALOG_ORDER` reordered to the spec catalog order (juya, huggingface, openrouter, github, zhihu, bilibili); related-coverage signatures now include the product name (with version/size/variant), so different products with equal attributes no longer link; the OpenRouter search tool sets `topics_are_filters`, and the connector honors `max_items` (newest kept). | equivalent internal fix |
