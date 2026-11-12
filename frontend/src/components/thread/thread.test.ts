@@ -519,8 +519,7 @@ describe('Thread', () => {
     )
   })
 
-  it('offers to keep polling only while the outcome is still unknown', async () => {
-    const wrapper = mount(Thread, {
+  it('offers to keep polling only while the outcome is still unknown', async () => {    const wrapper = mount(Thread, {
       props: {
         messages: [],
         alert: {
@@ -547,5 +546,93 @@ describe('Thread', () => {
     })
 
     expect(known.text()).not.toContain('Keep polling')
+  })
+
+  it('offers the deep-dive reply the same Related chip its digest row shows', async () => {
+    const relatedDigest = {
+      generated_at: '2026-10-01T20:04:00',
+      entries: [{ ...GITHUB_ENTRY, related_display_ranks: [5] }],
+    } as unknown as DigestView
+    const messages = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        content: '',
+        digest: relatedDigest,
+        digest_id: 15,
+        warnings: [],
+      }),
+      assistantMessage({
+        id: 2,
+        sequence: 2,
+        role: 'user',
+        content: 'Deep dive on OpenShell',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        followup_action: 'deep_dive',
+        followup_target: { digest_id: 15, display_rank: 1 },
+      }),
+      assistantMessage({
+        id: 3,
+        sequence: 3,
+        content: 'It is a sandboxed runtime.',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+      }),
+    ])
+    const wrapper = mount(Thread, { props: { messages } })
+
+    // One chip on the digest row, one on the deep-dive card.
+    expect(wrapper.findAll('[data-od-id="related-5"]')).toHaveLength(1)
+    const card = wrapper.findAll('[data-od-id="related-reply-5"]')
+    expect(card).toHaveLength(1)
+    expect(card[0]!.text()).toBe('Related: #5')
+    expect(card[0]!.attributes('aria-label')).toBe(
+      'Related: entry #5 names the same model',
+    )
+
+    await card[0]!.trigger('click')
+
+    // The chip navigates the thread; it never sends a turn.
+    expect(wrapper.emitted('ask')).toBeUndefined()
+    expect(wrapper.emitted('deepdive')).toBeUndefined()
+    expect(wrapper.emitted('repeat')).toBeUndefined()
+  })
+
+  it('shows no Related chip on a deep-dive reply whose entry has none', () => {
+    const messages = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        content: '',
+        digest: DIGEST,
+        digest_id: 15,
+        warnings: [],
+      }),
+      assistantMessage({
+        id: 2,
+        sequence: 2,
+        role: 'user',
+        content: 'Deep dive on OpenShell',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        followup_action: 'deep_dive',
+        followup_target: { digest_id: 15, display_rank: 1 },
+      }),
+      assistantMessage({
+        id: 3,
+        sequence: 3,
+        content: 'It is a sandboxed runtime.',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+      }),
+    ])
+    const wrapper = mount(Thread, { props: { messages } })
+
+    expect(wrapper.find('[data-od-id^="related-reply-"]').exists()).toBe(false)
   })
 })

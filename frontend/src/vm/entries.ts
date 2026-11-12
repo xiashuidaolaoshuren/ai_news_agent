@@ -193,6 +193,10 @@ export function toVm(api: ApiDigestEntry): EntryVm {
     avatar: avatarFor(owner),
     previewUrl: null,
   }
+  const related = api.related_display_ranks
+  if (related !== undefined && related.length > 0) {
+    vm.relatedRanks = [...related]
+  }
   if (kind === 'github') {
     const github = api as GitHubDigestEntryView
     vm.meta = githubMeta(github)
@@ -208,10 +212,6 @@ export function toVm(api: ApiDigestEntry): EntryVm {
   if (kind === 'huggingface') {
     const hf = api as HuggingFaceDigestEntryView
     vm.hf = huggingFaceVm(hf)
-    const related = hf.related_display_ranks
-    if (related !== undefined && related.length > 0) {
-      vm.relatedRanks = [...related]
-    }
   }
   return vm
 }

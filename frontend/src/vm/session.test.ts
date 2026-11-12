@@ -345,6 +345,84 @@ describe('resolved request chips', () => {
   })
 })
 
+describe('deep-dive related ranks', () => {
+  const DIGEST_ENTRY = {
+    source_kind: 'github',
+    source_id: 'gh:qwen-agent',
+    title: 'Qwen/Qwen-Agent',
+    source_name: 'GitHub',
+    source_url: 'https://github.com/Qwen/Qwen-Agent',
+    summary: 'An agent framework.',
+    why_it_matters: 'It is the same model family as the model listing.',
+    display_rank: 3,
+    follow_up_action: 'try',
+    confidence_caveat: null,
+    related_display_ranks: [5],
+  }
+
+  function transcript(action: 'deep_dive' | 'ask' = 'deep_dive', related = [5]) {
+    return toMessages([
+      message({
+        id: 1,
+        sequence: 1,
+        role: 'assistant',
+        content: '',
+        digest_id: 15,
+        digest: {
+          generated_at: '2026-10-01T20:04:00Z',
+          entries: [{ ...DIGEST_ENTRY, related_display_ranks: related }],
+        },
+      } as Partial<MessageOut>),
+      message({
+        id: 2,
+        sequence: 2,
+        content: 'Deep dive on Qwen-Agent',
+        followup_action: action,
+        followup_target: { digest_id: 15, display_rank: 3 },
+      }),
+      message({
+        id: 3,
+        sequence: 3,
+        role: 'assistant',
+        content: 'It wraps tool calls.',
+      }),
+    ])
+  }
+
+  it('carries the target entry ranks on the deep-dive reply', () => {
+    const [, , reply] = transcript()
+
+    expect(reply?.relatedRanks).toEqual([5])
+  })
+
+  it('carries no ranks on an ask reply', () => {
+    const [, , reply] = transcript('ask')
+
+    expect(reply?.relatedRanks).toBeUndefined()
+  })
+
+  it('carries no ranks when the target entry has none', () => {
+    const [, , reply] = transcript('deep_dive', [])
+
+    expect(reply?.relatedRanks).toBeUndefined()
+  })
+
+  it('carries no ranks when the target digest is not in the transcript', () => {
+    const [, , reply] = toMessages([
+      message({
+        id: 2,
+        sequence: 2,
+        content: 'Deep dive on something older',
+        followup_action: 'deep_dive',
+        followup_target: { digest_id: 99, display_rank: 3 },
+      }),
+      message({ id: 3, sequence: 3, role: 'assistant', content: 'It wraps tool calls.' }),
+    ])
+
+    expect(reply?.relatedRanks).toBeUndefined()
+  })
+})
+
 describe('collection outcomes', () => {
   it('maps a finished empty collect to no eligible results', () => {
     const [user, assistant] = toMessages([

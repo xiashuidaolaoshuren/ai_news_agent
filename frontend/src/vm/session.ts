@@ -97,6 +97,11 @@ export interface MessageVm {
   followupAction?: FollowupActionVm
   /** Assistant message: link to the preceding user's follow-up target (`re: #n`). */
   replyRef?: RefVm
+  /**
+   * Assistant reply to a deep dive: the targeted entry's related display ranks,
+   * so the card can offer the same chips its digest row does.
+   */
+  relatedRanks?: number[]
   /** Set on a finished empty collect or a source failure. */
   collection?: CollectionVm
   /** A stored digest request this row can run again. */
@@ -292,10 +297,35 @@ function followupTargetToRef(
   }
 }
 
+/** Map `(digest_id, display_rank)` → the entry's related ranks, from digest messages. */
+function buildDigestRelatedIndex(messages: MessageOut[]): Map<string, number[]> {
+  const index = new Map<string, number[]>()
+  for (const message of messages) {
+    if (message.role !== 'assistant' || message.digest === undefined || message.digest === null) {
+      continue
+    }
+    const digestId = message.digest_id
+    if (digestId === undefined || digestId === null) {
+      continue
+    }
+    for (const entry of message.digest.entries ?? []) {
+      const related = entry.related_display_ranks
+      if (related !== undefined && related.length > 0) {
+        index.set(`${digestId}:${entry.display_rank}`, [...related])
+      }
+    }
+  }
+  return index
+}
+
 export interface MessageMapContext {
   digestTitles: Map<string, string>
+  /** Related ranks per `(digest_id, display_rank)`, for a deep-dive reply's chip row. */
+  digestRelated?: Map<string, number[]>
   /** The immediately preceding user message's follow-up ref, for assistant `re:`. */
   previousUserRef: RefVm | null
+  /** The immediately preceding user message's follow-up action. */
+  previousUserAction?: FollowupActionVm | null
   /** The immediately preceding user message's stored resolution, when it has one. */
   previousRequest?: ResolvedRequestOut | null
   /** The immediately preceding user message, for repeat actions. */
@@ -537,27 +567,48 @@ export function toMessageVm(message: MessageOut, context?: MessageMapContext): M
   if (context?.previousUserRef !== undefined && context?.previousUserRef !== null) {
     vm.replyRef = context.previousUserRef
   }
+  attachDeepDiveRelated(vm, context)
   return vm
+}
+
+/**
+ * A deep-dive reply is markdown, so it has no entry of its own. Give it the
+ * targeted entry's related ranks, which the digest row it came from shows.
+ */
+function attachDeepDiveRelated(vm: MessageVm, context?: MessageMapContext): void {
+  const ref = vm.replyRef
+  if (ref === undefined || context?.previousUserAction !== 'deep_dive') {
+    return
+  }
+  const related = context.digestRelated?.get(`${ref.digestId}:${ref.rank}`)
+  if (related !== undefined && related.length > 0) {
+    vm.relatedRanks = [...related]
+  }
 }
 
 /** Sort and map a page of API messages; resolves follow-up titles from digest rows. */
 export function toMessages(loaded: MessageOut[]): MessageVm[] {
   const sorted = [...loaded].sort((a, b) => a.sequence - b.sequence)
   const digestTitles = buildDigestEntryTitleIndex(sorted)
+  const digestRelated = buildDigestRelatedIndex(sorted)
   let previousUserRef: RefVm | null = null
+  let previousUserAction: FollowupActionVm | null = null
   let previousRequest: ResolvedRequestOut | null = null
   let previousUser: MessageMapContext['previousUser'] = null
   const out: MessageVm[] = []
   for (const message of sorted) {
     const vm = toMessageVm(message, {
       digestTitles,
+      digestRelated,
       previousUserRef,
+      previousUserAction,
       previousRequest,
       previousUser,
     })
     out.push(vm)
     if (message.role === 'user') {
       previousUserRef = vm.ref ?? null
+      previousUserAction = vm.followupAction ?? null
       previousRequest = message.request ?? null
       previousUser = {
         id: message.id,

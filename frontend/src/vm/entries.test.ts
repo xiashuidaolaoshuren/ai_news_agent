@@ -465,4 +465,21 @@ describe('Hugging Face projection', () => {
 
     expect(vm.relatedRanks).toBeUndefined()
   })
+
+  it('maps related_display_ranks for a Zhihu entry', () => {
+    const vm = toVm(zhihuEntry({ related_display_ranks: [2] }))
+
+    expect(vm.relatedRanks).toEqual([2])
+  })
+
+  it('maps related_display_ranks for an OpenRouter entry', () => {
+    const vm = toVm(openRouterEntry({ related_display_ranks: [5, 6] }))
+
+    expect(vm.relatedRanks).toEqual([5, 6])
+  })
+
+  it('leaves relatedRanks unset for an empty rank list on any kind', () => {
+    expect(toVm(zhihuEntry({ related_display_ranks: [] })).relatedRanks).toBeUndefined()
+    expect(toVm(openRouterEntry({ related_display_ranks: [] })).relatedRanks).toBeUndefined()
+  })
 })

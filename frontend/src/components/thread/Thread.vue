@@ -138,6 +138,14 @@ function dataRefAttr(refVm: RefVm): string {
 }
 
 /**
+ * The Related chip a deep-dive reply shows. It points at the entry it discusses,
+ * exactly as the digest row emits it.
+ */
+function cardRelatedRef(replyRef: RefVm, rank: number): RefVm {
+  return { digestId: replyRef.digestId, rank, title: `#${rank}` }
+}
+
+/**
  * Scroll an entry into view and flash it. Uses `data-ref` on rows; related navigations
  * emit from digest children with the same key shape.
  */
@@ -456,6 +464,22 @@ defineExpose({ gotoRef })
             @run-again="emit('runAgain')"
           />
           <MarkdownReply v-else :text="message.text" />
+          <div
+            v-if="message.replyRef && message.relatedRanks?.length"
+            class="row-related"
+          >
+            <button
+              v-for="relatedRank in message.relatedRanks"
+              :key="`related-${relatedRank}`"
+              type="button"
+              class="chip rel-chip"
+              :data-od-id="`related-reply-${relatedRank}`"
+              :aria-label="`Related: entry #${relatedRank} names the same model`"
+              @click="gotoRef(cardRelatedRef(message.replyRef, relatedRank))"
+            >
+              Related: #{{ relatedRank }}
+            </button>
+          </div>
         </div>
       </template>
 

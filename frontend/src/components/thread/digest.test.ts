@@ -256,8 +256,34 @@ describe('DigestReply', () => {
     expect(rows[1]!.find('.free-chip').exists()).toBe(false)
   })
 
-  it('bubbles ask from an entry row up to the digest reply', async () => {
-    const d = digestVm()
+  it('shows the Related chip on a non-Hugging-Face row and emits its rank', async () => {
+    const entry = githubEntry({ relatedRanks: [2] })
+    const d = digestVm({
+      itemCount: 2,
+      sections: [
+        sectionVm({
+          kind: 'github',
+          label: 'GitHub',
+          count: 2,
+          rangeStart: 1,
+          rangeEnd: 2,
+          entries: [entry, githubEntry({ key: 'gh:2', rank: 2, title: 'Other' })],
+        }),
+      ],
+    })
+    const wrapper = mount(DigestReply, { props: { digest: d } })
+
+    const chip = wrapper.get('[data-od-id="related-2"]')
+    expect(chip.text()).toBe('Related: #2')
+
+    await chip.trigger('click')
+
+    expect(wrapper.emitted('goto-related')).toEqual([
+      [{ digestId: d.digestId ?? 15, rank: 2, title: '#2' }],
+    ])
+  })
+
+  it('bubbles ask from an entry row up to the digest reply', async () => {    const d = digestVm()
     const wrapper = mount(DigestReply, { props: { digest: d } })
     const expected: RefVm = {
       digestId: d.digestId ?? 15,
