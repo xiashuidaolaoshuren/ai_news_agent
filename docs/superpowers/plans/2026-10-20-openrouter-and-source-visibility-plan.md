@@ -99,10 +99,12 @@ Out of scope: usage rankings, price-change history, removing the Bilibili connec
 | `frontend/src/api/generated/*` | modify | Regenerated client | generated | verified |
 | `frontend/src/vm/types.ts` | modify | Kind union | `EntryKind` includes `'openrouter'` | verified |
 | `frontend/src/vm/digest.ts` | modify | Label and section subtitle | `SOURCE_LABELS`, `SECTION_SUBTITLES` | verified |
+| `frontend/src/vm/run.ts` | modify | Run-progress kind mapping (not type-checked) | `KINDS.openrouter` | verified |
 | `frontend/src/vm/entries.ts` | modify | Metrics line and badge | `openRouterMeta`; `EntryVm` badge field | verified |
 | `frontend/src/components/thread/SourceLogo.vue` | modify | Logo lookup | `LOGOS.openrouter` | verified |
 | `frontend/src/assets/sources/openrouter.svg` | create | Logo asset | static file | provisional |
 | `frontend/src/components/thread/EntryRow.vue` | modify | Render the metrics line and the Free token pricing badge | existing meta line | verified |
+| `frontend/src/styles/thread.css` | modify | Badge modifier reusing existing tokens | `.free-chip` | verified |
 | `frontend/src/vm/digest.test.ts`, `entries.test.ts` | modify | Kind, metrics, badge | vitest | verified |
 
 ### Blast radius
@@ -219,7 +221,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### F1 — OpenRouter entry presentation
 
-- [ ] **Do:** Show OpenRouter entries with a logo, a metrics line, and the Free token pricing badge.
+- [x] **Do:** Show OpenRouter entries with a logo, a metrics line, and the Free token pricing badge.
 - **Consumes:** B3 `OpenRouterDigestEntryView` and B5 `related_display_ranks` on the common view (regenerate the client once, after both).
 - **Produces:** Regenerated `frontend/openapi.json` and `frontend/src/api/generated/*`. `EntryKind` includes `'openrouter'`. `sourceLabel('openrouter')` is `OpenRouter`. Section subtitle is `Models you can call`. `SourceLogo` resolves `frontend/src/assets/sources/openrouter.svg`. `toEntryVm` sets `meta` to the metrics line: context length, input price per million, output price per million, omitting any segment whose value is null. `EntryVm.badge` is `Free token pricing` when `free_token_pricing` is true and absent otherwise. `EntryRow` renders `badge` beside the meta line.
 - **Acceptance:**
@@ -280,4 +282,5 @@ B1 starts from the fixture. If the first live call shows different field names o
 | Date | Change | Kind |
 |------|--------|------|
 | 2026-10-20 | Initial plan. Backend B1–B5, frontend F1–F3, one plan. | — |
+| 2026-11-12 | F1 file map gains `frontend/src/vm/run.ts` (the `KINDS` map is `Record<string, EntryKind>`, so a missing kind fails silently) and `frontend/src/styles/thread.css` (badge modifier). | equivalent internal fix |
 | 2026-11-11 | Review-driven corrections to B3/B4/B5: `SOURCE_CATALOG_ORDER` reordered to the spec catalog order (juya, huggingface, openrouter, github, zhihu, bilibili); related-coverage signatures now include the product name (with version/size/variant), so different products with equal attributes no longer link; the OpenRouter search tool sets `topics_are_filters`, and the connector honors `max_items` (newest kept). | equivalent internal fix |
