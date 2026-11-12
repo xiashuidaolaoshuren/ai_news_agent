@@ -6,6 +6,7 @@ import type {
   SourceKind,
 } from '@/api/generated/types.gen'
 import { toDigestVm, toSectionsVm, toWarningVm } from '@/vm'
+import { sourceKind } from '@/vm/run'
 
 function entry(kind: SourceKind, rank: number, id?: string): DigestEntryView {
   return {
@@ -75,19 +76,27 @@ describe('toSectionsVm', () => {
       entry('juya', 1),
       entry('github', 2),
       entry('huggingface', 3),
-      entry('zhihu', 4),
+      entry('openrouter', 4),
+      entry('zhihu', 5),
     ])
 
     expect(sections.map((section) => [section.label, section.subtitle])).toEqual([
       ['Juya', '橘鸦 AI 早报'],
       ['GitHub', 'Trending repositories'],
       ['Hugging Face', 'Trending models'],
+      ['OpenRouter', 'Models you can call'],
       ['Zhihu', null],
     ])
   })
 
   it('returns no sections for no entries', () => {
     expect(toSectionsVm([])).toEqual([])
+  })
+
+  it('maps the run-progress connector name for every kind', () => {
+    expect(sourceKind('openrouter')).toBe('openrouter')
+    expect(sourceKind('bilibili')).toBe('bilibili')
+    expect(sourceKind('unknown-source')).toBeNull()
   })
 })
 

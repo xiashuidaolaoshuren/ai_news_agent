@@ -1,6 +1,12 @@
 /** View-model types. API types stop at the `toVm` boundary. */
 
-export type EntryKind = 'github' | 'huggingface' | 'juya' | 'zhihu' | 'bilibili'
+export type EntryKind =
+  | 'github'
+  | 'huggingface'
+  | 'juya'
+  | 'zhihu'
+  | 'bilibili'
+  | 'openrouter'
 
 export type FollowUpKind = 'read' | 'watch' | 'try' | 'build'
 
@@ -63,6 +69,8 @@ export interface EntryVm {
   avatar: AvatarVm
   previewUrl: string | null
   meta?: string
+  /** Short claim shown beside the meta line, e.g. `Free token pricing`. */
+  badge?: string
   hf?: HfVm
   juya?: JuyaVm
   /** Hugging Face only: ranks for Related chips. */

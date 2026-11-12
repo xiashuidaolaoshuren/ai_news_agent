@@ -52,7 +52,7 @@
   border-radius: 3px;
 }
 
-.logo.gh {
+.logo.invert {
   filter: invert(var(--logo-invert));
 }
 
@@ -660,6 +660,13 @@ tr.hl,
   background: var(--info-bg);
   color: var(--info-ink);
   box-shadow: inset 0 0 0 1px var(--info-bd);
+}
+
+/* OpenRouter's pricing claim; a quiet positive tint, never a call to action. */
+.free-chip {
+  font-weight: 500;
+  background: var(--sunken);
+  color: var(--accent-strong);
 }
 
 .ref-chip {

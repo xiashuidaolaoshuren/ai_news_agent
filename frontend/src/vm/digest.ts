@@ -33,12 +33,14 @@ const SOURCE_LABELS: Record<EntryKind, string> = {
   github: 'GitHub',
   zhihu: 'Zhihu',
   bilibili: 'Bilibili',
+  openrouter: 'OpenRouter',
 }
 
 const SECTION_SUBTITLES: Partial<Record<EntryKind, string>> = {
   juya: '橘鸦 AI 早报',
   huggingface: 'Trending models',
   github: 'Trending repositories',
+  openrouter: 'Models you can call',
 }
 
 /** Display label for a source kind. */

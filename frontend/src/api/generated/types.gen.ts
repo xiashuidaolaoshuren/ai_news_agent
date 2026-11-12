@@ -143,6 +143,10 @@ export type DigestEntryView = {
      * Output Language
      */
     output_language?: string | null;
+    /**
+     * Related Display Ranks
+     */
+    related_display_ranks?: Array<number>;
 };
 
 /**
@@ -166,7 +170,7 @@ export type DigestView = {
     /**
      * Entries
      */
-    entries?: Array<GitHubDigestEntryView | HuggingFaceDigestEntryView | JuyaDigestEntryView | DigestEntryView>;
+    entries?: Array<GitHubDigestEntryView | HuggingFaceDigestEntryView | JuyaDigestEntryView | OpenRouterDigestEntryView | DigestEntryView>;
 };
 
 /**
@@ -267,6 +271,10 @@ export type GitHubDigestEntryView = {
      * Output Language
      */
     output_language?: string | null;
+    /**
+     * Related Display Ranks
+     */
+    related_display_ranks?: Array<number>;
     owner?: PublisherOwnerView | null;
     /**
      * Preview Image Url
@@ -344,6 +352,8 @@ export type HistoryItemShowOut = {
     } & HuggingFaceDigestEntryView) | ({
         source_kind: 'juya';
     } & JuyaDigestEntryView) | ({
+        source_kind: 'openrouter';
+    } & OpenRouterDigestEntryView) | ({
         source_kind: 'bilibili' | 'zhihu';
     } & DigestEntryView) | null;
 };
@@ -457,6 +467,10 @@ export type HuggingFaceDigestEntryView = {
      * Output Language
      */
     output_language?: string | null;
+    /**
+     * Related Display Ranks
+     */
+    related_display_ranks?: Array<number>;
     owner?: PublisherOwnerView | null;
     /**
      * Base Model
@@ -482,10 +496,6 @@ export type HuggingFaceDigestEntryView = {
      * Family Variants
      */
     family_variants?: Array<FamilyVariant>;
-    /**
-     * Related Display Ranks
-     */
-    related_display_ranks?: Array<number>;
 };
 
 /**
@@ -573,6 +583,10 @@ export type JuyaDigestEntryView = {
      * Output Language
      */
     output_language?: string | null;
+    /**
+     * Related Display Ranks
+     */
+    related_display_ranks?: Array<number>;
     /**
      * Item Type
      */
@@ -732,6 +746,87 @@ export type MessageOut = {
 };
 
 /**
+ * OpenRouterDigestEntryView
+ *
+ * OpenRouter digest entry with callable-model listing metadata.
+ */
+export type OpenRouterDigestEntryView = {
+    /**
+     * Source Kind
+     */
+    source_kind?: 'openrouter';
+    /**
+     * Source Id
+     */
+    source_id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Source Name
+     */
+    source_name: string;
+    /**
+     * Source Url
+     */
+    source_url: string;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Why It Matters
+     */
+    why_it_matters: string;
+    /**
+     * Background Knowledge
+     */
+    background_knowledge: string;
+    follow_up_action: FollowUpAction;
+    /**
+     * Confidence Caveat
+     */
+    confidence_caveat?: string | null;
+    /**
+     * Display Rank
+     */
+    display_rank: number;
+    /**
+     * Output Language
+     */
+    output_language?: string | null;
+    /**
+     * Related Display Ranks
+     */
+    related_display_ranks?: Array<number>;
+    /**
+     * Context Length
+     */
+    context_length?: number | null;
+    /**
+     * Prompt Price Per Million
+     */
+    prompt_price_per_million?: string | null;
+    /**
+     * Completion Price Per Million
+     */
+    completion_price_per_million?: string | null;
+    /**
+     * Free Token Pricing
+     */
+    free_token_pricing?: boolean;
+    /**
+     * Input Modalities
+     */
+    input_modalities?: Array<string>;
+    /**
+     * Provider
+     */
+    provider?: string | null;
+};
+
+/**
  * PostMessageBody
  */
 export type PostMessageBody = {
@@ -856,6 +951,12 @@ export type ResolvedRequestOut = {
      * Timeframe
      */
     timeframe?: string | null;
+    /**
+     * Windows
+     */
+    windows?: {
+        [key: string]: string;
+    };
     /**
      * Topics
      */
@@ -987,7 +1088,7 @@ export type SessionSearchPageOut = {
 /**
  * SourceKind
  */
-export type SourceKind = 'github' | 'bilibili' | 'juya' | 'huggingface' | 'zhihu';
+export type SourceKind = 'github' | 'bilibili' | 'juya' | 'huggingface' | 'zhihu' | 'openrouter';
 
 /**
  * SourceProfileListOut

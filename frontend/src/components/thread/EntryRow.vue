@@ -121,6 +121,7 @@ const showsBackground = computed(
       <div class="entry-src">
         <SourceTag :kind="props.entry.kind" />
         <span>{{ sourceText }}</span>
+        <span v-if="props.entry.badge" class="chip free-chip">{{ props.entry.badge }}</span>
         <a
           v-if="externalHost && externalUrl"
           class="ext"

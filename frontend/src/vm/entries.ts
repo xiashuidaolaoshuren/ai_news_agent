@@ -3,6 +3,7 @@ import type {
   GitHubDigestEntryView,
   HuggingFaceDigestEntryView,
   JuyaDigestEntryView,
+  OpenRouterDigestEntryView,
   PublisherOwnerView,
 } from '@/api/generated/types.gen'
 import type { AvatarVm, EntryKind, EntryVm, HfVm } from '@/vm/types'
@@ -134,6 +135,26 @@ export function githubMeta(entry: GitHubDigestEntryView): string | undefined {
   return parts.length === 0 ? undefined : parts.join(' · ')
 }
 
+/**
+ * OpenRouter meta line: `context ctx · $prompt in / 1M · $completion out / 1M`,
+ * omitting any segment the listing did not supply.
+ */
+export function openRouterMeta(entry: OpenRouterDigestEntryView): string | undefined {
+  const parts: string[] = []
+  if (typeof entry.context_length === 'number') {
+    parts.push(`${formatCount(entry.context_length)} ctx`)
+  }
+  const prompt = textOrNull(entry.prompt_price_per_million)
+  if (prompt !== null) {
+    parts.push(`$${prompt} in / 1M`)
+  }
+  const completion = textOrNull(entry.completion_price_per_million)
+  if (completion !== null) {
+    parts.push(`$${completion} out / 1M`)
+  }
+  return parts.length === 0 ? undefined : parts.join(' · ')
+}
+
 /** Hugging Face comparison-table data. `modelId` is the entry title (the repo id). */
 export function huggingFaceVm(entry: HuggingFaceDigestEntryView): HfVm {
   const variants = (entry.family_variants ?? []).map((variant) => ({
@@ -176,6 +197,13 @@ export function toVm(api: ApiDigestEntry): EntryVm {
     const github = api as GitHubDigestEntryView
     vm.meta = githubMeta(github)
     vm.previewUrl = resolveDemoAsset(github.preview_image_url)
+  }
+  if (kind === 'openrouter') {
+    const openRouter = api as OpenRouterDigestEntryView
+    vm.meta = openRouterMeta(openRouter)
+    if (openRouter.free_token_pricing === true) {
+      vm.badge = 'Free token pricing'
+    }
   }
   if (kind === 'huggingface') {
     const hf = api as HuggingFaceDigestEntryView

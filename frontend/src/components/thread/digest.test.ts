@@ -211,6 +211,51 @@ describe('DigestReply', () => {
     expect(row.get('.entry-src .ext').attributes('href')).toBe('https://original.test/story-1')
   })
 
+  it('shows the OpenRouter metrics line and only the free-token badge', () => {
+    const free = githubEntry({
+      key: 'openrouter:1',
+      kind: 'openrouter',
+      title: 'Meta: Llama 3.3 70B Instruct (free)',
+      sourceName: 'OpenRouter',
+      host: 'openrouter.ai',
+      meta: '128,000 ctx · $0 in / 1M · $0 out / 1M',
+      badge: 'Free token pricing',
+    })
+    const priced = githubEntry({
+      key: 'openrouter:2',
+      kind: 'openrouter',
+      rank: 2,
+      title: 'Anthropic: Claude Sonnet 4',
+      sourceName: 'OpenRouter',
+      host: 'openrouter.ai',
+      meta: '200,000 ctx · $3 in / 1M · $15 out / 1M',
+    })
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          itemCount: 2,
+          sections: [
+            sectionVm({
+              kind: 'openrouter',
+              label: 'OpenRouter',
+              subtitle: 'Models you can call',
+              count: 2,
+              rangeStart: 1,
+              rangeEnd: 2,
+              entries: [free, priced],
+            }),
+          ],
+        }),
+      },
+    })
+    const rows = wrapper.findAll('.entries .entry')
+
+    expect(rows[0]!.get('.entry-src').text()).toContain('128,000 ctx · $0 in / 1M · $0 out / 1M')
+    expect(rows[0]!.get('.free-chip').text()).toBe('Free token pricing')
+    expect(rows[1]!.get('.entry-src').text()).toContain('200,000 ctx')
+    expect(rows[1]!.find('.free-chip').exists()).toBe(false)
+  })
+
   it('bubbles ask from an entry row up to the digest reply', async () => {
     const d = digestVm()
     const wrapper = mount(DigestReply, { props: { digest: d } })

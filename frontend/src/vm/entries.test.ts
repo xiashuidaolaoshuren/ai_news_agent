@@ -4,6 +4,7 @@ import type {
   DigestEntryView,
   GitHubDigestEntryView,
   HuggingFaceDigestEntryView,
+  OpenRouterDigestEntryView,
 } from '@/api/generated/types.gen'
 import { resolveDemoAsset, safeHttpUrl, toVm } from '@/vm'
 
@@ -60,6 +61,91 @@ describe('toVm', () => {
     expect(vm.hf).toBeUndefined()
     expect(vm.juya).toBeUndefined()
     expect(vm.previewUrl).toBeNull()
+  })
+})
+
+function openRouterEntry(
+  overrides: Partial<OpenRouterDigestEntryView> = {},
+): OpenRouterDigestEntryView {
+  return {
+    source_kind: 'openrouter',
+    source_id: 'anthropic/claude-sonnet-4',
+    title: 'Anthropic: Claude Sonnet 4',
+    source_name: 'OpenRouter',
+    source_url: 'https://openrouter.ai/anthropic/claude-sonnet-4',
+    summary: 'A callable model listing.',
+    why_it_matters: 'One API for many providers.',
+    background_knowledge: 'OpenRouter routes to provider endpoints.',
+    follow_up_action: 'try',
+    display_rank: 2,
+    context_length: 128000,
+    prompt_price_per_million: '0.15',
+    completion_price_per_million: '0.6',
+    free_token_pricing: false,
+    input_modalities: ['text'],
+    provider: 'anthropic',
+    ...overrides,
+  }
+}
+
+describe('OpenRouter entries', () => {
+  it('renders context length and both prices on the metrics line', () => {
+    const vm = toVm(openRouterEntry())
+
+    expect(vm.kind).toBe('openrouter')
+    expect(vm.meta).toBe('128,000 ctx · $0.15 in / 1M · $0.6 out / 1M')
+  })
+
+  it('omits a segment whose value is missing or blank', () => {
+    expect(
+      toVm(openRouterEntry({ prompt_price_per_million: null })).meta,
+    ).toBe('128,000 ctx · $0.6 out / 1M')
+    expect(
+      toVm(openRouterEntry({ completion_price_per_million: '  ' })).meta,
+    ).toBe('128,000 ctx · $0.15 in / 1M')
+  })
+
+  it('has no metrics line when every value is unknown', () => {
+    const vm = toVm(
+      openRouterEntry({
+        context_length: null,
+        prompt_price_per_million: null,
+        completion_price_per_million: null,
+      }),
+    )
+
+    expect(vm.meta).toBeUndefined()
+  })
+
+  it('badges only a listing with known-zero token prices', () => {
+    expect(
+      toVm(
+        openRouterEntry({
+          prompt_price_per_million: '0',
+          completion_price_per_million: '0',
+          free_token_pricing: true,
+        }),
+      ).badge,
+    ).toBe('Free token pricing')
+  })
+
+  it('does not badge a priced listing or a :free id without zero prices', () => {
+    expect(toVm(openRouterEntry()).badge).toBeUndefined()
+    expect(
+      toVm(
+        openRouterEntry({
+          source_id: 'meta-llama/llama-3.1-8b:free',
+          source_name: 'Meta: Llama 3.1 8B (free)',
+          prompt_price_per_million: null,
+          completion_price_per_million: null,
+          free_token_pricing: false,
+        }),
+      ).badge,
+    ).toBeUndefined()
+  })
+
+  it('gives no other kind the badge', () => {
+    expect(toVm(zhihuEntry()).badge).toBeUndefined()
   })
 })
 

@@ -575,6 +575,13 @@
                             }
                           ],
                           "title": "Output Language"
+                        },
+                        "related_display_ranks": {
+                          "items": {
+                            "type": "integer"
+                          },
+                          "title": "Related Display Ranks",
+                          "type": "array"
                         }
                       },
                       "required": [
@@ -687,6 +694,7 @@
                                 "github": "#/components/schemas/GitHubDigestEntryView",
                                 "huggingface": "#/components/schemas/HuggingFaceDigestEntryView",
                                 "juya": "#/components/schemas/JuyaDigestEntryView",
+                                "openrouter": "#/components/schemas/OpenRouterDigestEntryView",
                                 "zhihu": "#/components/schemas/DigestEntryView"
                               },
                               "propertyName": "source_kind"
@@ -700,6 +708,9 @@
                               },
                               {
                                 "$ref": "#/components/schemas/JuyaDigestEntryView"
+                              },
+                              {
+                                "$ref": "#/components/schemas/OpenRouterDigestEntryView"
                               },
                               {
                                 "$ref": "#/components/schemas/DigestEntryView"
@@ -947,6 +958,13 @@
                           ],
                           "title": "Output Language"
                         },
+                        "related_display_ranks": {
+                          "items": {
+                            "type": "integer"
+                          },
+                          "title": "Related Display Ranks",
+                          "type": "array"
+                        },
                         "owner": {
                           "anyOf": [
                             {
@@ -1082,6 +1100,13 @@
                           ],
                           "title": "Output Language"
                         },
+                        "related_display_ranks": {
+                          "items": {
+                            "type": "integer"
+                          },
+                          "title": "Related Display Ranks",
+                          "type": "array"
+                        },
                         "owner": {
                           "anyOf": [
                             {
@@ -1155,13 +1180,6 @@
                             "$ref": "#/components/schemas/FamilyVariant"
                           },
                           "title": "Family Variants",
-                          "type": "array"
-                        },
-                        "related_display_ranks": {
-                          "items": {
-                            "type": "integer"
-                          },
-                          "title": "Related Display Ranks",
                           "type": "array"
                         }
                       },
@@ -1244,6 +1262,13 @@
                             }
                           ],
                           "title": "Output Language"
+                        },
+                        "related_display_ranks": {
+                          "items": {
+                            "type": "integer"
+                          },
+                          "title": "Related Display Ranks",
+                          "type": "array"
                         },
                         "item_type": {
                           "anyOf": [
@@ -1393,6 +1418,150 @@
                         }
                       },
                       "title": "JuyaStoryView",
+                      "type": "object"
+                    },
+                    "OpenRouterDigestEntryView": {
+                      "description": "OpenRouter digest entry with callable-model listing metadata.",
+                      "properties": {
+                        "source_kind": {
+                          "const": "openrouter",
+                          "default": "openrouter",
+                          "title": "Source Kind",
+                          "type": "string"
+                        },
+                        "source_id": {
+                          "title": "Source Id",
+                          "type": "string"
+                        },
+                        "title": {
+                          "title": "Title",
+                          "type": "string"
+                        },
+                        "source_name": {
+                          "title": "Source Name",
+                          "type": "string"
+                        },
+                        "source_url": {
+                          "title": "Source Url",
+                          "type": "string"
+                        },
+                        "summary": {
+                          "title": "Summary",
+                          "type": "string"
+                        },
+                        "why_it_matters": {
+                          "title": "Why It Matters",
+                          "type": "string"
+                        },
+                        "background_knowledge": {
+                          "title": "Background Knowledge",
+                          "type": "string"
+                        },
+                        "follow_up_action": {
+                          "$ref": "#/components/schemas/FollowUpAction"
+                        },
+                        "confidence_caveat": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Confidence Caveat"
+                        },
+                        "display_rank": {
+                          "title": "Display Rank",
+                          "type": "integer"
+                        },
+                        "output_language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Output Language"
+                        },
+                        "related_display_ranks": {
+                          "items": {
+                            "type": "integer"
+                          },
+                          "title": "Related Display Ranks",
+                          "type": "array"
+                        },
+                        "context_length": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Context Length"
+                        },
+                        "prompt_price_per_million": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Prompt Price Per Million"
+                        },
+                        "completion_price_per_million": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Completion Price Per Million"
+                        },
+                        "free_token_pricing": {
+                          "default": false,
+                          "title": "Free Token Pricing",
+                          "type": "boolean"
+                        },
+                        "input_modalities": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "title": "Input Modalities",
+                          "type": "array"
+                        },
+                        "provider": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Provider"
+                        }
+                      },
+                      "required": [
+                        "source_id",
+                        "title",
+                        "source_name",
+                        "source_url",
+                        "summary",
+                        "why_it_matters",
+                        "background_knowledge",
+                        "follow_up_action",
+                        "display_rank"
+                      ],
+                      "title": "OpenRouterDigestEntryView",
                       "type": "object"
                     },
                     "ProgressPayload": {
@@ -1556,6 +1725,13 @@
                             }
                           ],
                           "title": "Timeframe"
+                        },
+                        "windows": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "title": "Windows",
+                          "type": "object"
                         },
                         "topics": {
                           "items": {
@@ -2010,6 +2186,13 @@
                             }
                           ],
                           "title": "Output Language"
+                        },
+                        "related_display_ranks": {
+                          "items": {
+                            "type": "integer"
+                          },
+                          "title": "Related Display Ranks",
+                          "type": "array"
                         }
                       },
                       "required": [
@@ -2122,6 +2305,7 @@
                                 "github": "#/components/schemas/GitHubDigestEntryView",
                                 "huggingface": "#/components/schemas/HuggingFaceDigestEntryView",
                                 "juya": "#/components/schemas/JuyaDigestEntryView",
+                                "openrouter": "#/components/schemas/OpenRouterDigestEntryView",
                                 "zhihu": "#/components/schemas/DigestEntryView"
                               },
                               "propertyName": "source_kind"
@@ -2135,6 +2319,9 @@
                               },
                               {
                                 "$ref": "#/components/schemas/JuyaDigestEntryView"
+                              },
+                              {
+                                "$ref": "#/components/schemas/OpenRouterDigestEntryView"
                               },
                               {
                                 "$ref": "#/components/schemas/DigestEntryView"
@@ -2382,6 +2569,13 @@
                           ],
                           "title": "Output Language"
                         },
+                        "related_display_ranks": {
+                          "items": {
+                            "type": "integer"
+                          },
+                          "title": "Related Display Ranks",
+                          "type": "array"
+                        },
                         "owner": {
                           "anyOf": [
                             {
@@ -2517,6 +2711,13 @@
                           ],
                           "title": "Output Language"
                         },
+                        "related_display_ranks": {
+                          "items": {
+                            "type": "integer"
+                          },
+                          "title": "Related Display Ranks",
+                          "type": "array"
+                        },
                         "owner": {
                           "anyOf": [
                             {
@@ -2590,13 +2791,6 @@
                             "$ref": "#/components/schemas/FamilyVariant"
                           },
                           "title": "Family Variants",
-                          "type": "array"
-                        },
-                        "related_display_ranks": {
-                          "items": {
-                            "type": "integer"
-                          },
-                          "title": "Related Display Ranks",
                           "type": "array"
                         }
                       },
@@ -2679,6 +2873,13 @@
                             }
                           ],
                           "title": "Output Language"
+                        },
+                        "related_display_ranks": {
+                          "items": {
+                            "type": "integer"
+                          },
+                          "title": "Related Display Ranks",
+                          "type": "array"
                         },
                         "item_type": {
                           "anyOf": [
@@ -2828,6 +3029,150 @@
                         }
                       },
                       "title": "JuyaStoryView",
+                      "type": "object"
+                    },
+                    "OpenRouterDigestEntryView": {
+                      "description": "OpenRouter digest entry with callable-model listing metadata.",
+                      "properties": {
+                        "source_kind": {
+                          "const": "openrouter",
+                          "default": "openrouter",
+                          "title": "Source Kind",
+                          "type": "string"
+                        },
+                        "source_id": {
+                          "title": "Source Id",
+                          "type": "string"
+                        },
+                        "title": {
+                          "title": "Title",
+                          "type": "string"
+                        },
+                        "source_name": {
+                          "title": "Source Name",
+                          "type": "string"
+                        },
+                        "source_url": {
+                          "title": "Source Url",
+                          "type": "string"
+                        },
+                        "summary": {
+                          "title": "Summary",
+                          "type": "string"
+                        },
+                        "why_it_matters": {
+                          "title": "Why It Matters",
+                          "type": "string"
+                        },
+                        "background_knowledge": {
+                          "title": "Background Knowledge",
+                          "type": "string"
+                        },
+                        "follow_up_action": {
+                          "$ref": "#/components/schemas/FollowUpAction"
+                        },
+                        "confidence_caveat": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Confidence Caveat"
+                        },
+                        "display_rank": {
+                          "title": "Display Rank",
+                          "type": "integer"
+                        },
+                        "output_language": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Output Language"
+                        },
+                        "related_display_ranks": {
+                          "items": {
+                            "type": "integer"
+                          },
+                          "title": "Related Display Ranks",
+                          "type": "array"
+                        },
+                        "context_length": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Context Length"
+                        },
+                        "prompt_price_per_million": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Prompt Price Per Million"
+                        },
+                        "completion_price_per_million": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Completion Price Per Million"
+                        },
+                        "free_token_pricing": {
+                          "default": false,
+                          "title": "Free Token Pricing",
+                          "type": "boolean"
+                        },
+                        "input_modalities": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "title": "Input Modalities",
+                          "type": "array"
+                        },
+                        "provider": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Provider"
+                        }
+                      },
+                      "required": [
+                        "source_id",
+                        "title",
+                        "source_name",
+                        "source_url",
+                        "summary",
+                        "why_it_matters",
+                        "background_knowledge",
+                        "follow_up_action",
+                        "display_rank"
+                      ],
+                      "title": "OpenRouterDigestEntryView",
                       "type": "object"
                     },
                     "ProgressPayload": {
@@ -2991,6 +3336,13 @@
                             }
                           ],
                           "title": "Timeframe"
+                        },
+                        "windows": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "title": "Windows",
+                          "type": "object"
                         },
                         "topics": {
                           "items": {
@@ -3885,6 +4237,13 @@
               }
             ],
             "title": "Output Language"
+          },
+          "related_display_ranks": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Related Display Ranks"
           }
         },
         "type": "object",
@@ -3941,6 +4300,9 @@
                   "$ref": "#/components/schemas/JuyaDigestEntryView"
                 },
                 {
+                  "$ref": "#/components/schemas/OpenRouterDigestEntryView"
+                },
+                {
                   "$ref": "#/components/schemas/DigestEntryView"
                 }
               ],
@@ -3951,6 +4313,7 @@
                   "github": "#/components/schemas/GitHubDigestEntryView",
                   "huggingface": "#/components/schemas/HuggingFaceDigestEntryView",
                   "juya": "#/components/schemas/JuyaDigestEntryView",
+                  "openrouter": "#/components/schemas/OpenRouterDigestEntryView",
                   "zhihu": "#/components/schemas/DigestEntryView"
                 }
               }
@@ -4112,6 +4475,13 @@
             ],
             "title": "Output Language"
           },
+          "related_display_ranks": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Related Display Ranks"
+          },
           "owner": {
             "anyOf": [
               {
@@ -4253,6 +4623,9 @@
                     "$ref": "#/components/schemas/JuyaDigestEntryView"
                   },
                   {
+                    "$ref": "#/components/schemas/OpenRouterDigestEntryView"
+                  },
+                  {
                     "$ref": "#/components/schemas/DigestEntryView"
                   }
                 ],
@@ -4263,6 +4636,7 @@
                     "github": "#/components/schemas/GitHubDigestEntryView",
                     "huggingface": "#/components/schemas/HuggingFaceDigestEntryView",
                     "juya": "#/components/schemas/JuyaDigestEntryView",
+                    "openrouter": "#/components/schemas/OpenRouterDigestEntryView",
                     "zhihu": "#/components/schemas/DigestEntryView"
                   }
                 }
@@ -4450,6 +4824,13 @@
             ],
             "title": "Output Language"
           },
+          "related_display_ranks": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Related Display Ranks"
+          },
           "owner": {
             "anyOf": [
               {
@@ -4524,13 +4905,6 @@
             },
             "type": "array",
             "title": "Family Variants"
-          },
-          "related_display_ranks": {
-            "items": {
-              "type": "integer"
-            },
-            "type": "array",
-            "title": "Related Display Ranks"
           }
         },
         "type": "object",
@@ -4671,6 +5045,13 @@
               }
             ],
             "title": "Output Language"
+          },
+          "related_display_ranks": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Related Display Ranks"
           },
           "item_type": {
             "anyOf": [
@@ -5068,6 +5449,150 @@
         ],
         "title": "MessageOut"
       },
+      "OpenRouterDigestEntryView": {
+        "properties": {
+          "source_kind": {
+            "type": "string",
+            "const": "openrouter",
+            "title": "Source Kind",
+            "default": "openrouter"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "source_name": {
+            "type": "string",
+            "title": "Source Name"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "why_it_matters": {
+            "type": "string",
+            "title": "Why It Matters"
+          },
+          "background_knowledge": {
+            "type": "string",
+            "title": "Background Knowledge"
+          },
+          "follow_up_action": {
+            "$ref": "#/components/schemas/FollowUpAction"
+          },
+          "confidence_caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence Caveat"
+          },
+          "display_rank": {
+            "type": "integer",
+            "title": "Display Rank"
+          },
+          "output_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Language"
+          },
+          "related_display_ranks": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Related Display Ranks"
+          },
+          "context_length": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Length"
+          },
+          "prompt_price_per_million": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Price Per Million"
+          },
+          "completion_price_per_million": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Price Per Million"
+          },
+          "free_token_pricing": {
+            "type": "boolean",
+            "title": "Free Token Pricing",
+            "default": false
+          },
+          "input_modalities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Input Modalities"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "title",
+          "source_name",
+          "source_url",
+          "summary",
+          "why_it_matters",
+          "background_knowledge",
+          "follow_up_action",
+          "display_rank"
+        ],
+        "title": "OpenRouterDigestEntryView",
+        "description": "OpenRouter digest entry with callable-model listing metadata."
+      },
       "PostMessageBody": {
         "properties": {
           "content": {
@@ -5333,6 +5858,13 @@
               }
             ],
             "title": "Timeframe"
+          },
+          "windows": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Windows"
           },
           "topics": {
             "items": {
@@ -5617,7 +6149,8 @@
           "bilibili",
           "juya",
           "huggingface",
-          "zhihu"
+          "zhihu",
+          "openrouter"
         ],
         "title": "SourceKind"
       },
@@ -5719,6 +6252,13 @@
                 ],
                 "default": null,
                 "title": "Timeframe"
+              },
+              "windows": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "title": "Windows",
+                "type": "object"
               },
               "topics": {
                 "items": {
@@ -6004,6 +6544,13 @@
                 ],
                 "default": null,
                 "title": "Output Language"
+              },
+              "related_display_ranks": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Related Display Ranks",
+                "type": "array"
               }
             },
             "required": [
@@ -6056,6 +6603,7 @@
                       "github": "#/components/schemas/GitHubDigestEntryView",
                       "huggingface": "#/components/schemas/HuggingFaceDigestEntryView",
                       "juya": "#/components/schemas/JuyaDigestEntryView",
+                      "openrouter": "#/components/schemas/OpenRouterDigestEntryView",
                       "zhihu": "#/components/schemas/DigestEntryView"
                     },
                     "propertyName": "source_kind"
@@ -6069,6 +6617,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/JuyaDigestEntryView"
+                    },
+                    {
+                      "$ref": "#/components/schemas/OpenRouterDigestEntryView"
                     },
                     {
                       "$ref": "#/components/schemas/DigestEntryView"
@@ -6218,6 +6769,13 @@
                 "default": null,
                 "title": "Output Language"
               },
+              "related_display_ranks": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Related Display Ranks",
+                "type": "array"
+              },
               "owner": {
                 "anyOf": [
                   {
@@ -6360,6 +6918,13 @@
                 "default": null,
                 "title": "Output Language"
               },
+              "related_display_ranks": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Related Display Ranks",
+                "type": "array"
+              },
               "owner": {
                 "anyOf": [
                   {
@@ -6439,13 +7004,6 @@
                   "$ref": "#/components/schemas/FamilyVariant"
                 },
                 "title": "Family Variants",
-                "type": "array"
-              },
-              "related_display_ranks": {
-                "items": {
-                  "type": "integer"
-                },
-                "title": "Related Display Ranks",
                 "type": "array"
               }
             },
@@ -6530,6 +7088,13 @@
                 ],
                 "default": null,
                 "title": "Output Language"
+              },
+              "related_display_ranks": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Related Display Ranks",
+                "type": "array"
               },
               "item_type": {
                 "anyOf": [
@@ -6690,6 +7255,156 @@
               }
             },
             "title": "JuyaStoryView",
+            "type": "object"
+          },
+          "OpenRouterDigestEntryView": {
+            "description": "OpenRouter digest entry with callable-model listing metadata.",
+            "properties": {
+              "source_kind": {
+                "const": "openrouter",
+                "default": "openrouter",
+                "title": "Source Kind",
+                "type": "string"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "source_name": {
+                "title": "Source Name",
+                "type": "string"
+              },
+              "source_url": {
+                "title": "Source Url",
+                "type": "string"
+              },
+              "summary": {
+                "title": "Summary",
+                "type": "string"
+              },
+              "why_it_matters": {
+                "title": "Why It Matters",
+                "type": "string"
+              },
+              "background_knowledge": {
+                "title": "Background Knowledge",
+                "type": "string"
+              },
+              "follow_up_action": {
+                "$ref": "#/components/schemas/FollowUpAction"
+              },
+              "confidence_caveat": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Confidence Caveat"
+              },
+              "display_rank": {
+                "title": "Display Rank",
+                "type": "integer"
+              },
+              "output_language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Output Language"
+              },
+              "related_display_ranks": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Related Display Ranks",
+                "type": "array"
+              },
+              "context_length": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Context Length"
+              },
+              "prompt_price_per_million": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Prompt Price Per Million"
+              },
+              "completion_price_per_million": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Completion Price Per Million"
+              },
+              "free_token_pricing": {
+                "default": false,
+                "title": "Free Token Pricing",
+                "type": "boolean"
+              },
+              "input_modalities": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Input Modalities",
+                "type": "array"
+              },
+              "provider": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Provider"
+              }
+            },
+            "required": [
+              "source_id",
+              "title",
+              "source_name",
+              "source_url",
+              "summary",
+              "why_it_matters",
+              "background_knowledge",
+              "follow_up_action",
+              "display_rank"
+            ],
+            "title": "OpenRouterDigestEntryView",
             "type": "object"
           },
           "PublisherOwnerView": {
@@ -6927,6 +7642,13 @@
                 ],
                 "default": null,
                 "title": "Timeframe"
+              },
+              "windows": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "title": "Windows",
+                "type": "object"
               },
               "topics": {
                 "items": {
@@ -7242,6 +7964,13 @@
                 ],
                 "default": null,
                 "title": "Output Language"
+              },
+              "related_display_ranks": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Related Display Ranks",
+                "type": "array"
               }
             },
             "required": [
@@ -7336,6 +8065,7 @@
                       "github": "#/components/schemas/GitHubDigestEntryView",
                       "huggingface": "#/components/schemas/HuggingFaceDigestEntryView",
                       "juya": "#/components/schemas/JuyaDigestEntryView",
+                      "openrouter": "#/components/schemas/OpenRouterDigestEntryView",
                       "zhihu": "#/components/schemas/DigestEntryView"
                     },
                     "propertyName": "source_kind"
@@ -7349,6 +8079,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/JuyaDigestEntryView"
+                    },
+                    {
+                      "$ref": "#/components/schemas/OpenRouterDigestEntryView"
                     },
                     {
                       "$ref": "#/components/schemas/DigestEntryView"
@@ -7498,6 +8231,13 @@
                 "default": null,
                 "title": "Output Language"
               },
+              "related_display_ranks": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Related Display Ranks",
+                "type": "array"
+              },
               "owner": {
                 "anyOf": [
                   {
@@ -7640,6 +8380,13 @@
                 "default": null,
                 "title": "Output Language"
               },
+              "related_display_ranks": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Related Display Ranks",
+                "type": "array"
+              },
               "owner": {
                 "anyOf": [
                   {
@@ -7719,13 +8466,6 @@
                   "$ref": "#/components/schemas/FamilyVariant"
                 },
                 "title": "Family Variants",
-                "type": "array"
-              },
-              "related_display_ranks": {
-                "items": {
-                  "type": "integer"
-                },
-                "title": "Related Display Ranks",
                 "type": "array"
               }
             },
@@ -7810,6 +8550,13 @@
                 ],
                 "default": null,
                 "title": "Output Language"
+              },
+              "related_display_ranks": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Related Display Ranks",
+                "type": "array"
               },
               "item_type": {
                 "anyOf": [
@@ -7970,6 +8717,156 @@
               }
             },
             "title": "JuyaStoryView",
+            "type": "object"
+          },
+          "OpenRouterDigestEntryView": {
+            "description": "OpenRouter digest entry with callable-model listing metadata.",
+            "properties": {
+              "source_kind": {
+                "const": "openrouter",
+                "default": "openrouter",
+                "title": "Source Kind",
+                "type": "string"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "source_name": {
+                "title": "Source Name",
+                "type": "string"
+              },
+              "source_url": {
+                "title": "Source Url",
+                "type": "string"
+              },
+              "summary": {
+                "title": "Summary",
+                "type": "string"
+              },
+              "why_it_matters": {
+                "title": "Why It Matters",
+                "type": "string"
+              },
+              "background_knowledge": {
+                "title": "Background Knowledge",
+                "type": "string"
+              },
+              "follow_up_action": {
+                "$ref": "#/components/schemas/FollowUpAction"
+              },
+              "confidence_caveat": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Confidence Caveat"
+              },
+              "display_rank": {
+                "title": "Display Rank",
+                "type": "integer"
+              },
+              "output_language": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Output Language"
+              },
+              "related_display_ranks": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Related Display Ranks",
+                "type": "array"
+              },
+              "context_length": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Context Length"
+              },
+              "prompt_price_per_million": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Prompt Price Per Million"
+              },
+              "completion_price_per_million": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Completion Price Per Million"
+              },
+              "free_token_pricing": {
+                "default": false,
+                "title": "Free Token Pricing",
+                "type": "boolean"
+              },
+              "input_modalities": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Input Modalities",
+                "type": "array"
+              },
+              "provider": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Provider"
+              }
+            },
+            "required": [
+              "source_id",
+              "title",
+              "source_name",
+              "source_url",
+              "summary",
+              "why_it_matters",
+              "background_knowledge",
+              "follow_up_action",
+              "display_rank"
+            ],
+            "title": "OpenRouterDigestEntryView",
             "type": "object"
           },
           "PublisherOwnerView": {
