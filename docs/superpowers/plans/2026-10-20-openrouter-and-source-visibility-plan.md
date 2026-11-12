@@ -93,7 +93,8 @@ Out of scope: usage rankings, price-change history, removing the Bilibili connec
 | `frontend/src/vm/entries.ts` | modify | Map the field for every kind, not only Hugging Face | `toVm` | verified |
 | `frontend/src/components/thread/EntryRow.vue` | modify | Chip already renders `relatedRanks`; keep it for every kind | existing chip | verified |
 | `frontend/src/components/thread/Thread.vue` | modify | Same chip on the deep-dive follow-up card | follow-up markdown block gains a chip row when the targeted entry has ranks | verified path; card mount provisional |
-| `frontend/src/vm/entries.test.ts`, `frontend/src/components/thread/thread.test.ts` | modify | Chip presence and absence | vitest | verified |
+| `frontend/src/vm/session.ts` | modify | Resolve the deep-dive target's ranks from the transcript's digest messages | `MessageMapContext.digestRelated`; `MessageVm.relatedRanks` | verified |
+| `frontend/src/vm/entries.test.ts`, `frontend/src/vm/session.test.ts`, `frontend/src/components/thread/thread.test.ts` | modify | Chip presence and absence | vitest | verified |
 
 ### Goal: Frontend OpenRouter presentation
 
@@ -261,7 +262,7 @@ Dependency notation: `Blocked by: B1` means start after B1 is done.
 
 ### F3 — Related chip on the digest row and the deep-dive card
 
-- [ ] **Do:** Show the Related chip wherever the entry is shown, and hide it when the list is empty.
+- [x] **Do:** Show the Related chip wherever the entry is shown, and hide it when the list is empty.
 - **Consumes:** B5 `related_display_ranks` on every entry view. F1 generated client. Existing `EntryRow` chip and `goto-related` emit.
 - **Produces:** `toVm` copies `related_display_ranks` onto `relatedRanks` for every kind, not only Hugging Face. The deep-dive follow-up card (the `Thread.vue` follow-up markdown block for the targeted entry) renders the same chip row when that entry's `relatedRanks` is non-empty, and emits `goto-related` with the same `RefVm` shape `EntryRow` uses. No chip when the list is empty or missing.
 - **Acceptance:**
@@ -288,5 +289,7 @@ B1 starts from the fixture. If the first live call shows different field names o
 |------|--------|------|
 | 2026-10-20 | Initial plan. Backend B1–B5, frontend F1–F3, one plan. | — |
 | 2026-11-12 | F2 gains a backend slice: untyped messages ignore hidden names in a session's stored `connector_names`, so the displayed and sent sources agree. History and the orbit become catalog-driven, which adds OpenRouter to both. | material (user-approved) |
+| 2026-11-12 | F3 file map gains `frontend/src/vm/session.ts`: the deep-dive reply has no entry payload of its own, so its related ranks resolve from the digest messages already in the transcript (the same index `digestTitles` uses). Behavior and acceptance are unchanged. | equivalent internal fix |
+| 2026-11-12 | F3 done. The card chip is a chip row reusing `.rel-chip` and the existing `goto-related`/`gotoRef` path, not the prototype's `<h4>Related</h4>` list (which only exists inside the Hugging Face card). It carries `data-od-id="related-reply-<n>"` so it does not collide with the same entry's row chip. Ranks come from the transcript's digest messages; a digest older than the loaded page yields no chip. | equivalent internal fix |
 | 2026-11-12 | F1 file map gains `frontend/src/vm/run.ts` (the `KINDS` map is `Record<string, EntryKind>`, so a missing kind fails silently) and `frontend/src/styles/thread.css` (badge modifier). | equivalent internal fix |
 | 2026-11-11 | Review-driven corrections to B3/B4/B5: `SOURCE_CATALOG_ORDER` reordered to the spec catalog order (juya, huggingface, openrouter, github, zhihu, bilibili); related-coverage signatures now include the product name (with version/size/variant), so different products with equal attributes no longer link; the OpenRouter search tool sets `topics_are_filters`, and the connector honors `max_items` (newest kept). | equivalent internal fix |
