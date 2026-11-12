@@ -1,21 +1,8 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import KeysPanel from '@/components/settings/KeysPanel.vue'
 import type { KeysVm } from '@/vm/settings'
-
-/** The hidden-source flag is read at render time, so a test can flip it. */
-const flags = vi.hoisted(() => ({ showBilibili: false }))
-
-vi.mock('@/lib/features', () => ({
-  get SHOW_BILIBILI() {
-    return flags.showBilibili
-  },
-}))
-
-afterEach(() => {
-  flags.showBilibili = false
-})
 
 function keysVm(overrides: Partial<KeysVm> = {}): KeysVm {
   return {
@@ -164,7 +151,6 @@ describe('KeysPanel', () => {
   })
 
   it('saves each source credential on its own and keeps Bilibili editable', async () => {
-    flags.showBilibili = true
     const wrapper = mount(KeysPanel, { props: { vm: keysVm() } })
 
     await wrapper

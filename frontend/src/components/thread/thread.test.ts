@@ -202,12 +202,12 @@ describe('Thread', () => {
     const wrapper = mount(Thread, {
       props: {
         messages: [user!, noResults!],
+        // The visible catalog: a hidden source is already absent from it.
         catalog: [
           { name: 'github', label: 'GitHub', kind: 'github' },
           { name: 'juya', label: 'Juya', kind: 'juya' },
           { name: 'huggingface', label: 'Hugging Face', kind: 'huggingface' },
           { name: 'zhihu', label: 'Zhihu', kind: 'zhihu' },
-          { name: 'bilibili', label: 'Bilibili', kind: 'bilibili' },
         ],
       },
     })
@@ -218,6 +218,7 @@ describe('Thread', () => {
     const tries = block.findAll('[data-od-id^="try-"]')
     expect(tries).toHaveLength(3)
     expect(tries.map((button) => button.attributes('data-od-id'))).not.toContain('try-github')
+    expect(block.find('[data-od-id="try-bilibili"]').exists()).toBe(false)
 
     await tries[0]!.trigger('click')
 

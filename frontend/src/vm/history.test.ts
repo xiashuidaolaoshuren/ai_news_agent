@@ -1,17 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-
-/** The hidden-source flag is read when the options are built, so a test can flip it. */
-const flags = vi.hoisted(() => ({ showBilibili: false }))
-
-vi.mock('@/lib/features', () => ({
-  get SHOW_BILIBILI() {
-    return flags.showBilibili
-  },
-}))
-
-afterEach(() => {
-  flags.showBilibili = false
-})
+import { describe, expect, it } from 'vitest'
 
 import type {
   DigestEntryView,
@@ -140,21 +127,35 @@ describe('history filters', () => {
     return { ...EMPTY_HISTORY_FILTERS, ...overrides }
   }
 
+  /** The visible catalog `GET /sources` returns, in its order. */
+  const CATALOG = [
+    { name: 'juya', label: 'Juya' },
+    { name: 'huggingface', label: 'Hugging Face' },
+    { name: 'openrouter', label: 'OpenRouter' },
+    { name: 'github', label: 'GitHub' },
+    { name: 'zhihu', label: 'Zhihu' },
+  ]
+
   it('lists every visible source kind behind an all-sources option', () => {
-    expect(historySourceOptions().map((option) => option.value)).toEqual([
+    expect(historySourceOptions(CATALOG).map((option) => option.value)).toEqual([
       'all',
       'juya',
       'huggingface',
+      'openrouter',
       'github',
       'zhihu',
     ])
-    expect(historySourceOptions()[0]?.label).toBe('All sources')
+    expect(historySourceOptions(CATALOG)[0]?.label).toBe('All sources')
   })
 
-  it('lists the hidden source again when the flag is on', () => {
-    flags.showBilibili = true
+  it('lists a source the catalog includes, such as a restored Bilibili', () => {
+    const catalog = [...CATALOG, { name: 'bilibili', label: 'Bilibili' }]
 
-    expect(historySourceOptions().map((option) => option.value)).toContain('bilibili')
+    expect(historySourceOptions(catalog).map((option) => option.value)).toContain('bilibili')
+  })
+
+  it('offers only the all-sources option before the catalog loads', () => {
+    expect(historySourceOptions([])).toEqual([{ value: 'all', label: 'All sources' }])
   })
 
   it('makes no query while every filter is empty', () => {

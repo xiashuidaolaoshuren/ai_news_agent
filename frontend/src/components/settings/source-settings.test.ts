@@ -1,21 +1,8 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import SourceSettings from '@/components/settings/SourceSettings.vue'
 import type { SourceProfileVm } from '@/vm/settings'
-
-/** The hidden-source flag is read at render time, so a test can flip it. */
-const flags = vi.hoisted(() => ({ showBilibili: false }))
-
-vi.mock('@/lib/features', () => ({
-  get SHOW_BILIBILI() {
-    return flags.showBilibili
-  },
-}))
-
-afterEach(() => {
-  flags.showBilibili = false
-})
 
 const PROFILES: SourceProfileVm[] = [
   { name: 'juya', hidden: false, itemCount: 5 },

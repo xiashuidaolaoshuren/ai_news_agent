@@ -220,6 +220,13 @@ function historyResult(overrides: Partial<HistorySearchResultOut> = {}): History
 /** Panel state for one review view, built through the production mapper. */
 function historyVmFor(view: string): HistoryPanelVm {
   const filters = { text: 'qwen', source: 'all', topic: '', from: '', to: '' }
+  const catalog = [
+    { name: 'juya', label: 'Juya' },
+    { name: 'huggingface', label: 'Hugging Face' },
+    { name: 'openrouter', label: 'OpenRouter' },
+    { name: 'github', label: 'GitHub' },
+    { name: 'zhihu', label: 'Zhihu' },
+  ]
   const markdown = [
     'Rank 1 — Qwen3.8-Flash-Next',
     'Link — https://huggingface.co/Qwen/Qwen3.8-Flash-Next',
@@ -244,6 +251,7 @@ function historyVmFor(view: string): HistoryPanelVm {
               item: status === 'loading' ? null : { token: firstMatch.ref.token, entry, markdown },
               error: null,
             },
+      catalog,
     })
   }
   switch (view) {
@@ -260,6 +268,7 @@ function historyVmFor(view: string): HistoryPanelVm {
         result: historyResult({ matches: [] }),
         error: null,
         opened: null,
+        catalog,
       })
     case 'historyerror':
       return toHistoryPanelVm({
@@ -268,6 +277,7 @@ function historyVmFor(view: string): HistoryPanelVm {
         result: null,
         error: "Unknown source 'typo'; allowed: github, juya, zhihu",
         opened: null,
+        catalog,
       })
     default:
       return toHistoryPanelVm({
@@ -276,6 +286,7 @@ function historyVmFor(view: string): HistoryPanelVm {
         result: historyResult({ archive_truncated: true }),
         error: null,
         opened: null,
+        catalog,
       })
   }
 }

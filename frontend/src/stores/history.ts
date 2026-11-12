@@ -32,6 +32,8 @@ export interface HistoryDeps {
   show(token: string): Promise<HistoryItemShowOut>
   /** "Ask in chat" targets the composer's follow-up chip from a historical entry. */
   askAbout(ref: RefVm): void
+  /** The visible source catalog, so the dropdown follows discovery. */
+  catalog(): { name: string; label: string }[]
   schedule(handler: () => void, ms: number): unknown
   cancel(handle: unknown): void
 }
@@ -81,6 +83,8 @@ export function defaultHistoryDeps(): HistoryDeps {
     askAbout: (ref) => {
       composer.askAbout(ref)
     },
+    catalog: () =>
+      composer.sources.map((source) => ({ name: source.name, label: source.label })),
     schedule: (handler, ms) => setTimeout(handler, ms),
     cancel: (handle) => {
       clearTimeout(handle as ReturnType<typeof setTimeout>)
@@ -239,6 +243,7 @@ export function createHistoryController(deps: HistoryDeps) {
       result: result.value,
       error: error.value,
       opened: openedInput.value,
+      catalog: deps.catalog(),
     }),
   )
 

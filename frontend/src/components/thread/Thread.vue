@@ -97,6 +97,13 @@ const FLASH_MS = 1200
  */
 const stick = ref(true)
 
+/** The visible source kinds, in catalog order, for the empty-state orbit. */
+const orbitKinds = computed<EntryKind[]>(() =>
+  (props.catalog ?? [])
+    .map((source) => source.kind)
+    .filter((kind): kind is EntryKind => kind !== null),
+)
+
 /** The end of the transcript moved, so this decides whether the reader moves too. */
 const arrival = computed(() => ({
   count: props.messages.length,
@@ -308,6 +315,7 @@ defineExpose({ gotoRef })
           !props.alert &&
           !props.liveDigest
         "
+        :kinds="orbitKinds"
         @suggest="emit('suggest', $event)"
       />
       <template v-for="message in props.messages" :key="message.id">

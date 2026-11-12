@@ -95,6 +95,10 @@ function makeHistory(options: HarnessOptions = {}): Harness {
     askAbout: (ref) => {
       askedRefs.push(ref)
     },
+    catalog: () => [
+      { name: 'juya', label: 'Juya' },
+      { name: 'github', label: 'GitHub' },
+    ],
     schedule: (handler, ms) => {
       const timer: Timer = { handler, ms, cancelled: false }
       timers.push(timer)
@@ -453,9 +457,7 @@ describe('history idle state', () => {
     expect(controller.vm.value.sourceOptions.map((option) => option.value)).toEqual([
       'all',
       'juya',
-      'huggingface',
       'github',
-      'zhihu',
     ])
   })
 })

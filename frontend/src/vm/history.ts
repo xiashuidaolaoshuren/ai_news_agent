@@ -5,7 +5,6 @@ import type {
   SearchHistoryApiV1HistorySearchGetData,
   SessionSearchHitOut,
 } from '@/api/generated/types.gen'
-import { SHOW_BILIBILI } from '@/lib/features'
 import { sourceLabel } from '@/vm/digest'
 import { hostOf, safeHttpUrl, textOrNull, toEntryVm } from '@/vm/entries'
 import type { EntryKind, EntryVm } from '@/vm/types'
@@ -101,24 +100,23 @@ export const HISTORY_LIMIT = 10
 /** The search query the panel sends, with every field already normalized. */
 export type HistorySearchQuery = NonNullable<SearchHistoryApiV1HistorySearchGetData['query']>
 
-/** Source kinds in the panel's order, behind the all-sources option. */
-const HISTORY_SOURCES: EntryKind[] = ['juya', 'huggingface', 'github', 'zhihu', 'bilibili']
-
-/** Visible kinds only: a hidden source leaves the filter, as the spec requires. */
-function visibleSources(): EntryKind[] {
-  return SHOW_BILIBILI
-    ? HISTORY_SOURCES
-    : HISTORY_SOURCES.filter((kind) => kind !== 'bilibili')
-}
-
 /** The prototype's short source value, mapped onto the API's name. */
 const SOURCE_ALIASES: Record<string, string> = { hf: 'huggingface' }
 
-/** The source `<select>` options: all sources, then one row per kind. */
-export function historySourceOptions(): { value: string; label: string }[] {
+/** One row of the visible catalog, as `GET /sources` reports it. */
+export interface CatalogOption {
+  name: string
+  label: string
+}
+
+/**
+ * The source `<select>` options: all sources, then one row per visible catalog
+ * entry in the API's order. A hidden source is already absent from the catalog.
+ */
+export function historySourceOptions(catalog: CatalogOption[]): { value: string; label: string }[] {
   return [
     { value: 'all', label: 'All sources' },
-    ...visibleSources().map((kind) => ({ value: kind, label: sourceLabel(kind) })),
+    ...catalog.map((source) => ({ value: source.name, label: source.label })),
   ]
 }
 
@@ -330,6 +328,8 @@ export interface HistoryPanelInput {
   result: HistorySearchResultOut | null
   error: string | null
   opened: OpenedResultInput | null
+  /** The visible catalog the source dropdown is built from. */
+  catalog: CatalogOption[]
 }
 
 /**
@@ -354,7 +354,7 @@ export function toHistoryPanelVm(input: HistoryPanelInput): HistoryPanelVm {
   }
   return {
     filters: input.filters,
-    sourceOptions: historySourceOptions(),
+    sourceOptions: historySourceOptions(input.catalog),
     state,
     countLabel: result?.countLabel ?? '',
     notes: result?.notes ?? [],

@@ -1,41 +1,39 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import EmptyConversation from '@/components/thread/EmptyConversation.vue'
-
-/** The hidden-source flag is read at render time, so a test can flip it. */
-const flags = vi.hoisted(() => ({ showBilibili: false }))
-
-vi.mock('@/lib/features', () => ({
-  get SHOW_BILIBILI() {
-    return flags.showBilibili
-  },
-}))
-
-afterEach(() => {
-  flags.showBilibili = false
-})
+import type { EntryKind } from '@/vm'
 
 function orbitLogos(wrapper: ReturnType<typeof mount>): number {
   return wrapper.findAll('.orbit > span').length
 }
 
+/** The visible kinds the catalog reports, in its order. */
+const KINDS: EntryKind[] = ['juya', 'huggingface', 'openrouter', 'github', 'zhihu']
+
 describe('EmptyConversation', () => {
-  it('shows the orbit without the hidden source', () => {
-    const wrapper = mount(EmptyConversation)
-
-    expect(orbitLogos(wrapper)).toBe(4)
-  })
-
-  it('shows the hidden source again when the flag is on', () => {
-    flags.showBilibili = true
-    const wrapper = mount(EmptyConversation)
+  it('shows one orbit logo per visible kind', () => {
+    const wrapper = mount(EmptyConversation, { props: { kinds: KINDS } })
 
     expect(orbitLogos(wrapper)).toBe(5)
   })
 
+  it('shows a restored hidden source when the catalog includes it', () => {
+    const wrapper = mount(EmptyConversation, {
+      props: { kinds: [...KINDS, 'bilibili'] },
+    })
+
+    expect(orbitLogos(wrapper)).toBe(6)
+  })
+
+  it('shows no orbit before the catalog loads', () => {
+    const wrapper = mount(EmptyConversation, { props: { kinds: [] } })
+
+    expect(orbitLogos(wrapper)).toBe(0)
+  })
+
   it('offers the default digest first, then the prototype suggestions', async () => {
-    const wrapper = mount(EmptyConversation)
+    const wrapper = mount(EmptyConversation, { props: { kinds: KINDS } })
 
     await wrapper.get('[data-od-id="suggestion-1"]').trigger('click')
 
