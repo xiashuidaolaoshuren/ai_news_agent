@@ -211,14 +211,19 @@ describe('DigestReply', () => {
     expect(row.get('.entry-src .ext').attributes('href')).toBe('https://original.test/story-1')
   })
 
-  it('shows the OpenRouter metrics line and only the free-token badge', () => {
+  it('shows the OpenRouter spec block, New model label, and free-token badge after the link', () => {
     const free = githubEntry({
       key: 'openrouter:1',
       kind: 'openrouter',
       title: 'Meta: Llama 3.3 70B Instruct (free)',
       sourceName: 'OpenRouter',
       host: 'openrouter.ai',
-      meta: '128,000 ctx · $0 in / 1M · $0 out / 1M',
+      url: 'https://openrouter.ai/meta-llama/llama-3.3-70b-instruct:free',
+      spec: [
+        { label: 'Context', value: '128,000 tokens' },
+        { label: 'Input / 1M tokens', value: '$0.00' },
+        { label: 'Output / 1M tokens', value: '$0' },
+      ],
       badge: 'Free token pricing',
     })
     const priced = githubEntry({
@@ -228,7 +233,19 @@ describe('DigestReply', () => {
       title: 'Anthropic: Claude Sonnet 4',
       sourceName: 'OpenRouter',
       host: 'openrouter.ai',
-      meta: '200,000 ctx · $3 in / 1M · $15 out / 1M',
+      spec: [
+        { label: 'Context', value: '200,000 tokens' },
+        { label: 'Input / 1M tokens', value: '$3.00' },
+        { label: 'Output / 1M tokens', value: '$15.00' },
+      ],
+    })
+    const bare = githubEntry({
+      key: 'openrouter:3',
+      kind: 'openrouter',
+      rank: 3,
+      title: 'Unpriced listing',
+      sourceName: 'OpenRouter',
+      host: 'openrouter.ai',
     })
     const wrapper = mount(DigestReply, {
       props: {
@@ -241,8 +258,8 @@ describe('DigestReply', () => {
               subtitle: 'Models you can call',
               count: 2,
               rangeStart: 1,
-              rangeEnd: 2,
-              entries: [free, priced],
+              rangeEnd: 3,
+              entries: [free, priced, bare],
             }),
           ],
         }),
@@ -250,10 +267,21 @@ describe('DigestReply', () => {
     })
     const rows = wrapper.findAll('.entries .entry')
 
-    expect(rows[0]!.get('.entry-src').text()).toContain('128,000 ctx · $0 in / 1M · $0 out / 1M')
-    expect(rows[0]!.get('.free-chip').text()).toBe('Free token pricing')
-    expect(rows[1]!.get('.entry-src').text()).toContain('200,000 ctx')
-    expect(rows[1]!.find('.free-chip').exists()).toBe(false)
+    const freeSpec = rows[0]!.findAll('.entry-body.spec dt').map((dt) => dt.text())
+    expect(freeSpec).toEqual(['Context', 'Input / 1M tokens', 'Output / 1M tokens'])
+    expect(rows[0]!.get('.entry-src').text()).toContain('New model')
+    expect(rows[0]!.get('.entry-src').text()).not.toContain('128,000 tokens')
+
+    const badge = rows[0]!.get('.badge-ok')
+    expect(badge.text()).toBe('Free token pricing')
+    expect(badge.element.previousElementSibling?.classList.contains('ext')).toBe(true)
+    expect(rows[0]!.find('.free-chip').exists()).toBe(false)
+
+    expect(rows[1]!.find('.entry-body.spec').exists()).toBe(true)
+    expect(rows[1]!.find('.badge-ok').exists()).toBe(false)
+
+    expect(rows[2]!.find('.entry-body.spec').exists()).toBe(false)
+    expect(rows[2]!.find('.badge-ok').exists()).toBe(false)
   })
 
   it('shows the Related chip on a non-Hugging-Face row and emits its rank', async () => {

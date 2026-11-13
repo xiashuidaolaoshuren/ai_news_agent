@@ -6,7 +6,7 @@ import type {
   OpenRouterDigestEntryView,
   PublisherOwnerView,
 } from '@/api/generated/types.gen'
-import type { AvatarVm, EntryKind, EntryVm, HfVm } from '@/vm/types'
+import type { AvatarVm, EntryKind, EntryVm, HfVm, OpenRouterSpecVm } from '@/vm/types'
 
 /** Any digest entry the API can send, including the kind-specific views. */
 export type ApiDigestEntry = NonNullable<DigestView['entries']>[number]
@@ -114,6 +114,25 @@ export function formatCount(value: number): string {
   return value.toLocaleString('en-US')
 }
 
+/**
+ * Dollar price from a per-million token string, e.g. `10` → `$10.00`, `0.0375` → `$0.0375`.
+ *
+ * Works on the digits as given (no float math) so a small price is never rounded down.
+ * Two decimals is the floor; a known zero reads `$0`.
+ */
+export function formatPrice(raw: string): string {
+  const value = raw.trim()
+  if (/^0*\.?0*$/.test(value)) {
+    return '$0'
+  }
+  const [whole = '0', fraction = ''] = value.split('.')
+  let digits = fraction.padEnd(2, '0')
+  while (digits.length > 2 && digits.endsWith('0')) {
+    digits = digits.slice(0, -1)
+  }
+  return `$${whole}.${digits}`
+}
+
 /** Formatted metric, or null when the API omitted it. */
 export function metricText(value: number | null | undefined): string | null {
   return typeof value === 'number' ? formatCount(value) : null
@@ -136,23 +155,23 @@ export function githubMeta(entry: GitHubDigestEntryView): string | undefined {
 }
 
 /**
- * OpenRouter meta line: `context ctx · $prompt in / 1M · $completion out / 1M`,
- * omitting any segment the listing did not supply.
+ * OpenRouter spec fields (context, input and output price per million), in that
+ * order. A field the listing did not supply is left out; no fields means no block.
  */
-export function openRouterMeta(entry: OpenRouterDigestEntryView): string | undefined {
-  const parts: string[] = []
+export function openRouterSpec(entry: OpenRouterDigestEntryView): OpenRouterSpecVm[] | undefined {
+  const fields: OpenRouterSpecVm[] = []
   if (typeof entry.context_length === 'number') {
-    parts.push(`${formatCount(entry.context_length)} ctx`)
+    fields.push({ label: 'Context', value: `${formatCount(entry.context_length)} tokens` })
   }
   const prompt = textOrNull(entry.prompt_price_per_million)
   if (prompt !== null) {
-    parts.push(`$${prompt} in / 1M`)
+    fields.push({ label: 'Input / 1M tokens', value: formatPrice(prompt) })
   }
   const completion = textOrNull(entry.completion_price_per_million)
   if (completion !== null) {
-    parts.push(`$${completion} out / 1M`)
+    fields.push({ label: 'Output / 1M tokens', value: formatPrice(completion) })
   }
-  return parts.length === 0 ? undefined : parts.join(' · ')
+  return fields.length === 0 ? undefined : fields
 }
 
 /** Hugging Face comparison-table data. `modelId` is the entry title (the repo id). */
@@ -204,7 +223,7 @@ export function toVm(api: ApiDigestEntry): EntryVm {
   }
   if (kind === 'openrouter') {
     const openRouter = api as OpenRouterDigestEntryView
-    vm.meta = openRouterMeta(openRouter)
+    vm.spec = openRouterSpec(openRouter)
     if (openRouter.free_token_pricing === true) {
       vm.badge = 'Free token pricing'
     }

@@ -54,6 +54,12 @@ export interface RefVm {
 
 export type FollowupActionVm = 'deep_dive' | 'ask'
 
+/** One labelled OpenRouter spec field, e.g. `Input / 1M tokens` → `$0.15`. */
+export interface OpenRouterSpecVm {
+  label: string
+  value: string
+}
+
 export interface EntryVm {
   key: string
   kind: EntryKind
@@ -69,6 +75,8 @@ export interface EntryVm {
   avatar: AvatarVm
   previewUrl: string | null
   meta?: string
+  /** OpenRouter only: labelled context and price fields, shown as a spec block. */
+  spec?: OpenRouterSpecVm[]
   /** Short claim shown beside the meta line, e.g. `Free token pricing`. */
   badge?: string
   hf?: HfVm

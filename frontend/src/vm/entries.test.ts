@@ -7,6 +7,7 @@ import type {
   OpenRouterDigestEntryView,
 } from '@/api/generated/types.gen'
 import { resolveDemoAsset, safeHttpUrl, toVm } from '@/vm'
+import { formatPrice } from '@/vm/entries'
 
 function zhihuEntry(overrides: Partial<DigestEntryView> = {}): DigestEntryView {
   return {
@@ -89,23 +90,30 @@ function openRouterEntry(
 }
 
 describe('OpenRouter entries', () => {
-  it('renders context length and both prices on the metrics line', () => {
+  it('renders context length and both prices as labelled spec fields', () => {
     const vm = toVm(openRouterEntry())
 
     expect(vm.kind).toBe('openrouter')
-    expect(vm.meta).toBe('128,000 ctx · $0.15 in / 1M · $0.6 out / 1M')
+    expect(vm.meta).toBeUndefined()
+    expect(vm.spec).toEqual([
+      { label: 'Context', value: '128,000 tokens' },
+      { label: 'Input / 1M tokens', value: '$0.15' },
+      { label: 'Output / 1M tokens', value: '$0.60' },
+    ])
   })
 
-  it('omits a segment whose value is missing or blank', () => {
-    expect(
-      toVm(openRouterEntry({ prompt_price_per_million: null })).meta,
-    ).toBe('128,000 ctx · $0.6 out / 1M')
-    expect(
-      toVm(openRouterEntry({ completion_price_per_million: '  ' })).meta,
-    ).toBe('128,000 ctx · $0.15 in / 1M')
+  it('omits a spec field whose value is missing or blank', () => {
+    expect(toVm(openRouterEntry({ prompt_price_per_million: null })).spec).toEqual([
+      { label: 'Context', value: '128,000 tokens' },
+      { label: 'Output / 1M tokens', value: '$0.60' },
+    ])
+    expect(toVm(openRouterEntry({ completion_price_per_million: '  ' })).spec).toEqual([
+      { label: 'Context', value: '128,000 tokens' },
+      { label: 'Input / 1M tokens', value: '$0.15' },
+    ])
   })
 
-  it('has no metrics line when every value is unknown', () => {
+  it('has no spec block when every value is unknown', () => {
     const vm = toVm(
       openRouterEntry({
         context_length: null,
@@ -114,7 +122,7 @@ describe('OpenRouter entries', () => {
       }),
     )
 
-    expect(vm.meta).toBeUndefined()
+    expect(vm.spec).toBeUndefined()
   })
 
   it('badges only a listing with known-zero token prices', () => {
@@ -146,6 +154,20 @@ describe('OpenRouter entries', () => {
 
   it('gives no other kind the badge', () => {
     expect(toVm(zhihuEntry()).badge).toBeUndefined()
+  })
+})
+
+describe('formatPrice', () => {
+  it('shows at least two decimals without rounding small prices down', () => {
+    expect(formatPrice('10')).toBe('$10.00')
+    expect(formatPrice('1.25')).toBe('$1.25')
+    expect(formatPrice('0.6')).toBe('$0.60')
+    expect(formatPrice('0.0375')).toBe('$0.0375')
+  })
+
+  it('shows a known zero as $0', () => {
+    expect(formatPrice('0')).toBe('$0')
+    expect(formatPrice('0.00')).toBe('$0')
   })
 })
 

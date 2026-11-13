@@ -48,7 +48,9 @@ function relatedRef(rank: number): RefVm {
 const externalUrl = computed(() => props.entry.juya?.originalUrl ?? props.entry.url)
 const externalHost = computed(() => hostOf(externalUrl.value))
 const sourceText = computed(
-  () => props.entry.juya?.topic ?? props.entry.meta ?? props.entry.sourceName,
+  () =>
+    props.entry.juya?.topic ??
+    (props.entry.kind === 'openrouter' ? 'New model' : (props.entry.meta ?? props.entry.sourceName)),
 )
 
 /** True while this row holds a stagger position, which is what `.rise` needs. */
@@ -121,7 +123,6 @@ const showsBackground = computed(
       <div class="entry-src">
         <SourceTag :kind="props.entry.kind" />
         <span>{{ sourceText }}</span>
-        <span v-if="props.entry.badge" class="chip free-chip">{{ props.entry.badge }}</span>
         <a
           v-if="externalHost && externalUrl"
           class="ext"
@@ -129,6 +130,12 @@ const showsBackground = computed(
           target="_blank"
           rel="noopener"
           >{{ externalHost }}<AppIcon name="ext" /></a
+        >
+        <span
+          v-if="props.entry.badge"
+          class="badge-fake badge-ok"
+          :data-od-id="`badge-free-${props.entry.rank}`"
+          >{{ props.entry.badge }}</span
         >
         <button
           v-for="relatedRank in props.entry.relatedRanks ?? []"
@@ -142,6 +149,17 @@ const showsBackground = computed(
           Related: #{{ relatedRank }}
         </button>
       </div>
+
+      <dl
+        v-if="props.entry.spec"
+        class="entry-body spec"
+        :data-od-id="`openrouter-spec-${props.entry.rank}`"
+      >
+        <div v-for="field in props.entry.spec" :key="field.label">
+          <dt>{{ field.label }}</dt>
+          <dd class="num">{{ field.value }}</dd>
+        </div>
+      </dl>
 
       <dl
         v-if="props.entry.summary || props.entry.whyItMatters || showsBackground"
