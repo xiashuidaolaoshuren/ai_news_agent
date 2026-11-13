@@ -179,11 +179,48 @@ function sourceNames(warning: ConnectorWarning): EntryKind | null {
   return warning.connector in SOURCE_LABELS ? (warning.connector as EntryKind) : null
 }
 
+/**
+ * The prototype's notice for a requested source that came back with nothing:
+ * "Connector returned no items for this request. Other sources completed normally."
+ */
+const NO_ITEMS_MESSAGE =
+  'Connector returned no items for this request. Other sources completed normally.'
+
+/**
+ * Warnings for requested sources that neither returned an entry nor warned.
+ *
+ * A connector that collects cleanly with nothing in the window says nothing at all,
+ * so the reply would otherwise count it as returned. Synthesized here rather than in
+ * the backend so a quiet source never reads as a broken one in credential health.
+ */
+function noItemsWarnings(
+  connectorNames: readonly string[],
+  warned: ReadonlySet<EntryKind>,
+  returned: ReadonlySet<EntryKind>,
+): WarningVm[] {
+  const out: WarningVm[] = []
+  for (const name of connectorNames) {
+    if (!(name in SOURCE_LABELS)) {
+      continue
+    }
+    const kind = name as EntryKind
+    if (returned.has(kind) || warned.has(kind)) {
+      continue
+    }
+    out.push({
+      source: kind,
+      label: SOURCE_LABELS[kind],
+      code: 'no_items',
+      message: NO_ITEMS_MESSAGE,
+    })
+  }
+  return out
+}
+
 /** Project a digest and its connector warnings onto the digest-reply view-model. */
 export function toDigestVm(input: DigestVmInput): DigestVm {
   const entries = (input.digest.entries ?? []) as ApiDigestEntry[]
   const sections = toSectionsVm(entries)
-  const warnings = (input.warnings ?? []).map(toWarningVm)
   const seen = new Set<EntryKind>()
   for (const kind of input.connectorNames ?? []) {
     if (kind in SOURCE_LABELS) {
@@ -200,6 +237,13 @@ export function toDigestVm(input: DigestVmInput): DigestVm {
     }
   }
   const returned = new Set<EntryKind>(sections.map((section) => section.kind))
+  const warned = new Set<EntryKind>(
+    (input.warnings ?? []).map(sourceNames).filter((kind) => kind !== null),
+  )
+  const warnings = [
+    ...(input.warnings ?? []).map(toWarningVm),
+    ...noItemsWarnings(input.connectorNames ?? [], warned, returned),
+  ]
   return {
     ref: typeof input.digestId === 'number' ? `d${input.digestId}` : null,
     digestId: typeof input.digestId === 'number' ? input.digestId : null,

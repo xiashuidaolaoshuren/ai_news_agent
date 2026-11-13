@@ -547,6 +547,9 @@ export function toMessageVm(message: MessageOut, context?: MessageMapContext): M
       digest: message.digest,
       digestId: message.digest_id ?? null,
       warnings,
+      // The question's own resolution, not the session preference: a source named in
+      // the message (or dropped from it) is what this run actually asked for.
+      connectorNames: context?.previousRequest?.sources ?? null,
     })
     vm.warnings = vm.digest.warnings
     if (context?.previousUserRef !== undefined && context?.previousUserRef !== null) {

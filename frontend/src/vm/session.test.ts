@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { MessageOut, SessionOut } from '@/api/generated/types.gen'
+import type { DigestEntryView, MessageOut, SessionOut } from '@/api/generated/types.gen'
 import {
   groupSessions,
   summarizeRequest,
@@ -142,6 +142,58 @@ describe('toMessageVm kinds', () => {
     expect(vm.digest?.warnings).toEqual([
       { source: 'zhihu', label: 'Zhihu', code: 'no_items', message: 'No items.' },
     ])
+  })
+})
+
+describe('toMessages digest tally', () => {
+  function digestEntry(kind: 'juya' | 'huggingface', rank: number): DigestEntryView {
+    return {
+      source_kind: kind as DigestEntryView['source_kind'],
+      source_id: `${kind}-${rank}`,
+      title: `${kind} item ${rank}`,
+      source_name: kind,
+      source_url: `https://example.com/${rank}`,
+      summary: 's',
+      why_it_matters: 'w',
+      background_knowledge: 'b',
+      display_rank: rank,
+      follow_up_action: 'read' as const,
+    }
+  }
+
+  it('counts the sources the question asked for, and names the empty one', () => {
+    const vms = toMessages([
+      message({
+        id: 1,
+        sequence: 1,
+        request: {
+          sources: ['juya', 'huggingface', 'openrouter'],
+          per_source: null,
+          counts: {},
+          timeframe: null,
+          windows: {},
+          topics: [],
+          language: null,
+          audience: null,
+        },
+      }),
+      message({
+        id: 2,
+        sequence: 2,
+        role: 'assistant',
+        run_id: 1,
+        digest_id: 15,
+        digest: {
+          generated_at: '2026-10-01T20:04:00Z',
+          entries: [digestEntry('juya', 1), digestEntry('huggingface', 2)],
+        },
+      }),
+    ])
+
+    const digest = vms[1]!.digest
+    expect(digest?.sourcesTotal).toBe(3)
+    expect(digest?.sourcesReturned).toBe(2)
+    expect(digest?.warnings.map((warning) => warning.source)).toEqual(['openrouter'])
   })
 })
 

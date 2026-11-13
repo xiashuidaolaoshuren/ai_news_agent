@@ -287,7 +287,42 @@ describe('toDigestVm', () => {
     expect(toDigestVm({ digest }).ref).toBeNull()
   })
 
-  it('counts sources returned against the session selected sources', () => {
+  it('announces a requested source that returned nothing', () => {
+    const vm = toDigestVm({
+      digest: {
+        generated_at: '2026-10-01T20:04:00Z',
+        entries: [entry('juya', 1), entry('huggingface', 2)],
+      },
+      digestId: 15,
+      connectorNames: ['juya', 'huggingface', 'openrouter'],
+    })
+
+    expect(vm.warnings).toEqual([
+      {
+        source: 'openrouter',
+        label: 'OpenRouter',
+        code: 'no_items',
+        message:
+          'Connector returned no items for this request. Other sources completed normally.',
+      },
+    ])
+    expect(vm.sourcesReturned).toBe(2)
+    expect(vm.sourcesTotal).toBe(3)
+  })
+
+  it('keeps the real warnings first and adds the empty ones in request order', () => {
+    const vm = toDigestVm({
+      digest,
+      digestId: 15,
+      connectorNames: ['zhihu', 'openrouter', 'juya'],
+      warnings: [{ connector: 'zhihu', code: 'timeout', message: 'Request timed out.' }],
+    })
+
+    expect(vm.warnings.map((warning) => warning.source)).toEqual(['zhihu', 'openrouter'])
+    expect(vm.warnings[1]?.code).toBe('no_items')
+  })
+
+  it('counts sources returned against the requested sources', () => {
     const vm = toDigestVm({
       digest,
       digestId: 15,

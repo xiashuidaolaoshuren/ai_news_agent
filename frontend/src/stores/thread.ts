@@ -267,7 +267,8 @@ export function createThreadController(deps: ThreadDeps) {
           digest: next.digest.digest,
           digestId: next.digest.digest_id,
           warnings: next.digest.warnings,
-          connectorNames: session.value?.connector_names ?? null,
+          // What this run asked for; the stored session preference may differ.
+          connectorNames: next.request?.sources ?? null,
         })
       }
       if (next.progress.length > progressTimes.value.length) {

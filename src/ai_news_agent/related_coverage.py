@@ -27,6 +27,9 @@ _VARIANT_TOKENS: frozenset[str] = frozenset(
     }
 )
 _VERSION_RE = re.compile(r"m\d+(?:\.\d+)?|v\d+(?:\.\d+)?|\d+\.\d+", re.IGNORECASE)
+# A standalone short number: the start of a version ("Gemini 4"). Glued to letters
+# ("qwen2", "8b") or a dotted number it is not one.
+_BARE_VERSION_RE = re.compile(r"(?<![\w.])\d{1,3}(?![\w.])")
 _SIZE_RE = re.compile(r"\d+b", re.IGNORECASE)
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
@@ -66,17 +69,23 @@ def _identity_signature(
         return None
 
     lower = text.lower()
+    words = _WORD_RE.findall(lower)
     versions = tuple(sorted({match.group(0) for match in _VERSION_RE.finditer(lower)}))
+    # A start of a version number ("Gemini 4"). Other numbers are not versions: a
+    # year or a count would link unrelated titles.
+    bare_versions = tuple(sorted({word for word in _BARE_VERSION_RE.findall(lower)}))
+    if bare_versions:
+        versions = tuple(sorted({*versions, *bare_versions}))
     sizes = tuple(sorted({match.group(0) for match in _SIZE_RE.finditer(lower)}))
-    variants = tuple(
-        sorted({word for word in _WORD_RE.findall(lower) if word in _VARIANT_TOKENS})
-    )
+    variants = tuple(sorted({word for word in words if word in _VARIANT_TOKENS}))
     if not versions and not sizes and not variants:
         return None
 
     residue = _SIZE_RE.sub(" ", _VERSION_RE.sub(" ", lower))
     product = " ".join(
-        sorted({word for word in _WORD_RE.findall(residue) if word not in _VARIANT_TOKENS})
+        sorted(
+            {word for word in _WORD_RE.findall(residue) if word not in _VARIANT_TOKENS}
+        )
     )
     return (product, versions, sizes, variants)
 

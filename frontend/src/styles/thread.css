@@ -980,4 +980,16 @@ tr.hl,
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
+
+  /* Three max-content columns squeeze to ~84px here and every value breaks. Wrap
+     whole fields instead, so a label never splits and a price stays on one line. */
+  .entry-body.spec {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+  }
+
+  .entry-body.spec dd {
+    white-space: nowrap;
+  }
 }

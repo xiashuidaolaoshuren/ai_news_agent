@@ -115,6 +115,56 @@ def test_bare_integer_versions_are_part_of_the_product_name() -> None:
     assert result[2] == []
 
 
+def test_bare_major_version_counts_as_a_version() -> None:
+    from ai_news_agent.related_coverage import related_display_ranks
+
+    a = _entry("Google: Gemini 4 Hydrogen", source_id="1")
+    b = _entry("Google 推出 Gemini 4 Hydrogen", source_id="2")
+    result = related_display_ranks([_pair(a), _pair(b)])
+    assert result[1] == [2]
+    assert result[2] == [1]
+
+
+def test_bare_version_with_different_number_does_not_link() -> None:
+    from ai_news_agent.related_coverage import related_display_ranks
+
+    four = _entry("Gemini 4 Hydrogen", source_id="1")
+    five = _entry("Gemini 5 Hydrogen", source_id="2")
+    result = related_display_ranks([_pair(four), _pair(five)])
+    assert result[1] == []
+    assert result[2] == []
+
+
+def test_bare_version_with_a_packaging_suffix_does_not_link() -> None:
+    from ai_news_agent.related_coverage import related_display_ranks
+
+    plain = _entry("Google: Gemini 4 Hydrogen", source_id="1")
+    batch = _entry("Google: Gemini 4 Hydrogen (batch)", source_id="2")
+    result = related_display_ranks([_pair(plain), _pair(batch)])
+    assert result[1] == []
+    assert result[2] == []
+
+
+def test_bare_version_with_a_different_variant_name_does_not_link() -> None:
+    from ai_news_agent.related_coverage import related_display_ranks
+
+    scout = _entry("Llama 4 Scout", source_id="1")
+    maverick = _entry("Llama 4 Maverick", source_id="2")
+    result = related_display_ranks([_pair(scout), _pair(maverick)])
+    assert result[1] == []
+    assert result[2] == []
+
+
+def test_counts_that_are_not_versions_do_not_link() -> None:
+    from ai_news_agent.related_coverage import related_display_ranks
+
+    top = _entry("Top 10 AI agents", source_id="1")
+    models = _entry("10 reasoning models", source_id="2")
+    result = related_display_ranks([_pair(top), _pair(models)])
+    assert result[1] == []
+    assert result[2] == []
+
+
 def test_same_product_same_version_and_size_links() -> None:
     from ai_news_agent.related_coverage import related_display_ranks
 

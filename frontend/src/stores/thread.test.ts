@@ -1216,6 +1216,69 @@ describe('thread store live digest', () => {
     expect(store.controller.run.value).toBeNull()
   })
 
+  it('counts the sources the run asked for, not the stored session preference', async () => {
+    const hold = deferred()
+    const startedRun: SseEvent = {
+      event: 'started',
+      data: {
+        request_id: 'r2',
+        user_message_id: 2,
+        request: {
+          sources: ['juya', 'openrouter'],
+          per_source: null,
+          counts: {},
+          timeframe: null,
+          windows: {},
+          topics: [],
+          language: null,
+          audience: null,
+        },
+      },
+    }
+    const store = makeStore({
+      loadMessages: async () => [],
+      post: async () =>
+        (async function* generate() {
+          yield startedRun
+          yield {
+            event: 'digest',
+            data: {
+              ...digestPayload.data,
+              digest: {
+                generated_at: '2026-10-01T20:04:00Z',
+                entries: [
+                  {
+                    source_kind: 'juya',
+                    source_id: 'juya:1',
+                    title: 'Juya story',
+                    source_name: 'juya',
+                    source_url: 'https://example.com/1',
+                    summary: 's',
+                    why_it_matters: 'w',
+                    display_rank: 1,
+                    follow_up_action: 'read',
+                  },
+                ],
+              },
+            },
+          } as SseEvent
+          await hold.promise
+          yield digestDone
+        })(),
+    })
+
+    await store.controller.openSession(sessionOut({ connector_names: ['juya', 'github'] }))
+    const sending = store.lifecycle.send('s1', { content: 'digest please' })
+    await waitFor(() => store.controller.liveDigest.value !== null)
+
+    const live = store.controller.liveDigest.value
+    expect(live?.sourcesTotal).toBe(2)
+    expect(live?.warnings.map((warning) => warning.source)).toEqual(['openrouter'])
+
+    hold.resolve()
+    await sending
+  })
+
   it('never shows the live digest and the persisted one at the same time', async () => {
     const store = makeStore({
       loadMessages: async () => [persistedDigest()],
