@@ -105,6 +105,16 @@ def test_openrouter_empty_success_is_no_eligible() -> None:
     assert collection_outcome(entry_count=0, warnings=[]) == "no_eligible"
 
 
+def test_openrouter_window_widened_with_entries_is_results() -> None:
+    warning = ConnectorWarning(
+        connector="openrouter",
+        code="window_widened",
+        message="showing the wider window",
+    )
+    assert collection_outcome(entry_count=1, warnings=[warning]) == "results"
+    assert "window_widened" not in SOURCE_FAILURE_CODES
+
+
 def test_entries_with_fatal_warning_are_partial() -> None:
     assert (
         collection_outcome(

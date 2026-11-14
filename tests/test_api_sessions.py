@@ -129,6 +129,68 @@ def test_post_message_juya_stories_mode_returns_story_digest_entries(tmp_path: P
     assert assistant["digest"]["entries"][0]["item_type"] == "story"
 
 
+def test_fake_openrouter_scenarios_cover_fallback_failure_and_in_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "openrouter-scenarios.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+    patched = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={"connector_names": ["openrouter"]},
+    )
+    assert patched.status_code == 200
+
+    def run(content: str, request_id: str) -> tuple[dict, dict]:
+        with client.stream(
+            "POST",
+            f"/api/v1/sessions/{session_id}/messages",
+            json={"content": content, "client_request_id": request_id},
+        ) as response:
+            assert response.status_code == 200
+            events = _parse_sse_events(response.read().decode())
+        started = next(payload for name, payload in events if name == "started")
+        digest = next(payload for name, payload in events if name == "digest")
+        return started, digest
+
+    monkeypatch.setenv("AI_NEWS_AGENT_FAKE_OPENROUTER", "empty-today")
+    started, digest = run("Digest today's AI news", "fallback")
+    assert started["request"]["timeframe"] == "today"
+    assert [entry["source_id"] for entry in digest["digest"]["entries"]] == [
+        "lab/fallback-model"
+    ]
+    assert [
+        (warning["connector"], warning["code"]) for warning in digest["warnings"]
+    ] == [("openrouter", "window_widened")]
+
+    monkeypatch.setenv("AI_NEWS_AGENT_FAKE_OPENROUTER", "request-failed")
+    _, failed = run("Digest today's AI news", "failed")
+    assert failed["digest"]["entries"] == []
+    assert [
+        (warning["connector"], warning["code"]) for warning in failed["warnings"]
+    ] == [("openrouter", "request_failed")]
+
+    monkeypatch.setenv("AI_NEWS_AGENT_FAKE_OPENROUTER", "in-window")
+    _, current = run("Digest today's AI news", "current")
+    assert [entry["source_id"] for entry in current["digest"]["entries"]] == [
+        "lab/today-model"
+    ]
+    assert current["warnings"] == []
+
+    saved = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    assistant_digests = [
+        message for message in saved["messages"] if message.get("digest") is not None
+    ]
+    assert [
+        entry["source_id"]
+        for entry in assistant_digests[0]["digest"]["entries"]
+    ] == ["lab/fallback-model"]
+    assert [
+        (warning["connector"], warning["code"])
+        for warning in assistant_digests[0]["warnings"]
+    ] == [("openrouter", "window_widened")]
+
+
 def test_post_message_fake_mode_all_sources_returns_presentation_evidence(
     tmp_path: Path,
 ) -> None:

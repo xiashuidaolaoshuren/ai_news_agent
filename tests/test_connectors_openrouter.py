@@ -358,6 +358,153 @@ def test_empty_filter_result_is_not_failure() -> None:
     asyncio.run(main())
 
 
+def _priced_row(model_id: str, created: int | None) -> dict[str, Any]:
+    return {
+        "id": model_id,
+        "name": model_id,
+        "created": created,
+        "description": f"{model_id} listing",
+        "pricing": {"prompt": "0", "completion": "0"},
+        "architecture": {"input_modalities": []},
+    }
+
+
+def test_empty_non_strict_short_window_falls_back_to_last_7_days() -> None:
+    calls = 0
+    yesterday = int(FIXED_NOW.timestamp()) - 86_400
+    today = int(FIXED_NOW.timestamp()) - 60
+    outside = int((FIXED_NOW.replace(year=2020)).timestamp())
+    payload = {
+        "data": [
+            _priced_row("lab/yesterday", yesterday),
+            _priced_row("lab/outside", outside),
+            _priced_row("lab/undated", None),
+        ]
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        assert request.url.path == "/api/v1/models"
+        return httpx.Response(200, json=payload)
+
+    async def main() -> None:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="https://openrouter.ai",
+        ) as client:
+            conn = OpenRouterConnector(client=client, now=(lambda: FIXED_NOW))
+            request = ConnectorRequest(topics=[], timeframe="today", max_items=5)
+            out = await conn.collect(request)
+
+        assert [item.source_id for item in out.items] == ["lab/yesterday"]
+        assert out.raw_count == 3
+        assert calls == 1
+        assert len(out.warnings) == 1
+        warning = out.warnings[0]
+        assert warning.connector == "openrouter"
+        assert warning.code == "window_widened"
+        assert warning.message == (
+            "No models matched the requested window; showing matching listings "
+            "from the last 7 days instead."
+        )
+        assert json.loads(warning.detail or "") == {
+            "requested_timeframe": "today",
+            "effective_timeframe": "last_7_days",
+        }
+        assert request.timeframe == "today"
+
+        today_payload = {"data": [_priced_row("lab/today", today)]}
+        explicit_today = await _collect(
+            today_payload,
+            ConnectorRequest(topics=[], timeframe="today", max_items=5),
+        )
+        assert [item.source_id for item in explicit_today.items] == ["lab/today"]
+        assert explicit_today.warnings == []
+
+    asyncio.run(main())
+
+
+def test_window_fallback_keeps_filters_bounds_and_failure_behavior() -> None:
+    yesterday = int(FIXED_NOW.timestamp()) - 86_400
+    older = int(FIXED_NOW.timestamp()) - 2 * 86_400
+    today = int(FIXED_NOW.timestamp()) - 60
+    window_start = int(datetime(2026, 11, 3, 0, 0, tzinfo=UTC).timestamp())
+    before_window = window_start - 1
+    rows = [
+        _priced_row("lab/older-match", older),
+        _priced_row("lab/yesterday-match", yesterday),
+        {
+            **_priced_row("lab/yesterday-paid", yesterday),
+            "pricing": {"prompt": "0.000001", "completion": "0.000001"},
+        },
+        {
+            **_priced_row("lab/yesterday-other", yesterday),
+            "description": "unrelated quantum listing",
+        },
+        _priced_row("lab/before-window", before_window),
+    ]
+
+    async def main() -> None:
+        fallback = await _collect(
+            {"data": rows},
+            ConnectorRequest(
+                topics=["match"],
+                topics_are_filters=True,
+                timeframe="today",
+                free_only=True,
+                max_items=1,
+            ),
+        )
+        assert [item.source_id for item in fallback.items] == ["lab/yesterday-match"]
+        assert [warning.code for warning in fallback.warnings] == ["window_widened"]
+
+        strict = ConnectorRequest(
+            topics=[],
+            timeframe="today",
+            strict_timeframe=True,
+        )
+        strict_out = await _collect({"data": rows}, strict)
+        assert strict_out.items == []
+        assert strict_out.warnings == []
+        assert strict.timeframe == "today"
+        assert strict.strict_timeframe is True
+
+        no_match = await _collect(
+            {"data": [_priced_row("lab/old", before_window)]},
+            ConnectorRequest(topics=[], timeframe="today"),
+        )
+        assert no_match.items == []
+        assert no_match.warnings == []
+
+        previous_week = int(datetime(2026, 11, 8, 12, 0, tzinfo=UTC).timestamp())
+        short_week = await _collect(
+            {"data": [_priced_row("lab/yesterday-match", previous_week)]},
+            ConnectorRequest(topics=[], timeframe="this_week"),
+            now=datetime(2026, 11, 10, 12, 0, tzinfo=UTC),
+        )
+        assert [item.source_id for item in short_week.items] == ["lab/yesterday-match"]
+        assert [warning.code for warning in short_week.warnings] == ["window_widened"]
+
+        for timeframe in (None, "last_7_days", "last_30_days", "latest"):
+            unchanged = await _collect(
+                {"data": [_priced_row("lab/old", before_window)]},
+                ConnectorRequest(topics=[], timeframe=timeframe),
+            )
+            assert [warning.code for warning in unchanged.warnings] != ["window_widened"]
+
+        failed = await _collect(
+            {"data": rows},
+            ConnectorRequest(topics=[], timeframe="today"),
+            status=503,
+        )
+        assert failed.items == []
+        assert [warning.code for warning in failed.warnings] == ["request_failed"]
+
+    asyncio.run(main())
+
+
 def test_skips_blank_id_without_failing_payload() -> None:
     recent = int(FIXED_NOW.timestamp()) - 3600
     rows = [

@@ -30,6 +30,10 @@ function settingsSource(source: string): string | null {
   return SETTINGS_SOURCES.has(source) ? source : null
 }
 
+function isWindowNotice(warning: DigestVm['warnings'][number]): boolean {
+  return warning.source === 'openrouter' && warning.code === 'window_widened'
+}
+
 const when = computed(() => formatDigestWhen(props.digest.generatedAt))
 
 /** Rows one section staggers: its entries, or the stories of its Juya issues. */
@@ -74,16 +78,16 @@ function warningStyle(index: number): string | undefined {
     <div
       v-for="(warning, index) in digest.warnings"
       :key="`${warning.source}:${warning.code}`"
-      class="alert alert-warn"
-      :class="{ rise: props.animate === true }"
+      class="alert"
+      :class="[isWindowNotice(warning) ? 'alert-info' : 'alert-warn', { rise: props.animate === true }]"
       :style="warningStyle(index)"
-      role="alert"
+      :role="isWindowNotice(warning) ? 'status' : 'alert'"
       :data-od-id="`connector-warning-${warning.source.toLowerCase()}`"
     >
-      <AppIcon name="alert" />
-      <p><b>{{ warning.label }} connector:</b> {{ warning.message }}</p>
+      <AppIcon :name="isWindowNotice(warning) ? 'info' : 'alert'" />
+      <p><b>{{ warning.label }}{{ isWindowNotice(warning) ? ':' : ' connector:' }}</b> {{ warning.message }}</p>
       <button
-        v-if="settingsSource(warning.source) !== null"
+        v-if="!isWindowNotice(warning) && settingsSource(warning.source) !== null"
         type="button"
         class="btn btn-sm act"
         @click="emit('openSettings', warning.source)"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -12,7 +13,7 @@ import httpx
 from ai_news_agent.connectors.base import ConnectorRequest, ConnectorResult
 from ai_news_agent.connectors.juya import _text_matches_topic
 from ai_news_agent.models import ConfidenceLevel, ConnectorWarning, NewsItem, SourceKind
-from ai_news_agent.ranking import within_timeframe
+from ai_news_agent.ranking import _timeframe_bounds_at, within_timeframe
 
 SNIPPET_MAX = 650
 
@@ -135,6 +136,38 @@ def _request_failed_warning(detail: str) -> ConnectorWarning:
     )
 
 
+def _window_widened_warning(requested_timeframe: str | None) -> ConnectorWarning:
+    return ConnectorWarning(
+        connector="openrouter",
+        code="window_widened",
+        message=(
+            "No models matched the requested window; showing matching listings "
+            "from the last 7 days instead."
+        ),
+        detail=json.dumps(
+            {
+                "requested_timeframe": requested_timeframe,
+                "effective_timeframe": "last_7_days",
+            },
+            separators=(",", ":"),
+        ),
+    )
+
+
+def _is_proper_subset_of_last_7_days(timeframe: str, reference: datetime) -> bool:
+    requested = _timeframe_bounds_at(timeframe, reference)
+    fallback = _timeframe_bounds_at("last_7_days", reference)
+    if None in (*requested, *fallback):
+        return False
+    requested_start, requested_end = requested
+    fallback_start, fallback_end = fallback
+    return (
+        fallback_start <= requested_start
+        and requested_end <= fallback_end
+        and (requested_start, requested_end) != (fallback_start, fallback_end)
+    )
+
+
 def _matches_topics(model: dict[str, Any], topics: list[str]) -> bool:
     haystack = " ".join(
         [
@@ -210,35 +243,52 @@ class OpenRouterConnector:
         raw_count = len(models)
         collected_at = self._now()
         effective_timeframe = request.timeframe if request.timeframe else "last_7_days"
-        items: list[NewsItem] = []
-        for model in models:
-            if not isinstance(model, dict):
+        items = _select_models(models, request, effective_timeframe, collected_at)
+        warnings: list[ConnectorWarning] = []
+        if (
+            not items
+            and not request.strict_timeframe
+            and request.timeframe
+            and _is_proper_subset_of_last_7_days(request.timeframe, collected_at)
+        ):
+            fallback_items = _select_models(
+                models, request, "last_7_days", collected_at
+            )
+            if fallback_items:
+                items = fallback_items
+                warnings.append(_window_widened_warning(request.timeframe))
+        return ConnectorResult(items=items, warnings=warnings, raw_count=raw_count)
+
+
+def _select_models(
+    models: list[Any],
+    request: ConnectorRequest,
+    timeframe: str,
+    collected_at: datetime,
+) -> list[NewsItem]:
+    items: list[NewsItem] = []
+    for model in models:
+        if not isinstance(model, dict):
+            continue
+        item = _model_to_news_item(model, collected_at)
+        if item is None:
+            continue
+        if item.published_at is None or not within_timeframe(
+            item, timeframe, collected_at
+        ):
+            continue
+        if request.topics_are_filters and request.topics:
+            if not _matches_topics(model, request.topics):
                 continue
-            item = _model_to_news_item(model, collected_at)
-            if item is None:
-                continue
-            if item.published_at is None:
-                if effective_timeframe:
-                    continue
-            elif not within_timeframe(item, effective_timeframe, collected_at):
-                continue
-            if request.topics_are_filters and request.topics:
-                if not _matches_topics(model, request.topics):
-                    continue
-            if request.free_only and not (item.source_evidence or {}).get(
-                "free_token_pricing"
-            ):
-                continue
-            items.append(item)
-        # Keep the newest listings when the payload exceeds the per-source cap;
-        # items without a publication time sort last.
-        items.sort(
-            key=lambda item: (
-                item.published_at is not None,
-                item.published_at or datetime.min.replace(tzinfo=UTC),
-            ),
-            reverse=True,
-        )
-        items = items[: max(request.max_items, 1)]
-        return ConnectorResult(items=items, warnings=[], raw_count=raw_count)
+        if request.free_only and not (item.source_evidence or {}).get(
+            "free_token_pricing"
+        ):
+            continue
+        items.append(item)
+    # Keep the newest listings when the payload exceeds the per-source cap.
+    items.sort(
+        key=lambda item: item.published_at or datetime.min.replace(tzinfo=UTC),
+        reverse=True,
+    )
+    return items[: max(request.max_items, 1)]
 

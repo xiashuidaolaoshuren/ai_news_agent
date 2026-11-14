@@ -287,6 +287,28 @@ describe('toDigestVm', () => {
     expect(toDigestVm({ digest }).ref).toBeNull()
   })
 
+  it('counts a widened OpenRouter window as returned without a no-items warning', () => {
+    const vm = toDigestVm({
+      digest: {
+        generated_at: '2026-10-01T20:04:00Z',
+        entries: [entry('openrouter', 1)],
+      },
+      digestId: 20,
+      connectorNames: ['openrouter'],
+      warnings: [
+        {
+          connector: 'openrouter',
+          code: 'window_widened',
+          message: 'No models matched the requested window; showing matching listings from the last 7 days instead.',
+        },
+      ],
+    })
+
+    expect(vm.sourcesReturned).toBe(1)
+    expect(vm.sourcesTotal).toBe(1)
+    expect(vm.warnings.map((warning) => warning.code)).toEqual(['window_widened'])
+  })
+
   it('announces a requested source that returned nothing', () => {
     const vm = toDigestVm({
       digest: {

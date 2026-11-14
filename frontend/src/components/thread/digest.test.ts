@@ -56,6 +56,32 @@ describe('DigestReply', () => {
     expect(alerts[1]!.text()).toContain('Bilibili connector:')
   })
 
+  it('shows an OpenRouter window fallback as information rather than a failure', () => {
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          warnings: [
+            warningVm({
+              source: 'openrouter',
+              label: 'OpenRouter',
+              code: 'window_widened',
+              message:
+                'No models matched the requested window; showing matching listings from the last 7 days instead.',
+            }),
+          ],
+        }),
+      },
+    })
+
+    const notice = wrapper.get('[data-od-id="connector-warning-openrouter"]')
+    expect(notice.classes()).toContain('alert-info')
+    expect(notice.attributes('role')).toBe('status')
+    expect(notice.text()).toContain('OpenRouter:')
+    expect(notice.text()).not.toContain('OpenRouter connector:')
+    expect(notice.text()).toContain('showing matching listings from the last 7 days instead')
+    expect(notice.find('button').exists()).toBe(false)
+  })
+
   it('opens that connector settings from its warning', async () => {
     const wrapper = mount(DigestReply, {
       props: {

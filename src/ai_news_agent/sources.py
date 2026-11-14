@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -207,6 +208,43 @@ class FakeZhihuConnector:
         return ConnectorResult(items=[item], warnings=[], raw_count=1)
 
 
+def _fake_openrouter_rows(
+    scenario: str, now: datetime
+) -> tuple[int, dict[str, Any]] | None:
+    if scenario == "request-failed":
+        return 503, {"data": []}
+    if scenario == "empty-today":
+        created = datetime.combine(
+            now.date() - timedelta(days=1), datetime.min.time(), tzinfo=UTC
+        )
+        return 200, {
+            "data": [
+                {
+                    "id": "lab/fallback-model",
+                    "name": "Fallback OpenRouter model",
+                    "created": int(created.timestamp()),
+                    "description": "Listed yesterday",
+                    "pricing": {"prompt": "0.0000001", "completion": "0.0000002"},
+                    "architecture": {"input_modalities": ["text"]},
+                }
+            ]
+        }
+    if scenario == "in-window":
+        return 200, {
+            "data": [
+                {
+                    "id": "lab/today-model",
+                    "name": "Today OpenRouter model",
+                    "created": int((now - timedelta(hours=1)).timestamp()),
+                    "description": "Listed today",
+                    "pricing": {"prompt": "0.0000003", "completion": "0.0000004"},
+                    "architecture": {"input_modalities": ["text"]},
+                }
+            ]
+        }
+    return None
+
+
 class FakeOpenRouterConnector:
     """Deterministic offline stand-in for OpenRouter."""
 
@@ -214,7 +252,27 @@ class FakeOpenRouterConnector:
         return "openrouter"
 
     async def collect(self, request) -> ConnectorResult:  # noqa: ANN001
+        scenario = os.environ.get("AI_NEWS_AGENT_FAKE_OPENROUTER", "").strip()
         now = datetime.now(UTC)
+        scenario_rows = _fake_openrouter_rows(scenario, now)
+        if scenario_rows is not None:
+            import httpx
+
+            status, payload = scenario_rows
+
+            def handler(_request: httpx.Request) -> httpx.Response:
+                return httpx.Response(status, json=payload)
+
+            client = httpx.AsyncClient(
+                transport=httpx.MockTransport(handler),
+                base_url="https://openrouter.ai",
+            )
+            try:
+                return await OpenRouterConnector(client=client, now=lambda: now).collect(
+                    request
+                )
+            finally:
+                await client.aclose()
         published = now - timedelta(hours=2)
         free_item = NewsItem(
             source=SourceKind.OPENROUTER,
