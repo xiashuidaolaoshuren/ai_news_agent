@@ -3,7 +3,7 @@ import bilibiliLogo from '@/assets/sources/bilibili.ico'
 import githubLogo from '@/assets/sources/github.svg'
 import huggingFaceLogo from '@/assets/sources/huggingface.svg'
 import juyaLogo from '@/assets/sources/juya.png'
-import openRouterLogo from '@/assets/sources/openrouter.svg'
+import openRouterLogo from '@/assets/sources/openrouter.png'
 import zhihuLogo from '@/assets/sources/zhihu.ico'
 import type { EntryKind } from '@/vm'
 
@@ -22,7 +22,7 @@ const LOGOS: Record<EntryKind, string> = {
 <template>
   <img
     class="logo"
-    :class="{ invert: props.kind === 'github' || props.kind === 'openrouter' }"
+    :class="{ invert: props.kind === 'github' }"
     :src="LOGOS[props.kind]"
     alt=""
     width="14"

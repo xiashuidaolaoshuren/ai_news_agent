@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from ai_news_agent.huggingface_model_card import normalize_model_card_snippet
 from ai_news_agent.models import DigestEntry, NewsItem
 from ai_news_agent.rendering import _escape_markdown_inline
@@ -42,74 +44,132 @@ def format_huggingface_family_card(
     related_display_ranks: list[int] | None = None,
 ) -> str:
     """Render an English family card from persisted digest evidence."""
-    lines = [
-        _field_line(f"Rank {rank}", entry.title),
-        _field_line("Link", entry.source_url),
-    ]
+    lines = [_eyebrow(entry, news_item, rank), "", f"### Family card · {entry.title}"]
     if news_item is None:
         lines.append(_MISSING_EVIDENCE_CAVEAT)
+        lines.extend(_source_section(entry))
         return "\n".join(lines).rstrip()
     evidence = news_item.source_evidence
     if not _has_hub_stats_or_snippet(news_item, evidence):
         also = _also_column(evidence)
         if also:
-            lines.append(_field_line("Also", also))
+            lines.append(_also_line(also))
         lines.append(_MISSING_EVIDENCE_CAVEAT)
+        lines.extend(_source_section(entry))
         return "\n".join(lines).rstrip()
     trending = evidence.get("trending_score")
     downloads_30d = evidence.get("downloads_30d")
     likes = evidence.get("likes")
     pipeline_tag = evidence.get("pipeline_tag")
+    columns = [
+        ("Trending", trending),
+        ("30-day downloads", downloads_30d),
+        ("Likes", likes),
+        ("Pipeline", pipeline_tag),
+    ]
     if targeted:
-        lines.append(
-            _field_line("Trending", trending if trending else _NOT_SAVED)
-        )
-        lines.append(
-            _field_line(
-                "Downloads (30d)",
-                downloads_30d if downloads_30d else _NOT_SAVED,
-            )
-        )
-        lines.append(_field_line("Likes", likes if likes else _NOT_SAVED))
-        lines.append(
-            _field_line("Pipeline", pipeline_tag if pipeline_tag else _NOT_SAVED)
+        lines.extend(
+            _stats_table([(label, value if value else _NOT_SAVED) for label, value in columns])
         )
     else:
-        if trending:
-            lines.append(_field_line("Trending", trending))
-        if downloads_30d:
-            lines.append(_field_line("Downloads (30d)", downloads_30d))
-        if likes:
-            lines.append(_field_line("Likes", likes))
-        if pipeline_tag:
-            lines.append(_field_line("Pipeline", pipeline_tag))
+        present = [(label, value) for label, value in columns if value]
+        if present:
+            lines.extend(_stats_table(present))
     also = _also_column(evidence)
     if also:
-        lines.append(_field_line("Also", also))
-    if news_item.author:
-        lines.append(_field_line("Publisher", news_item.author))
+        lines.append(_also_line(also))
     snippet = _display_snippet(news_item.raw_snippet or "", entry.source_url)
     if snippet:
-        lines.extend(("", f"Snippet{_FIELD_SEP}", "", snippet))
-    if targeted and related_display_ranks:
-        ranks = ", ".join(f"#{r}" for r in related_display_ranks)
-        lines.append(_field_line("Related", ranks))
+        lines.extend(("", "#### From the model card", _blockquote(_demote_headings(snippet))))
     caveats: list[str] = []
+    if _has_hub_stats_or_snippet(news_item, evidence):
+        caveats.append(_POPULARITY_CAVEAT)
     if saved_with_digest and snippet:
         caveats.append(_SAVED_WITH_DIGEST_SNIPPET_CAVEAT)
     elif evidence.get("model_card_live_fetched") and snippet:
         caveats.append(_LIVE_SNIPPET_CAVEAT)
     if model_card_unavailable:
         caveats.append(_MODEL_CARD_UNAVAILABLE_CAVEAT)
-    if _has_hub_stats_or_snippet(news_item, evidence):
-        caveats.append(_POPULARITY_CAVEAT)
     if caveats:
-        lines.extend(("", *caveats))
+        lines.extend(("", "#### Reading these numbers", *(f"- {c}" for c in caveats)))
+    if targeted and related_display_ranks:
+        lines.extend(("", "#### Related", " · ".join(f"#{r}" for r in related_display_ranks)))
+    lines.extend(_source_section(entry))
     return "\n".join(lines).rstrip()
 
 
 def _field_line(label: str, value: object) -> str:
     return f"{label}{_FIELD_SEP}{_escape_markdown_inline(str(value))}"
+
+
+def _eyebrow(entry: DigestEntry, news_item: NewsItem | None, rank: int) -> str:
+    """Rank, publisher and pipeline on one line, as the prototype's eyebrow."""
+    publisher = news_item.author if news_item is not None and news_item.author else None
+    if publisher is None and "/" in entry.source_id:
+        publisher = entry.source_id.split("/", 1)[0]
+    parts = [f"Rank {rank}"]
+    if publisher:
+        parts.append(_escape_markdown_inline(publisher))
+    pipeline = (
+        news_item.source_evidence.get("pipeline_tag")
+        if news_item is not None
+        else None
+    )
+    if pipeline:
+        parts.append(_escape_markdown_inline(str(pipeline)))
+    return " · ".join(parts)
+
+
+def _stats_table(columns: list[tuple[str, object]]) -> list[str]:
+    """One-row Hub stats table under its own heading."""
+    header = " | ".join(label for label, _ in columns)
+    divider = " | ".join("---" for _ in columns)
+    row = " | ".join(_stat_cell(value) for _, value in columns)
+    return ["", "#### Hub stats", f"| {header} |", f"| {divider} |", f"| {row} |"]
+
+
+def _stat_cell(value: object) -> str:
+    if value == _NOT_SAVED:
+        return _NOT_SAVED
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    if isinstance(value, int):
+        return f"{value:,}"
+    if isinstance(value, float):
+        return f"{value:g}"
+    return f"`{_escape_markdown_inline(str(value))}`" if isinstance(value, str) else str(value)
+
+
+_HEADING_LINE = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
+
+
+def _demote_headings(text: str) -> str:
+    """Turn README headings into bold lines so they do not outrank the card's own headings."""
+    out: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        match = None if in_fence else _HEADING_LINE.match(line)
+        out.append(f"**{match.group(1)}**" if match and match.group(1) else line)
+    return "\n".join(out)
+
+
+def _blockquote(text: str) -> str:
+    """Quote every line, including blank lines, so the block stays one quote."""
+    return "\n".join(f"> {line}" if line.strip() else ">" for line in text.splitlines())
+
+
+def _also_line(also: str) -> str:
+    return f"**Also** {_escape_markdown_inline(also)}"
+
+
+def _source_section(entry: DigestEntry) -> list[str]:
+    return ["", "#### Source", f"- [hf.co]({entry.source_url}) · model page for `{entry.source_id}`"]
 
 
 def _display_snippet(raw: str, source_url: str) -> str:
@@ -130,7 +190,7 @@ def _also_column(evidence: dict[str, object]) -> str:
         title = str(variant.get("title", variant.get("source_id", ""))).strip()
         if title:
             titles.append(title)
-    return ", ".join(titles)
+    return " · ".join(titles)
 
 
 def _has_hub_stats_or_snippet(news_item: NewsItem | None, evidence: dict[str, object]) -> bool:

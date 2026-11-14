@@ -927,13 +927,50 @@ tr.hl,
 }
 
 .md blockquote {
-  margin: 0;
+  margin: 0 0 10px;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--sunken);
   color: var(--fg);
   font-size: 13px;
+}
+
+.md blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* Hub stats and model-card tables. The card can be narrow, so the table scrolls inside it. */
+.md table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.md th,
+.md td {
+  padding: 4px 16px 4px 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Column labels match the prototype's Also and stat labels. */
+.md th {
+  font: 500 11px/1.4 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+/* The card's first line (rank · publisher · pipeline) reads as an eyebrow above its title. */
+.md > p:first-child:has(+ h3) {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 /* ---------- preview hover card ---------- */

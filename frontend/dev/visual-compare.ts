@@ -228,12 +228,11 @@ function historyVmFor(view: string): HistoryPanelVm {
     { name: 'zhihu', label: 'Zhihu' },
   ]
   const markdown = [
-    'Rank 1 — Qwen3.8-Flash-Next',
-    'Link — https://huggingface.co/Qwen/Qwen3.8-Flash-Next',
-    'Trending — 3955',
-    'Downloads (30d) — 4810',
-    '',
-    'Hub trending reflects popularity, not model quality or fitness for your use case.',
+    'Rank 1 · Qwen',
+    '### Family card · Qwen3.8-Flash-Next',
+    '#### Hub stats\n\n| Trending | 30-day downloads |\n| --- | --- |\n| 3,955 | 4,810 |',
+    '#### Reading these numbers\n\n- Hub trending reflects popularity, not model quality or fitness for your use case.',
+    '#### Source\n\n- [hf.co](https://huggingface.co/Qwen/Qwen3.8-Flash-Next) · model page for `Qwen/Qwen3.8-Flash-Next`',
   ].join('\n\n')
   const firstMatch = historiaMatches[0]
   function openedFor(entry: EntryVm | null, status: 'loading' | 'ready'): HistoryPanelVm {

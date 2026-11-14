@@ -72,9 +72,11 @@ def test_family_card_header_chrome() -> None:
         title="Qwen3.8-27B",
     )
     out = format_huggingface_family_card(entry, item, rank=1)
-    assert "Rank 1" in out
-    assert "Qwen3.8-27B" in out
+    assert "Rank 1 · Qwen" in out
+    assert "### Family card · Qwen3.8-27B" in out
+    assert "#### Source" in out
     assert "https://huggingface.co/Qwen/Qwen3.8-27B" in out
+    assert "Rank 1 —" not in out
     for emoji in _EMOJI_CHROME:
         assert emoji not in out
 
@@ -90,24 +92,17 @@ def test_family_card_hub_stats_present() -> None:
         },
     )
     out = format_huggingface_family_card(entry, item, rank=1)
-    assert "Trending —" in out
-    assert "88" in out
-    assert "Downloads (30d) —" in out
-    assert "1200" in out
-    assert "Likes —" in out
-    assert "42" in out
-    assert "Pipeline —" in out
-    assert "text-generation" in out
+    assert "#### Hub stats" in out
+    assert "| Trending | 30-day downloads | Likes | Pipeline |" in out
+    assert "| 88 | 1,200 | 42 | `text-generation` |" in out
 
 
 def test_family_card_hub_stats_omitted_when_empty() -> None:
     entry = _hf_entry()
     item = _hf_news_item(source_evidence={})
     out = format_huggingface_family_card(entry, item, rank=1)
-    assert "Trending —" not in out
-    assert "Downloads (30d) —" not in out
-    assert "Likes —" not in out
-    assert "Pipeline —" not in out
+    assert "#### Hub stats" not in out
+    assert "| Trending" not in out
 
 
 def test_family_card_also_variants() -> None:
@@ -121,26 +116,25 @@ def test_family_card_also_variants() -> None:
         },
     )
     out = format_huggingface_family_card(entry, item, rank=1)
-    assert "Qwen3-27B-GGUF" in out
-    assert "Qwen3-27B-MLX" in out
+    assert "**Also** Qwen3-27B-GGUF · Qwen3-27B-MLX" in out
 
 
 def test_family_card_also_omitted_when_empty() -> None:
     entry = _hf_entry()
     item = _hf_news_item(source_evidence={})
     out = format_huggingface_family_card(entry, item, rank=1)
+    assert "**Also**" not in out
     assert "Also —" not in out
-    assert "Also — none" not in out
 
 
 def test_family_card_publisher_and_snippet_present() -> None:
     entry = _hf_entry()
     item = _hf_news_item(author="Qwen", raw_snippet="Small and fast.")
     out = format_huggingface_family_card(entry, item, rank=1)
-    assert "Publisher —" in out
-    assert "Qwen" in out
-    assert "Snippet —" in out
-    assert "Small and fast." in out
+    assert "Publisher —" not in out
+    assert "Rank 1 · Qwen" in out
+    assert "#### From the model card" in out
+    assert "> Small and fast." in out
 
 
 def test_family_card_publisher_and_snippet_omitted() -> None:
@@ -148,7 +142,7 @@ def test_family_card_publisher_and_snippet_omitted() -> None:
     item = _hf_news_item(author=None, raw_snippet=None)
     out = format_huggingface_family_card(entry, item, rank=1)
     assert "Publisher —" not in out
-    assert "Snippet —" not in out
+    assert "From the model card" not in out
 
 
 def test_family_card_popularity_caveat() -> None:
@@ -230,7 +224,7 @@ def test_family_card_unavailable_caveat_when_enrich_failed() -> None:
         rank=1,
         model_card_unavailable=True,
     )
-    assert "Trending —" in out
+    assert "| 88 | 1,200 |" in out
     assert "unavailable" in out.lower()
 
 
@@ -298,12 +292,10 @@ def test_family_card_uses_em_dash_field_separators() -> None:
         raw_snippet="Small and fast.",
     )
     out = format_huggingface_family_card(entry, item, rank=1)
-    assert "Rank 1 —" in out
-    assert "Link —" in out
-    assert "Trending —" in out
+    assert "| Trending" in out
     assert "Rank 1:" not in out
-    assert "Link:" not in out
     assert "Trending:" not in out
+    assert "Link —" not in out
 
 
 def test_family_card_renders_snippet_as_markdown() -> None:
@@ -313,21 +305,46 @@ def test_family_card_renders_snippet_as_markdown() -> None:
         raw_snippet="# Qwen\n\nOverview paragraph.",
     )
     out = format_huggingface_family_card(entry, item, rank=1)
-    assert "Snippet —" in out
+    assert "#### From the model card" in out
     assert "```text" not in out
     assert "```" not in out
-    assert "# Qwen" in out
-    assert "Overview paragraph." in out
+    assert "> **Qwen**" in out
+    assert "# Qwen" not in out
+    assert "> Overview paragraph." in out
+
+
+def test_family_card_caveats_are_a_reading_list_in_order() -> None:
+    entry = _hf_entry()
+    item = _hf_news_item(
+        raw_snippet="Live README excerpt.",
+        source_evidence={"trending_score": 88.0, "model_card_live_fetched": True},
+    )
+    out = format_huggingface_family_card(entry, item, rank=1, model_card_unavailable=True)
+    heading = out.index("#### Reading these numbers")
+    popularity = out.index("- Hub trending reflects popularity")
+    live = out.index("- Snippet is from a live Hub model card")
+    unavailable = out.index("- Live Hub model card was unavailable")
+    assert heading < popularity < live < unavailable
+
+
+def test_family_card_keeps_hash_lines_inside_code_fences() -> None:
+    entry = _hf_entry()
+    item = _hf_news_item(
+        source_evidence={"trending_score": 88.0},
+        raw_snippet="# Usage\n\n```python\n# not a heading\nprint(1)\n```\n",
+    )
+    out = format_huggingface_family_card(entry, item, rank=1)
+    assert "> **Usage**" in out
+    assert "> # not a heading" in out
+    assert "**not a heading**" not in out
 
 
 def test_targeted_family_card_shows_not_saved_for_missing_stats() -> None:
     entry = _hf_entry()
     item = _hf_news_item(source_evidence={"trending_score": 88.0})
     out = format_huggingface_family_card(entry, item, rank=1, targeted=True)
-    assert "Trending —" in out and "88" in out
-    assert "Downloads (30d) — Not saved" in out
-    assert "Likes — Not saved" in out
-    assert "Pipeline — Not saved" in out
+    assert "| Trending | 30-day downloads | Likes | Pipeline |" in out
+    assert "| 88 | Not saved | Not saved | Not saved |" in out
 
 
 def test_targeted_family_card_saved_with_digest_snippet_label() -> None:
@@ -357,9 +374,8 @@ def test_targeted_family_card_related_line() -> None:
         targeted=True,
         related_display_ranks=[4, 7],
     )
-    assert "Related —" in out
-    assert "#4" in out
-    assert "#7" in out
+    assert "#### Related\n#4 · #7" in out
+    assert "Related —" not in out
 
 
 def test_family_card_renders_markdown_after_stripped_frontmatter() -> None:
@@ -377,8 +393,8 @@ def test_family_card_renders_markdown_after_stripped_frontmatter() -> None:
         raw_snippet=snippet,
     )
     out = format_huggingface_family_card(entry, item, rank=1)
-    assert "# Title" in out
-    assert "Body text." in out
+    assert "> **Title**" in out
+    assert "> Body text." in out
     assert "library_name:" not in out
 
 
@@ -397,20 +413,20 @@ def test_family_card_renders_cached_html_snippet_as_readable_blocks() -> None:
     )
     out = format_huggingface_family_card(entry, item, rank=9)
 
-    assert "Rank 9 — Kimi-K3.1-Pro" in out
-    assert "Trending — 589.5" in out
+    assert "Rank 9 · moonshotai" in out
+    assert "### Family card · Kimi-K3.1-Pro" in out
+    assert "| 589.5 |" in out
     assert "Kimi K3.1 Pro is an open-weight model." in out
     assert "**Architecture**" in out
     assert "Mixture-of-Experts" in out
     assert "<div" not in out
     assert "<td" not in out
     assert "logo.png" not in out
-    marker = "Snippet — \n\n"
+    marker = "#### From the model card\n"
     _metadata, snippet_and_rest = out.split(marker, maxsplit=1)
-    snippet, caveats = snippet_and_rest.split("\n\n", maxsplit=1)
-    assert "Rank 9" not in snippet
-    assert "after digest" in caveats.lower()
-    assert "popularity, not" in caveats
+    assert "Rank 9" not in snippet_and_rest.split("#### Reading these numbers")[0]
+    assert "after digest" in snippet_and_rest.lower()
+    assert "popularity, not" in snippet_and_rest
 
 
 def test_family_card_omits_snippet_when_cached_html_has_no_readable_text() -> None:
@@ -421,7 +437,7 @@ def test_family_card_omits_snippet_when_cached_html_has_no_readable_text() -> No
     )
     out = format_huggingface_family_card(entry, item, rank=1)
 
-    assert "Trending —" in out
+    assert "| 88 |" in out
     assert "Snippet —" not in out
     assert "<div" not in out
     assert "logo.png" not in out

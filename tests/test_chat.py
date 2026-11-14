@@ -1118,7 +1118,7 @@ def test_targeted_deep_dive_cleans_kimi_style_card_and_reuses_it(tmp_path: Path)
         assert "Mixture-of-Experts" in text
         assert "<div" not in text
         assert "kimi-logo.png" not in text
-        assert "Trending —" in text and "88" in text
+        assert "| Trending" in text and "88" in text
         assert "after digest" in text.lower()
         assert "popularity, not" in text
 

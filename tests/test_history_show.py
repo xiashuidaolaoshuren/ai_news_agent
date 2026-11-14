@@ -276,7 +276,7 @@ def test_show_historical_item_hf_card(tmp_path: Path) -> None:
     out = show_historical_item(store, f"d{digest_id}:r1")
     assert out is not None
     assert "Rank 1" in out
-    assert "Trending —" in out
+    assert "| Trending" in out
     assert "Digest item 1:" not in out
 
 
@@ -395,4 +395,4 @@ def test_show_historical_item_no_live_enrich_or_store_writes(
     out = history_search.show_historical_item(store, f"d{digest_id}:r1")
     assert out is not None
     assert "Rank 1" in out
-    assert "Trending —" in out
+    assert "| Trending" in out
