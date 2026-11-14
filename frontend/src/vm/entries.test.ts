@@ -7,7 +7,7 @@ import type {
   OpenRouterDigestEntryView,
 } from '@/api/generated/types.gen'
 import { resolveDemoAsset, safeHttpUrl, toVm } from '@/vm'
-import { formatPrice } from '@/vm/entries'
+import { formatPrice, githubMeta, openRouterSpec } from '@/vm/entries'
 
 function zhihuEntry(overrides: Partial<DigestEntryView> = {}): DigestEntryView {
   return {
@@ -503,5 +503,48 @@ describe('Hugging Face projection', () => {
   it('leaves relatedRanks unset for an empty rank list on any kind', () => {
     expect(toVm(zhihuEntry({ related_display_ranks: [] })).relatedRanks).toBeUndefined()
     expect(toVm(openRouterEntry({ related_display_ranks: [] })).relatedRanks).toBeUndefined()
+  })
+})
+
+describe('entry language', () => {
+  it('carries the saved output language and keeps legacy Juya and Zhihu rows Chinese', () => {
+    expect(toVm(zhihuEntry({ output_language: 'en' })).lang).toBe('en')
+    expect(toVm(zhihuEntry({ output_language: 'zh-CN' })).lang).toBe('zh-CN')
+    expect(toVm(zhihuEntry({ output_language: null })).lang).toBe('zh-CN')
+    expect(
+      toVm({ ...zhihuEntry({ output_language: null }), source_kind: 'bilibili' }).lang,
+    ).toBe('en')
+  })
+})
+
+describe('entry metadata language', () => {
+  it('localizes the GitHub meta line, OpenRouter spec labels, and the free badge', () => {
+    expect(
+      githubMeta(
+        { language: 'Rust', stars: 13659, stars_today: 2503 } as GitHubDigestEntryView,
+        'zh-CN',
+      ),
+    ).toBe('Rust · 13,659 ★ · 今日 +2,503')
+
+    const spec = openRouterSpec(
+      {
+        context_length: 128000,
+        prompt_price_per_million: '1',
+        completion_price_per_million: '2',
+      } as OpenRouterDigestEntryView,
+      'zh-CN',
+    )
+    expect(spec?.map((field) => field.label)).toEqual([
+      '上下文',
+      '输入 / 每百万 tokens',
+      '输出 / 每百万 tokens',
+    ])
+
+    const badge = toVm({
+      ...zhihuEntry({ output_language: 'zh-CN' }),
+      source_kind: 'openrouter',
+      free_token_pricing: true,
+    } as unknown as DigestEntryView).badge
+    expect(badge).toBe('免费 token 定价')
   })
 })

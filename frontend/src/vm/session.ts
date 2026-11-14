@@ -494,7 +494,7 @@ export function toMessageVm(message: MessageOut, context?: MessageMapContext): M
     kind: 'markdown',
     text: message.content,
     createdAt: message.created_at,
-    warnings: warnings.map(toWarningVm),
+    warnings: warnings.map((warning) => toWarningVm(warning)),
   }
   if (message.role === 'user') {
     vm.kind = 'user'

@@ -913,3 +913,82 @@ def test_digest_entry_records_generated_language() -> None:
     assert by_kind[SourceKind.GITHUB] == "en"
     assert by_kind[SourceKind.JUYA] == "zh-CN"
     assert by_kind[SourceKind.HUGGINGFACE] == "en"
+
+
+def test_summarize_huggingface_caveat_follows_chinese_output_language() -> None:
+    from ai_news_agent.summarizer import summarize_ranked_items
+
+    ni = NewsItem(
+        source=SourceKind.HUGGINGFACE,
+        source_id="hf-zh-caveat",
+        url="https://huggingface.co/models/hf-zh-caveat",
+        title="Popular model",
+        collected_at=_fixed_now(),
+        raw_snippet="Model card excerpt.",
+        content_confidence=ConfidenceLevel.HIGH,
+        source_evidence={"trending_score": 999.0},
+    )
+    digest = summarize_ranked_items(
+        [RankedItem(item=ni, score_total=1.0, selected=True)],
+        generated_at=_fixed_now(),
+        topics=["AI"],
+        model=FakeChatModel(),
+        output_language="zh-CN",
+    )
+
+    caveat = digest.entries[0].confidence_caveat or ""
+    assert "热度" in caveat
+    assert "popularity" not in caveat.lower()
+
+
+def test_summarize_remaining_caveats_follow_chinese_output_language() -> None:
+    from ai_news_agent.summarizer import summarize_ranked_items
+
+    thin = NewsItem(
+        source=SourceKind.OPENROUTER,
+        source_id="or-zh-caveat",
+        url="https://openrouter.ai/models/or-zh-caveat",
+        title="Thin model",
+        collected_at=_fixed_now(),
+        content_confidence=ConfidenceLevel.LOW,
+    )
+    digest = summarize_ranked_items(
+        [RankedItem(item=thin, score_total=1.0, selected=True)],
+        generated_at=_fixed_now(),
+        topics=["AI"],
+        model=FakeChatModel(default={**FakeChatModel._DEFAULT, "follow_up_action": "bogus"}),
+        output_language="zh-CN",
+    )
+
+    caveats = digest.entries[0].confidence_caveat or ""
+    assert "置信度较低" in caveats
+    assert "仅基于元数据" in caveats
+    assert "无法识别的 follow_up_action" in caveats
+    assert "low-confidence" not in caveats.lower()
+    assert "metadata-only" not in caveats.lower()
+
+
+def test_summarize_zhihu_discovery_caveat_follows_chinese_output_language() -> None:
+    from ai_news_agent.summarizer import summarize_ranked_items
+
+    zhihu = NewsItem(
+        source=SourceKind.ZHIHU,
+        source_id="zh-zh-caveat",
+        url="https://www.zhihu.com/question/zh-zh-caveat",
+        title="Thin Zhihu result",
+        collected_at=_fixed_now(),
+        raw_snippet="短摘录。",
+        content_confidence=ConfidenceLevel.LOW,
+        source_evidence={"evidence_text_length": 10},
+    )
+    digest = summarize_ranked_items(
+        [RankedItem(item=zhihu, score_total=1.0, selected=True)],
+        generated_at=_fixed_now(),
+        topics=["AI"],
+        model=FakeChatModel(),
+        output_language="zh-CN",
+    )
+
+    caveat = digest.entries[0].confidence_caveat or ""
+    assert "发现导向" in caveat
+    assert "discovery-only" not in caveat.lower()

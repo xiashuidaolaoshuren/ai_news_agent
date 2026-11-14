@@ -72,7 +72,7 @@ function range(entries: EntryVm[]): [number, number] {
 
 function section(kind: SectionVm['kind'], label: string, subtitle: string, entries: EntryVm[]): SectionVm {
   const [rangeStart, rangeEnd] = range(entries)
-  return { kind, label, subtitle, count: entries.length, rangeStart, rangeEnd, entries }
+  return { kind, label, lang: entries[0]?.lang ?? 'en', subtitle, count: entries.length, rangeStart, rangeEnd, entries }
 }
 
 const juyaIssue: JuyaIssueVm = {
@@ -92,6 +92,7 @@ const digest: DigestVm = {
   ref: 'd15',
   digestId: 15,
   generatedAt: '2026-10-01T20:04:00',
+  lang: 'en',
   itemCount: juya.length + hf.length + github.length,
   sourcesReturned: 3,
   sourcesTotal: 4,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type {
   DigestEntryView,
+  DigestView,
   JuyaDigestEntryView,
   SourceKind,
 } from '@/api/generated/types.gen'
@@ -406,5 +407,41 @@ describe('toWarningVm', () => {
     expect(
       toWarningVm({ connector: 'mystery', code: 'x', message: 'Something happened.' }),
     ).toMatchObject({ source: 'mystery', label: 'mystery' })
+  })
+})
+
+describe('digest language', () => {
+  it('localizes section subtitles, the digest language, and the no-items notice', () => {
+    const vm = toDigestVm({
+      digest: {
+        generated_at: '2026-10-01T20:04:00Z',
+        entries: [{ ...entry('huggingface', 1), output_language: 'zh-CN' }],
+      } as DigestView,
+      connectorNames: ['huggingface', 'github'],
+    })
+
+    expect(vm.lang).toBe('zh-CN')
+    expect(vm.sections[0]?.lang).toBe('zh-CN')
+    expect(vm.sections[0]?.subtitle).toBe('热门模型')
+    expect(vm.warnings).toEqual([
+      expect.objectContaining({
+        source: 'github',
+        message: '该连接器本次请求没有返回条目，其他来源已正常完成。',
+      }),
+    ])
+  })
+
+  it('keeps English chrome when any entry is English', () => {
+    const vm = toDigestVm({
+      digest: {
+        generated_at: '2026-10-01T20:04:00Z',
+        entries: [
+          { ...entry('juya', 1), output_language: 'zh-CN' },
+          { ...entry('github', 2), output_language: 'en' },
+        ],
+      } as DigestView,
+    })
+
+    expect(vm.lang).toBe('en')
   })
 })

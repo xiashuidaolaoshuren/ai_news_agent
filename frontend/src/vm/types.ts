@@ -1,3 +1,4 @@
+import type { UiLang } from '@/i18n/labels'
 /** View-model types. API types stop at the `toVm` boundary. */
 
 export type EntryKind =
@@ -64,6 +65,8 @@ export interface EntryVm {
   key: string
   kind: EntryKind
   rank: number
+  /** Language the entry's card chrome is shown in. */
+  lang: UiLang
   title: string
   url: string | null
   sourceName: string

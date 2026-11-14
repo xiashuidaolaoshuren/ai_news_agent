@@ -8,6 +8,7 @@ import { riseStyle } from '@/lib/motion'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import DigestSection from '@/components/thread/DigestSection.vue'
 import { formatDigestWhen } from '@/components/thread/format'
+import { t, type LabelKey } from '@/i18n/labels'
 
 const props = defineProps<{ digest: DigestVm; animate?: boolean; repeat?: RepeatVm | null }>()
 
@@ -34,7 +35,14 @@ function isWindowNotice(warning: DigestVm['warnings'][number]): boolean {
   return warning.source === 'openrouter' && warning.code === 'window_widened'
 }
 
-const when = computed(() => formatDigestWhen(props.digest.generatedAt))
+const when = computed(() =>
+  formatDigestWhen(props.digest.generatedAt, props.digest.lang === 'zh-CN' ? 'zh-CN' : 'en-US'),
+)
+
+/** Chrome label in the digest's language. */
+function tr(key: LabelKey, vars?: Record<string, string | number>): string {
+  return t(props.digest.lang, key, vars)
+}
 
 /** Rows one section staggers: its entries, or the stories of its Juya issues. */
 function rowsIn(section: SectionVm): number {
@@ -70,9 +78,9 @@ function warningStyle(index: number): string | undefined {
 <template>
   <div class="digest-reply">
     <div class="digest-head" :class="{ rise: props.animate === true }" :style="headStyle()">
-      <h2>Digest</h2>
+      <h2>{{ tr('digestHead') }}</h2>
       <span v-if="digest.ref" class="ref">{{ digest.ref }}</span>
-      <span class="digest-meta">{{ when ? `${when} · ` : '' }}{{ digest.itemCount }} items · {{ digest.sourcesReturned }} of {{ digest.sourcesTotal }} sources returned results</span>
+      <span class="digest-meta">{{ when ? `${when} · ` : '' }}{{ tr('digestMeta', { items: digest.itemCount, returned: digest.sourcesReturned, total: digest.sourcesTotal }) }}</span>
     </div>
 
     <div
@@ -85,14 +93,14 @@ function warningStyle(index: number): string | undefined {
       :data-od-id="`connector-warning-${warning.source.toLowerCase()}`"
     >
       <AppIcon :name="isWindowNotice(warning) ? 'info' : 'alert'" />
-      <p><b>{{ warning.label }}{{ isWindowNotice(warning) ? ':' : ' connector:' }}</b> {{ warning.message }}</p>
+      <p><b>{{ warning.label }}{{ isWindowNotice(warning) ? tr('windowPrefix') : tr('connectorSuffix') }}</b> {{ warning.message }}</p>
       <button
         v-if="!isWindowNotice(warning) && settingsSource(warning.source) !== null"
         type="button"
         class="btn btn-sm act"
         @click="emit('openSettings', warning.source)"
       >
-        {{ warning.label }} settings
+        {{ tr('settingsFor', { label: warning.label }) }}
       </button>
     </div>
 
@@ -115,11 +123,10 @@ function warningStyle(index: number): string | undefined {
         :aria-describedby="`again-${digest.ref ?? 'digest'}`"
         @click="emit('repeat', props.repeat)"
       >
-        <AppIcon name="refresh" />Run again
+        <AppIcon name="refresh" />{{ tr('runAgain') }}
       </button>
       <p class="help" :id="`again-${digest.ref ?? 'digest'}`">
-        Repeats the request behind {{ digest.ref }}: {{ props.repeat.summary }}. Sources, counts,
-        timeframe and language come from that request, not from current Settings.
+        {{ tr('repeatHelp', { ref: digest.ref ?? '', summary: props.repeat.summary }) }}
       </p>
     </div>
   </div>

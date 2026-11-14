@@ -370,3 +370,22 @@ describe('DigestReply', () => {
     expect(without.find('[data-od-id="digest-run-again"]').exists()).toBe(false)
   })
 })
+
+describe('DigestReply language', () => {
+  it('shows the head, tally, and repeat action in Chinese for a zh-CN digest', () => {
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          lang: 'zh-CN',
+          sections: [sectionVm({ lang: 'zh-CN', subtitle: '热门仓库', entries: [githubEntry({ lang: 'zh-CN' })] })],
+        }),
+        repeat: REPEAT,
+      },
+    })
+
+    expect(wrapper.get('.digest-head h2').text()).toBe('早报')
+    expect(wrapper.get('.digest-head .digest-meta').text()).toContain('5 条 · 2/3 个来源有结果')
+    expect(wrapper.get('[data-od-id="digest-run-again"] button').text()).toContain('重新运行')
+    expect(wrapper.text()).not.toContain('Run again')
+  })
+})

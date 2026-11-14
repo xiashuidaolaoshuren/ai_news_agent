@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ai_news_agent.followup_enrich import enrich_huggingface_for_rank
+from ai_news_agent.card_labels import legacy_card_lang, text
 from ai_news_agent.huggingface_followup import format_huggingface_family_card
 from ai_news_agent.services.digest_views import build_digest_view_payload
 from ai_news_agent.juya_followup import (
@@ -310,14 +311,16 @@ def format_rank_item(ctx: FollowupContext, rank: int) -> str:
 
 
 def _format_digest_entry_detail(entry: DigestEntry, *, rank: int) -> str:
+    lang = legacy_card_lang(entry.language, entry.source_kind)
+    colon = text(lang, "colon")
     lines = [
-        f"Digest item {rank}: {entry.title}",
-        f"- URL: {entry.source_url}",
-        f"- Summary: {entry.summary}",
-        f"- Why it matters: {entry.why_it_matters}",
+        text(lang, "digest_item", rank=rank, title=entry.title),
+        f"- {text(lang, 'field_url')}{colon}{entry.source_url}",
+        f"- {text(lang, 'field_summary')}{colon}{entry.summary}",
+        f"- {text(lang, 'field_why')}{colon}{entry.why_it_matters}",
     ]
     if entry.confidence_caveat:
-        lines.append(f"- Confidence caveat: {entry.confidence_caveat}")
+        lines.append(f"- {text(lang, 'field_caveat')}{colon}{entry.confidence_caveat}")
     return "\n".join(lines)
 
 

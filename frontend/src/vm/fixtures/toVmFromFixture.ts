@@ -35,6 +35,7 @@ export function toVmFromFixture(fixture: FixtureEntry): EntryVm {
   const vm: EntryVm = {
     key: `${fixture.kind}-${fixture.rank}`,
     kind: fixture.kind,
+    lang: fixture.kind === 'juya' || fixture.kind === 'zhihu' ? 'zh-CN' : 'en',
     rank: fixture.rank,
     title: fixture.title,
     url,

@@ -444,3 +444,29 @@ def test_family_card_omits_snippet_when_cached_html_has_no_readable_text() -> No
     assert "after digest" not in out.lower()
     assert "saved with this digest" not in out.lower()
     assert "popularity, not" in out
+
+
+def test_family_card_uses_chinese_chrome_for_zh_entry() -> None:
+    entry = _hf_entry()
+    entry = DigestEntry(**{**entry.__dict__, "language": "zh-CN"})
+    item = _hf_news_item(
+        raw_snippet="Model card excerpt.",
+        source_evidence={
+            "trending_score": 120,
+            "downloads_30d": 5000,
+            "likes": 30,
+            "pipeline_tag": "text-generation",
+        },
+    )
+    out = format_huggingface_family_card(entry, item, rank=1)
+
+    assert "### 家族卡片 · Qwen3.8-27B" in out
+    assert "排名 1" in out
+    assert "#### Hub 数据" in out
+    assert "| 热度 |" in out
+    assert "#### 来自模型卡片" in out
+    assert "#### 如何理解这些数字" in out
+    assert "#### 来源" in out
+    for english in ("Family card", "Hub stats", "Reading these numbers", "Rank 1", "From the model card"):
+        assert english not in out
+    assert "Hub trending reflects popularity" not in out

@@ -6,6 +6,7 @@ import type {
   OpenRouterDigestEntryView,
   PublisherOwnerView,
 } from '@/api/generated/types.gen'
+import { entryLang, t, type UiLang } from '@/i18n/labels'
 import type { AvatarVm, EntryKind, EntryVm, HfVm, OpenRouterSpecVm } from '@/vm/types'
 
 /** Any digest entry the API can send, including the kind-specific views. */
@@ -139,7 +140,7 @@ export function metricText(value: number | null | undefined): string | null {
 }
 
 /** GitHub meta line: `language · stars ★ · +N today`, omitting null segments. */
-export function githubMeta(entry: GitHubDigestEntryView): string | undefined {
+export function githubMeta(entry: GitHubDigestEntryView, lang: UiLang = 'en'): string | undefined {
   const parts: string[] = []
   const language = textOrNull(entry.language ?? null)
   if (language !== null) {
@@ -149,7 +150,7 @@ export function githubMeta(entry: GitHubDigestEntryView): string | undefined {
     parts.push(`${formatCount(entry.stars)} ★`)
   }
   if (typeof entry.stars_today === 'number') {
-    parts.push(`+${formatCount(entry.stars_today)} today`)
+    parts.push(t(lang, 'githubToday', { n: formatCount(entry.stars_today) }))
   }
   return parts.length === 0 ? undefined : parts.join(' · ')
 }
@@ -158,18 +159,24 @@ export function githubMeta(entry: GitHubDigestEntryView): string | undefined {
  * OpenRouter spec fields (context, input and output price per million), in that
  * order. A field the listing did not supply is left out; no fields means no block.
  */
-export function openRouterSpec(entry: OpenRouterDigestEntryView): OpenRouterSpecVm[] | undefined {
+export function openRouterSpec(
+  entry: OpenRouterDigestEntryView,
+  lang: UiLang = 'en',
+): OpenRouterSpecVm[] | undefined {
   const fields: OpenRouterSpecVm[] = []
   if (typeof entry.context_length === 'number') {
-    fields.push({ label: 'Context', value: `${formatCount(entry.context_length)} tokens` })
+    fields.push({
+      label: t(lang, 'specContext'),
+      value: `${formatCount(entry.context_length)} tokens`,
+    })
   }
   const prompt = textOrNull(entry.prompt_price_per_million)
   if (prompt !== null) {
-    fields.push({ label: 'Input / 1M tokens', value: formatPrice(prompt) })
+    fields.push({ label: t(lang, 'specInput'), value: formatPrice(prompt) })
   }
   const completion = textOrNull(entry.completion_price_per_million)
   if (completion !== null) {
-    fields.push({ label: 'Output / 1M tokens', value: formatPrice(completion) })
+    fields.push({ label: t(lang, 'specOutput'), value: formatPrice(completion) })
   }
   return fields.length === 0 ? undefined : fields
 }
@@ -197,10 +204,12 @@ export function toVm(api: ApiDigestEntry): EntryVm {
   const url = safeHttpUrl(api.source_url)
   const kind = entryKind(api)
   const owner = (api as { owner?: PublisherOwnerView | null }).owner
+  const lang = entryLang(api.output_language, kind)
   const vm: EntryVm = {
     key: api.source_id,
     kind,
     rank: api.display_rank,
+    lang,
     title: api.title,
     url,
     sourceName: api.source_name,
@@ -218,14 +227,14 @@ export function toVm(api: ApiDigestEntry): EntryVm {
   }
   if (kind === 'github') {
     const github = api as GitHubDigestEntryView
-    vm.meta = githubMeta(github)
+    vm.meta = githubMeta(github, lang)
     vm.previewUrl = resolveDemoAsset(github.preview_image_url)
   }
   if (kind === 'openrouter') {
     const openRouter = api as OpenRouterDigestEntryView
-    vm.spec = openRouterSpec(openRouter)
+    vm.spec = openRouterSpec(openRouter, lang)
     if (openRouter.free_token_pricing === true) {
-      vm.badge = 'Free token pricing'
+      vm.badge = t(lang, 'freeTokenPricing')
     }
   }
   if (kind === 'huggingface') {

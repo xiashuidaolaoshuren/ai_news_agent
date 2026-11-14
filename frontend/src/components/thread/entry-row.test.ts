@@ -173,7 +173,7 @@ describe('EntryRow', () => {
 
   it('emits ask with a RefVm for a Juya story', async () => {
     const title = '有关部门拟增列AI技术'
-    const entry = juyaEntry({ title })
+    const entry = juyaEntry({ title, lang: 'en' })
     const expected: RefVm = { digestId: DIGEST_ID, rank: entry.rank, title }
     const wrapper = mount(EntryRow, {
       props: { entry, digestId: DIGEST_ID },
@@ -201,3 +201,29 @@ describe('EntryRow', () => {
   })
 })
 
+
+describe('EntryRow language', () => {
+  it('shows Chinese chrome for a zh-CN entry', () => {
+    const wrapper = mount(EntryRow, {
+      props: { entry: githubEntry({ lang: 'zh-CN' }), digestId: DIGEST_ID },
+    })
+
+    const labels = wrapper.findAll('dt').map((dt) => dt.text())
+    expect(labels).toContain('摘要')
+    expect(labels).toContain('为什么重要')
+    expect(wrapper.get('[data-od-id="deepdive-github-1"]').text()).toContain('深入了解')
+    expect(wrapper.get('[data-od-id="followup-github-1"]').text()).toContain('追问这条')
+    expect(wrapper.text()).not.toContain('Deep dive')
+  })
+
+  it('shows English chrome for an en Juya entry', () => {
+    const wrapper = mount(EntryRow, {
+      props: { entry: juyaEntry({ lang: 'en' }), digestId: DIGEST_ID },
+    })
+
+    const labels = wrapper.findAll('dt').map((dt) => dt.text())
+    expect(labels).toContain('Summary')
+    expect(wrapper.text()).not.toContain('摘要')
+    expect(wrapper.get('[data-od-id="deepdive-juya-3"]').text()).toContain('Deep dive')
+  })
+})

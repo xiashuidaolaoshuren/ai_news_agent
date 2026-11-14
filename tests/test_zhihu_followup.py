@@ -268,3 +268,73 @@ def test_insight_card_degraded_empty_evidence() -> None:
     assert "不是热度" not in out
     assert "不是时效" not in out
     assert "0.92" not in out
+
+
+def test_insight_card_renders_sections_with_original_link() -> None:
+    entry = _zh_entry(summary="这是摘要。", why_it_matters="这是价值。")
+    item = _zh_news_item(
+        author="实践者A",
+        raw_snippet="部署时要小心显存。",
+        source_evidence={
+            "query_lens": "实战 / 踩坑",
+            "source_label": "回答",
+            "relevance": 0.92,
+        },
+    )
+    out = format_zhihu_practitioner_insight_card(entry, item, rank=1)
+
+    assert out == "\n".join(
+        [
+            "镜头：实战 / 踩坑 · 作者/来源：实践者A（回答）",
+            "",
+            "### 第 1 条 · RAG 部署踩坑",
+            "",
+            "> **摘要** 这是摘要。",
+            "",
+            "**为什么值得看** 这是价值。",
+            "",
+            "#### 原文摘录",
+            "",
+            "> 部署时要小心显存。",
+            "",
+            "#### 说明",
+            "",
+            "- 搜索相关性：0.92",
+            "- 搜索相关性是官方搜索相关性，不是热度或时效性指标。",
+            "",
+            "#### 原文链接",
+            "",
+            "- [知乎原文](https://www.zhihu.com/question/zh-1)",
+        ]
+    )
+
+
+def test_insight_card_uses_english_labels_for_en_entry() -> None:
+    entry = DigestEntry(
+        **{
+            **_zh_entry(summary="这是摘要。", why_it_matters="这是价值。").__dict__,
+            "language": "en",
+        }
+    )
+    item = _zh_news_item(
+        author="实践者A",
+        raw_snippet="部署时要小心显存。",
+        source_evidence={
+            "query_lens": "实战 / 踩坑",
+            "source_label": "回答",
+            "relevance": 0.92,
+        },
+    )
+    out = format_zhihu_practitioner_insight_card(entry, item, rank=1)
+
+    assert "Lens: 实战 / 踩坑 · Author/source: 实践者A (回答)" in out
+    assert "### Item 1 · RAG 部署踩坑" in out
+    assert "> **Summary** 这是摘要。" in out
+    assert "**Why it matters** 这是价值。" in out
+    assert "#### Source excerpt" in out
+    assert "#### Notes" in out
+    assert "- Search relevance: 0.92" in out
+    assert "#### Original link" in out
+    assert "- [Zhihu original](https://www.zhihu.com/question/zh-1)" in out
+    for chinese in ("原文摘录", "说明", "原文链接", "为什么值得看", "第 1 条"):
+        assert chinese not in out

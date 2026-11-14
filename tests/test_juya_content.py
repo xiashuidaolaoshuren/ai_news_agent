@@ -124,3 +124,49 @@ def test_build_juya_issue_evidence_maps_parsed_metadata() -> None:
     assert evidence["issue_date"] == "2026-06-19"
     assert evidence["issue_cover_url"].startswith("https://")
     assert "SpaceX" in evidence["issue_lead_title"]
+
+
+def test_story_evidence_keeps_paragraphs_and_drops_lede() -> None:
+    markdown = (
+        "# AI 早报 2026-10-18\n\n## 要闻\n\n"
+        "### 第一条故事 `#1`\n"
+        "> 这是一句导语摘要。\n\n"
+        "第一段正文，讲述事件经过。\n"
+        "第一段的续行。\n\n"
+        "第二段正文，给出影响。\n\n"
+        "相关链接：\n- [https://example.com/a](https://example.com/a)\n"
+    )
+    story = parse_juya_issue_markdown(markdown).stories[0]
+
+    assert story.evidence_text == (
+        "第一段正文，讲述事件经过。 第一段的续行。\n\n第二段正文，给出影响。"
+    )
+
+
+def test_story_evidence_saves_related_links_list() -> None:
+    markdown = (
+        "# AI 早报 2026-10-18\n\n## 要闻\n\n"
+        "### 第一条故事 `#1`\n"
+        "> 导语。\n\n"
+        "正文一段。\n\n"
+        "相关链接：\n"
+        "- [https://example.com/a](https://example.com/a)\n"
+        "- [https://example.com/b](https://example.com/b)\n"
+    )
+    parsed = parse_juya_issue_markdown(markdown)
+
+    evidence = build_juya_story_evidence(
+        parsed,
+        parsed.stories[0],
+        issue_id="juya-rss-links",
+        issue_url="https://daily.juya.uk/issues/2026-10-18/",
+    )
+
+    assert parsed.stories[0].related_links == (
+        "https://example.com/a",
+        "https://example.com/b",
+    )
+    assert evidence["story_links"] == [
+        "https://example.com/a",
+        "https://example.com/b",
+    ]

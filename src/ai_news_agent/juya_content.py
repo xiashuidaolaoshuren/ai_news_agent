@@ -32,6 +32,7 @@ class JuyaParsedStory:
     summary: str | None
     evidence_text: str
     original_url: str | None
+    related_links: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,8 @@ def build_juya_story_evidence(
         evidence["story_summary"] = story.summary
     if story.original_url:
         evidence["story_original_url"] = story.original_url
+    if story.related_links:
+        evidence["story_links"] = list(story.related_links)
     evidence["story_identity"] = f"{issue_id}:{story.number}"
     return evidence
 
@@ -242,6 +245,7 @@ def _extract_stories(lines: list[str]) -> list[JuyaParsedStory]:
                 summary=summary,
                 evidence_text=evidence_text,
                 original_url=original_url,
+                related_links=_related_link_urls(body_text),
             )
         )
 
@@ -299,23 +303,43 @@ def _related_links_text(body_text: str) -> str | None:
     return None
 
 
+def _related_link_urls(body_text: str) -> tuple[str, ...]:
+    """Article URLs listed under 相关链接, in order, without images or duplicates."""
+    related = _related_links_text(_IMAGE_RE.sub("", body_text))
+    if related is None:
+        return ()
+    urls: list[str] = []
+    for match in _MARKDOWN_LINK_RE.finditer(related):
+        url = match.group(2).strip()
+        if _IMAGE_URL_RE.search(url) or url in urls:
+            continue
+        urls.append(url)
+    return tuple(urls)
+
+
 def _bounded_story_evidence(body_text: str) -> str:
-    parts: list[str] = []
+    """Story paragraphs joined by blank lines; the lede and link list are left out."""
+    paragraphs: list[str] = []
+    current: list[str] = []
+
+    def flush() -> None:
+        if current:
+            paragraphs.append(" ".join(current))
+            current.clear()
+
     for line in body_text.splitlines():
         stripped = line.strip()
-        if not stripped:
+        if stripped.startswith(_RELATED_LINKS_HEADING):
+            break
+        if not stripped or _SEPARATOR_RE.fullmatch(stripped) or _IMAGE_RE.fullmatch(stripped):
+            flush()
             continue
-        if _SEPARATOR_RE.fullmatch(stripped):
-            continue
-        if _IMAGE_RE.fullmatch(stripped):
+        if stripped.startswith(">"):
             continue
         stripped = _IMAGE_RE.sub("", stripped)
-        if stripped.startswith(">"):
-            stripped = stripped.lstrip(">").strip()
-        stripped = _MARKDOWN_LINK_RE.sub(r"\1", stripped)
-        stripped = stripped.strip()
-        if not stripped:
-            continue
-        parts.append(stripped)
-    plain = re.sub(r"\s+", " ", " ".join(parts)).strip()
-    return plain[:_STORY_EVIDENCE_MAX]
+        stripped = _MARKDOWN_LINK_RE.sub(r"\1", stripped).strip()
+        if stripped:
+            current.append(stripped)
+    flush()
+    text = "\n\n".join(paragraphs)
+    return text[:_STORY_EVIDENCE_MAX]

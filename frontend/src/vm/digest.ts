@@ -1,6 +1,7 @@
 import type { ConnectorWarning, DigestView, JuyaDigestEntryView, SourceKind } from '@/api/generated/types.gen'
 import type { ApiDigestEntry } from '@/vm/entries'
 import { resolveDemoAsset, safeHttpUrl, textOrNull, toEntryVm } from '@/vm/entries'
+import { digestLang, entryLang, t, type UiLang } from '@/i18n/labels'
 import type { EntryKind, EntryVm } from '@/vm/types'
 
 export type SectionSubtitle = string | null
@@ -19,6 +20,8 @@ export interface JuyaIssueVm {
 export interface SectionVm {
   kind: EntryKind
   label: string
+  /** Language of the section's chrome: its first entry's language. */
+  lang: UiLang
   subtitle: SectionSubtitle
   count: number
   rangeStart: number
@@ -36,11 +39,20 @@ const SOURCE_LABELS: Record<EntryKind, string> = {
   openrouter: 'OpenRouter',
 }
 
-const SECTION_SUBTITLES: Partial<Record<EntryKind, string>> = {
-  juya: '橘鸦 AI 早报',
-  huggingface: 'Trending models',
-  github: 'Trending repositories',
-  openrouter: 'Models you can call',
+/** Section subtitle in the section's language; the Juya subtitle is its name. */
+function sectionSubtitle(kind: EntryKind, lang: UiLang): string | null {
+  switch (kind) {
+    case 'juya':
+      return '橘鸦 AI 早报'
+    case 'huggingface':
+      return t(lang, 'trendingModels')
+    case 'github':
+      return t(lang, 'trendingRepos')
+    case 'openrouter':
+      return t(lang, 'modelsYouCanCall')
+    default:
+      return null
+  }
 }
 
 /** Display label for a source kind. */
@@ -117,7 +129,8 @@ export function toSectionsVm(entries: ApiDigestEntry[]): SectionVm[] {
     sections.push({
       kind: vm.kind,
       label: SOURCE_LABELS[vm.kind],
-      subtitle: SECTION_SUBTITLES[vm.kind] ?? null,
+      lang: vm.lang,
+      subtitle: sectionSubtitle(vm.kind, vm.lang),
       count: 1,
       rangeStart: vm.rank,
       rangeEnd: vm.rank,
@@ -146,6 +159,8 @@ export interface WarningVm {
 }
 
 export interface DigestVm {
+  /** Chinese only when every entry is Chinese. */
+  lang: UiLang
   ref: string | null
   /** Numeric id for follow-up targets and data-ref attributes. */
   digestId: number | null
@@ -164,27 +179,24 @@ export interface DigestVmInput {
   connectorNames?: string[] | null
 }
 
-/** Connector warning with a display label; unknown connectors keep their raw name. */
-export function toWarningVm(warning: ConnectorWarning): WarningVm {
+/**
+ * Connector warning with a display label; unknown connectors keep their raw name.
+ * The OpenRouter window notice is localized here; other warning text stays as the API sent it.
+ */
+export function toWarningVm(warning: ConnectorWarning, lang: UiLang = 'en'): WarningVm {
   const known = (SOURCE_LABELS as Record<string, string | undefined>)[warning.connector]
+  const isWindowNotice = warning.connector === 'openrouter' && warning.code === 'window_widened'
   return {
     source: warning.connector,
     label: known ?? warning.connector,
     code: warning.code,
-    message: warning.message,
+    message: isWindowNotice ? t(lang, 'windowNotice') : warning.message,
   }
 }
 
 function sourceNames(warning: ConnectorWarning): EntryKind | null {
   return warning.connector in SOURCE_LABELS ? (warning.connector as EntryKind) : null
 }
-
-/**
- * The prototype's notice for a requested source that came back with nothing:
- * "Connector returned no items for this request. Other sources completed normally."
- */
-const NO_ITEMS_MESSAGE =
-  'Connector returned no items for this request. Other sources completed normally.'
 
 /**
  * Warnings for requested sources that neither returned an entry nor warned.
@@ -197,6 +209,7 @@ function noItemsWarnings(
   connectorNames: readonly string[],
   warned: ReadonlySet<EntryKind>,
   returned: ReadonlySet<EntryKind>,
+  lang: UiLang,
 ): WarningVm[] {
   const out: WarningVm[] = []
   for (const name of connectorNames) {
@@ -211,7 +224,7 @@ function noItemsWarnings(
       source: kind,
       label: SOURCE_LABELS[kind],
       code: 'no_items',
-      message: NO_ITEMS_MESSAGE,
+      message: t(lang, 'noItems'),
     })
   }
   return out
@@ -240,11 +253,15 @@ export function toDigestVm(input: DigestVmInput): DigestVm {
   const warned = new Set<EntryKind>(
     (input.warnings ?? []).map(sourceNames).filter((kind) => kind !== null),
   )
+  const lang = digestLang(
+    entries.map((entry) => entryLang(entry.output_language, String(entry.source_kind ?? ''))),
+  )
   const warnings = [
-    ...(input.warnings ?? []).map(toWarningVm),
-    ...noItemsWarnings(input.connectorNames ?? [], warned, returned),
+    ...(input.warnings ?? []).map((warning) => toWarningVm(warning, lang)),
+    ...noItemsWarnings(input.connectorNames ?? [], warned, returned, lang),
   ]
   return {
+    lang,
     ref: typeof input.digestId === 'number' ? `d${input.digestId}` : null,
     digestId: typeof input.digestId === 'number' ? input.digestId : null,
     generatedAt: input.digest.generated_at,

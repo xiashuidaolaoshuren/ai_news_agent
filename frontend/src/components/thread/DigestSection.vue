@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import EntryRow from '@/components/thread/EntryRow.vue'
 import HfTable from '@/components/thread/HfTable.vue'
 import JuyaIssueCover from '@/components/thread/JuyaIssueCover.vue'
+import { t } from '@/i18n/labels'
 import SourceLogo from '@/components/thread/SourceLogo.vue'
 import type { EntryVm, RefVm, SectionVm } from '@/vm'
 
@@ -64,7 +65,7 @@ function rowRise(entry: EntryVm): number | null {
       <h3>{{ props.section.label }}</h3>
       <span class="sub"
         >{{ props.section.subtitle ? `${props.section.subtitle} · ` : ''
-        }}{{ props.section.count }} item{{ props.section.count === 1 ? '' : 's' }}</span
+        }}{{ props.section.count }} {{ t(props.section.lang, props.section.count === 1 ? 'item' : 'items') }}</span
       >
       <span class="grow"></span>
       <span class="mono muted">#{{ props.section.rangeStart }}–{{ props.section.rangeEnd }}</span>
@@ -72,7 +73,7 @@ function rowRise(entry: EntryVm): number | null {
 
     <template v-if="props.section.juyaIssues">
       <template v-for="issue in props.section.juyaIssues" :key="issue.issueId">
-        <JuyaIssueCover :issue="issue" />
+        <JuyaIssueCover :issue="issue" :lang="props.section.lang" />
         <ol class="entries">
           <EntryRow
             v-for="entry in issue.stories"

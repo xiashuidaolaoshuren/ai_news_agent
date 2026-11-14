@@ -6,6 +6,7 @@ import AvatarTile from '@/components/thread/AvatarTile.vue'
 import EntryParagraphs from '@/components/thread/EntryParagraphs.vue'
 import SourceTag from '@/components/thread/SourceTag.vue'
 import { riseStyle } from '@/lib/motion'
+import { t, type LabelKey } from '@/i18n/labels'
 import { hostOf } from '@/vm'
 import type { EntryVm, RefVm } from '@/vm'
 
@@ -36,6 +37,11 @@ function refForEntry(): RefVm {
   }
 }
 
+/** Chrome label in the entry's own language. */
+function tr(key: LabelKey, vars?: Record<string, string | number>): string {
+  return t(props.entry.lang, key, vars)
+}
+
 function relatedRef(rank: number): RefVm {
   return {
     digestId: props.digestId,
@@ -50,7 +56,9 @@ const externalHost = computed(() => hostOf(externalUrl.value))
 const sourceText = computed(
   () =>
     props.entry.juya?.topic ??
-    (props.entry.kind === 'openrouter' ? 'New model' : (props.entry.meta ?? props.entry.sourceName)),
+    (props.entry.kind === 'openrouter'
+      ? t(props.entry.lang, 'newModel')
+      : (props.entry.meta ?? props.entry.sourceName)),
 )
 
 /** True while this row holds a stagger position, which is what `.rise` needs. */
@@ -65,11 +73,11 @@ const background = computed(() => props.entry.juya?.background ?? null)
 const COLLAPSED_SUMMARY_MAX = 120
 const COLLAPSED_WHY_MAX = 90
 
-const labels = computed(() =>
-  isJuya.value
-    ? { summary: '摘要', why: '为什么重要', background: '背景知识' }
-    : { summary: 'Summary', why: 'Why it matters', background: '' },
-)
+const labels = computed(() => ({
+  summary: t(props.entry.lang, 'summary'),
+  why: t(props.entry.lang, 'whyItMatters'),
+  background: t(props.entry.lang, 'background'),
+}))
 
 /**
  * Show the disclosure whenever expanding reveals something: background text,
@@ -143,10 +151,10 @@ const showsBackground = computed(
           type="button"
           class="chip rel-chip"
           :data-od-id="`related-${relatedRank}`"
-          :aria-label="`Related: entry #${relatedRank} names the same model`"
+          :aria-label="tr('relatedAria', { n: relatedRank })"
           @click="emit('goto-related', relatedRef(relatedRank))"
         >
-          Related: #{{ relatedRank }}
+          {{ tr('relatedChip', { n: relatedRank }) }}
         </button>
       </div>
 
@@ -195,7 +203,7 @@ const showsBackground = computed(
           :aria-expanded="expanded"
           @click="expanded = !expanded"
         >
-          {{ expanded ? '收起详情' : '展开详情' }}
+          {{ expanded ? tr('collapse') : tr('expand') }}
         </button>
       </div>
 
@@ -206,7 +214,7 @@ const showsBackground = computed(
           :data-od-id="`deepdive-${props.entry.kind}-${props.entry.rank}`"
           @click="emit('deepdive', refForEntry())"
         >
-          <AppIcon name="layers" />Deep dive
+          <AppIcon name="layers" />{{ tr('deepDive') }}
         </button>
         <button
           type="button"
@@ -214,7 +222,7 @@ const showsBackground = computed(
           :data-od-id="`followup-${props.entry.kind}-${props.entry.rank}`"
           @click="emit('ask', refForEntry())"
         >
-          <AppIcon name="reply" />Ask about this
+          <AppIcon name="reply" />{{ tr('askAbout') }}
         </button>
       </div>
     </div>

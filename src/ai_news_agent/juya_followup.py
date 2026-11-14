@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from urllib.parse import urlsplit
+
+from ai_news_agent.card_labels import legacy_card_lang, text
 
 from ai_news_agent.models import DigestEntry, NewsItem, SourceKind
 
@@ -108,32 +111,60 @@ def format_juya_story_deep_dive(
     *,
     rank: int,
 ) -> str:
-    """Render a single persisted Juya bulletin story."""
+    """Render a single persisted Juya bulletin story as sectioned markdown."""
+    lang = legacy_card_lang(entry.language, entry.source_kind)
     evidence = news_item.source_evidence or {}
-    lines = [
-        f"第 {rank} 条：{entry.title}",
-        f"来源：{entry.source_url}",
-    ]
+    blocks: list[str] = []
+    eyebrow = _story_eyebrow(evidence, lang)
+    if eyebrow:
+        blocks.append(eyebrow)
+    blocks.append(f"### {text(lang, 'story_heading', rank=rank, title=entry.title)}")
+    if entry.summary:
+        blocks.append(f"> **{text(lang, 'summary_label')}** {entry.summary}")
+    if entry.why_it_matters:
+        blocks.append(f"**{text(lang, 'juya_why')}** {entry.why_it_matters}")
+    paragraphs = _paragraphs(news_item.raw_snippet or "")
+    if paragraphs:
+        blocks.append(f"#### {text(lang, 'detail')}\n\n" + "\n\n".join(paragraphs))
+    links = evidence.get("story_links")
+    if isinstance(links, list) and links:
+        items = "\n".join(f"- [{_link_label(str(url))}]({url})" for url in links)
+        blocks.append(f"#### {text(lang, 'related_links')}\n\n" + items)
+    sources = []
+    original_url = evidence.get("story_original_url")
+    if original_url:
+        sources.append(f"- [{text(lang, 'original')}]({original_url})")
+    if entry.source_url:
+        sources.append(f"- [{text(lang, 'bulletin_link')}]({entry.source_url})")
+    if sources:
+        blocks.append(f"#### {text(lang, 'source')}\n\n" + "\n".join(sources))
+    if entry.confidence_caveat:
+        blocks.append(f"**{text(lang, 'note')}** {entry.confidence_caveat}")
+    return "\n\n".join(blocks).rstrip()
+
+
+def _story_eyebrow(evidence: dict[str, object], lang: str) -> str:
+    parts: list[str] = []
     section = evidence.get("story_section")
     if section:
         heading = _section_heading(str(section))
         if heading:
-            lines.extend(["", heading, ""])
+            parts.append(heading)
     story_number = evidence.get("story_number")
     if story_number is not None:
-        lines.append(f"简报 #{story_number}")
-    if news_item.raw_snippet:
-        lines.extend(["", news_item.raw_snippet.strip(), ""])
-    original_url = evidence.get("story_original_url")
-    if original_url:
-        lines.append(f"原文：{original_url}")
-    if entry.summary:
-        lines.append(f"摘要：{entry.summary}")
-    if entry.why_it_matters:
-        lines.append(f"要点：{entry.why_it_matters}")
-    if entry.confidence_caveat:
-        lines.append(f"注意：{entry.confidence_caveat}")
-    return "\n".join(lines).rstrip()
+        parts.append(text(lang, "bulletin", number=story_number))
+    return " · ".join(parts)
+
+
+def _paragraphs(body: str) -> list[str]:
+    return [part.strip() for part in body.split("\n\n") if part.strip()]
+
+
+def _link_label(url: str) -> str:
+    """Host and last path segment, for a compact related-link label."""
+    parts = urlsplit(url)
+    tail = parts.path.rstrip("/").rsplit("/", 1)[-1]
+    return f"{parts.netloc} · {tail}" if tail else parts.netloc
 
 
 def format_juya_issue_deep_dive(

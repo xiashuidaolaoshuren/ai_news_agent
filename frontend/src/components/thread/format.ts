@@ -1,15 +1,15 @@
 /** `Oct 1, 2026 · 20:04` for a digest timestamp, or an empty string when unparsable. */
-export function formatDigestWhen(iso: string): string {
+export function formatDigestWhen(iso: string, locale = 'en-US'): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) {
     return ''
   }
-  const day = date.toLocaleDateString('en-US', {
+  const day = date.toLocaleDateString(locale, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   })
-  const time = date.toLocaleTimeString('en-US', {
+  const time = date.toLocaleTimeString(locale, {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
