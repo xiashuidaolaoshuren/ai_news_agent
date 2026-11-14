@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import getpass
 import hashlib
 import os
 import sqlite3
+import stat
+import subprocess
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -14,6 +18,15 @@ from typing import Any, Literal
 from cryptography.fernet import Fernet, InvalidToken
 
 CredentialStatus = Literal["ui", "env", "unset", "unreadable"]
+
+KeyFileStatus = Literal[
+    "env",
+    "existing",
+    "created",
+    "invalid",
+    "recovery_required",
+    "unavailable",
+]
 
 CREDENTIAL_ENV_NAMES: tuple[str, ...] = (
     "GITHUB_TOKEN",
@@ -33,6 +46,33 @@ LLM_ENV_NAMES: tuple[str, ...] = (
 _ALL_KNOWN_NAMES: frozenset[str] = frozenset(CREDENTIAL_ENV_NAMES) | frozenset(LLM_ENV_NAMES)
 
 _SECRET_KEY_ENV = "AI_NEWS_AGENT_SECRET_KEY"
+
+
+def key_file_path_for(db_path: Path | str) -> Path:
+    """Return the sidecar key path beside *db_path*: ``<database name>.key``."""
+    resolved = Path(db_path).expanduser().resolve()
+    return resolved.parent / f"{resolved.name}.key"
+
+
+def _protect_owner_only(path: Path) -> None:
+    """Restrict *path* to the current owner before key bytes are written."""
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                [
+                    "icacls",
+                    str(path),
+                    "/inheritance:r",
+                    "/grant:r",
+                    f"{getpass.getuser()}:F",
+                ],
+                check=True,
+                capture_output=True,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise OSError("could not restrict key-file permissions") from exc
+        return
+    os.chmod(path, 0o600)
 
 
 class MissingSecretKeyError(RuntimeError):
@@ -85,12 +125,98 @@ class CredentialsProvider:
         db_path: Path | str,
         *,
         environ: Mapping[str, str] | None = None,
+        key_file: Path | None = None,
     ) -> None:
         self._db_path = Path(db_path)
         self._environ = environ if environ is not None else os.environ
+        self._key_file = key_file
 
     def has_secret_key(self) -> bool:
         return self._fernet() is not None
+
+    def bootstrap_key_file(self) -> KeyFileStatus:
+        """Resolve the env key or an existing sidecar, creating one only when safe."""
+        raw = self._environ.get(_SECRET_KEY_ENV)
+        if raw and raw.strip():
+            try:
+                Fernet(raw.encode("utf-8"))
+            except (ValueError, TypeError):
+                return "invalid"
+            return "env"
+        if self._key_file is None:
+            return "unavailable"
+        try:
+            info: os.stat_result | None = os.lstat(self._key_file)
+        except FileNotFoundError:
+            info = None
+        except (OSError, ValueError):
+            return "unavailable"
+        if info is not None:
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                return "invalid"
+            data = self._read_key_file()
+            if data is None:
+                return "invalid"
+            try:
+                Fernet(data)
+            except (ValueError, TypeError):
+                return "invalid"
+            return "existing"
+        if self._has_encrypted_rows():
+            return "recovery_required"
+        return self._create_key_file()
+
+    def _has_encrypted_rows(self) -> bool:
+        try:
+            with sqlite3.connect(self._db_path) as conn:
+                row = conn.execute("SELECT 1 FROM secrets LIMIT 1").fetchone()
+        except sqlite3.Error:
+            # Cannot prove the database holds no ciphertext; never rotate blindly.
+            return True
+        return row is not None
+
+    def _create_key_file(self) -> KeyFileStatus:
+        if self._key_file is None:
+            return "unavailable"
+        try:
+            self._key_file.parent.mkdir(parents=True, exist_ok=True)
+            fd, raw_tmp = tempfile.mkstemp(
+                prefix=f".{self._key_file.name}.",
+                suffix=".key",
+                dir=self._key_file.parent,
+            )
+        except OSError:
+            return "unavailable"
+        os.close(fd)
+        tmp = Path(raw_tmp)
+        try:
+            try:
+                _protect_owner_only(tmp)
+                with tmp.open("wb") as handle:
+                    handle.write(Fernet.generate_key() + b"\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            except OSError:
+                return "unavailable"
+            try:
+                os.link(tmp, self._key_file)
+            except FileExistsError:
+                data = self._read_key_file()
+                if data is None:
+                    return "invalid"
+                try:
+                    Fernet(data)
+                except (ValueError, TypeError):
+                    return "invalid"
+                return "existing"
+            except OSError:
+                return "unavailable"
+            return "created"
+        finally:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
     def save(self, name: str, value: str) -> None:
         self._validate_name(name)
@@ -254,12 +380,36 @@ class CredentialsProvider:
 
     def _fernet(self) -> Fernet | None:
         raw = self._environ.get(_SECRET_KEY_ENV)
-        if not raw:
+        if raw and raw.strip():
+            # A nonblank env key is authoritative; a malformed one stays unusable
+            # rather than silently falling back to the sidecar.
+            try:
+                return Fernet(raw.encode("utf-8"))
+            except (ValueError, TypeError):
+                return None
+        data = self._read_key_file()
+        if data is None:
             return None
         try:
-            return Fernet(raw.encode("utf-8"))
+            return Fernet(data)
         except (ValueError, TypeError):
             return None
+
+    def _read_key_file(self) -> bytes | None:
+        if self._key_file is None:
+            return None
+        try:
+            info = os.lstat(self._key_file)
+        except (OSError, ValueError):
+            return None
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            return None
+        try:
+            raw = self._key_file.read_bytes()
+        except OSError:
+            return None
+        data = raw.strip()
+        return data or None
 
     def _require_fernet(self) -> Fernet:
         fernet = self._fernet()
@@ -308,7 +458,9 @@ __all__ = [
     "LLM_ENV_NAMES",
     "CredentialStatusRow",
     "CredentialsProvider",
+    "KeyFileStatus",
     "MissingSecretKeyError",
+    "key_file_path_for",
     "ResolvedCredential",
     "ResolvedLlmConfig",
     "UnknownCredentialNameError",

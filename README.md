@@ -55,13 +55,15 @@ Copy [`.env.example`](.env.example) to `.env` and fill values as needed (never c
 | `BILIBILI_PROXY_URL` | Optional | HTTP proxy for bilibili-api requests |
 | `BILIBILI_IMPERSONATE` | Optional | Browser TLS fingerprint for `curl_cffi` (e.g. `chrome131`) |
 | `BILIBILI_TIMEOUT_SECONDS` | Optional | Request timeout override for bilibili-api |
-| `AI_NEWS_AGENT_SECRET_KEY` | Saved credentials | Fernet key used to encrypt credentials saved in Settings. Copy the value printed once by `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. |
+| `AI_NEWS_AGENT_SECRET_KEY` | Saved credentials | Optional override. A local live service normally creates and reuses a private sidecar key at `<database>.key`. Set this to use a different Fernet key; remote mode and fake mode never create the sidecar. |
 | `AI_NEWS_AGENT_ACCESS_TOKEN` | Remote mode | Owner bearer token required on every `/api/v1` route except `/health`. The service refuses to start in remote mode without it. |
 | `AI_NEWS_AGENT_REMOTE` | Optional | `1`/`true`/`yes`/`on` enables remote mode without the `--remote` flag |
 | `AI_NEWS_AGENT_CORS_ORIGINS` | Deployed frontend | Comma-separated browser origins for CORS. Wildcards are rejected; unset keeps the loopback dev origins. |
 | `AI_NEWS_AGENT_ALLOW_LOCAL_LLM` | Optional | `1`/`true`/`yes`/`on` lets remote mode use a local/private/plain-HTTP LLM base URL |
 
 SQLite defaults to `./digest.sqlite` in the current working directory unless you pass `--db-path`. Database files matching `*.db` are gitignored.
+
+Credentials saved in Settings are encrypted inside SQLite. A local live service with no `AI_NEWS_AGENT_SECRET_KEY` creates `<database>.key` beside the database on first start, restricted to your account, and reuses it on later starts. Both files are gitignored (`*.sqlite`, `*.db`, `*.key`), so **back them up and restore them together**: without the matching key, saved credentials stay unreadable. Git ignore rules only prevent accidental commits; they are not access control, so keep the database folder private. Remote mode and fake mode do not read or create the sidecar.
 
 ## Quick start (offline, no API keys)
 

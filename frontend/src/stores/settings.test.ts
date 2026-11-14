@@ -394,6 +394,39 @@ describe('createSettingsController keys', () => {
     expect(controller.testing).toBe(null)
   })
 
+  it('keeps the panel writable and drafts intact when a test is refused', async () => {
+    const controller = createSettingsController(
+      deps({
+        testCredential: async (name) => {
+          if (name === 'GITHUB_TOKEN') {
+            throw new SettingsRequestError('Saved credential cannot be read.', 409)
+          }
+          throw new Error('Network unavailable.')
+        },
+      }),
+    )
+    await controller.load()
+    controller.keysDraft.github = 'draft-kept'
+    controller.keysDraft.llmKey = 'llm-draft'
+
+    await controller.testCredential('GITHUB_TOKEN')
+    await controller.testCredential('llm')
+
+    expect(controller.credentials.readOnly).toBe(false)
+    expect(controller.keysDraft.github).toBe('draft-kept')
+    expect(controller.keysDraft.llmKey).toBe('llm-draft')
+    expect(controller.testResults.GITHUB_TOKEN).toEqual({
+      result: 'unreadable',
+      reason: 'Saved credential cannot be read.',
+    })
+    expect(controller.testResults.llm).toEqual({
+      result: 'error',
+      reason: 'Network unavailable.',
+    })
+    expect(controller.keysMessage.github).toBeUndefined()
+    expect(controller.testing).toBe(null)
+  })
+
   it('refuses to save the LLM group without a new key', async () => {
     let calls = 0
     const controller = createSettingsController(

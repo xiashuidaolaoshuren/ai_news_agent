@@ -118,6 +118,177 @@ def test_save_llm_atomic_blank_api_key_rejected_and_delete_llm_restores_env(
     assert llm_after.api_key == "sk-env-key"
 
 
+def test_key_file_decrypts_saved_override_and_env_key_wins(tmp_path: Path) -> None:
+    key = Fernet.generate_key().decode()
+    db = tmp_path / "sidecar.db"
+    key_file = tmp_path / "sidecar.db.key"
+    key_file.write_text(key, encoding="utf-8")
+    DigestStore(db).init_schema()
+
+    writer = CredentialsProvider(db, environ={"AI_NEWS_AGENT_SECRET_KEY": key})
+    writer.save("GITHUB_TOKEN", "ui-sidecar-1234")
+
+    reader = CredentialsProvider(db, environ={}, key_file=key_file)
+    assert reader.has_secret_key() is True
+    assert reader.resolve("GITHUB_TOKEN").status == "ui"
+    assert reader.resolve("GITHUB_TOKEN").value == "ui-sidecar-1234"
+
+    conflicting = CredentialsProvider(
+        db,
+        environ={"AI_NEWS_AGENT_SECRET_KEY": Fernet.generate_key().decode()},
+        key_file=key_file,
+    )
+    assert conflicting.resolve("GITHUB_TOKEN").status == "unreadable"
+
+    malformed_env = CredentialsProvider(
+        db,
+        environ={"AI_NEWS_AGENT_SECRET_KEY": "not-a-fernet-key"},
+        key_file=key_file,
+    )
+    assert malformed_env.has_secret_key() is False
+    assert malformed_env.resolve("GITHUB_TOKEN").status == "unreadable"
+
+
+def test_key_file_rejects_missing_malformed_symlink_and_directory(tmp_path: Path) -> None:
+    db = tmp_path / "guards.db"
+    DigestStore(db).init_schema()
+    missing = tmp_path / "guards.db.key"
+    assert CredentialsProvider(db, environ={}, key_file=missing).has_secret_key() is False
+    assert not missing.exists()
+
+    malformed = tmp_path / "malformed.key"
+    malformed.write_text("not-a-fernet-key", encoding="utf-8")
+    assert CredentialsProvider(db, environ={}, key_file=malformed).has_secret_key() is False
+
+    empty = tmp_path / "empty.key"
+    empty.write_text("   \n", encoding="utf-8")
+    assert CredentialsProvider(db, environ={}, key_file=empty).has_secret_key() is False
+
+    real = tmp_path / "real.key"
+    real.write_text(Fernet.generate_key().decode(), encoding="utf-8")
+    link = tmp_path / "link.key"
+    try:
+        link.symlink_to(real)
+    except (OSError, NotImplementedError):
+        link = None
+    if link is not None:
+        assert CredentialsProvider(db, environ={}, key_file=link).has_secret_key() is False
+
+    directory = tmp_path / "directory.key"
+    directory.mkdir()
+    assert CredentialsProvider(db, environ={}, key_file=directory).has_secret_key() is False
+
+
+def test_bootstrap_creates_one_stable_key_and_reuses_it(tmp_path: Path) -> None:
+    from ai_news_agent.credentials import key_file_path_for
+
+    db = tmp_path / "fresh.sqlite"
+    DigestStore(db).init_schema()
+    key_file = key_file_path_for(db)
+    assert key_file == (tmp_path / "fresh.sqlite.key").resolve()
+
+    first = CredentialsProvider(db, environ={}, key_file=key_file)
+    assert first.bootstrap_key_file() == "created"
+    assert first.has_secret_key() is True
+    original = key_file.read_bytes()
+    assert original.strip()
+
+    second = CredentialsProvider(db, environ={}, key_file=key_file)
+    assert second.bootstrap_key_file() == "existing"
+    assert key_file.read_bytes() == original
+    assert second.has_secret_key() is True
+
+    second.save("GITHUB_TOKEN", "persisted")
+    assert CredentialsProvider(db, environ={}, key_file=key_file).resolve(
+        "GITHUB_TOKEN"
+    ).value == "persisted"
+
+
+def test_bootstrap_never_replaces_a_key_over_encrypted_rows(tmp_path: Path) -> None:
+    from ai_news_agent.credentials import key_file_path_for
+
+    db = tmp_path / "lost.sqlite"
+    DigestStore(db).init_schema()
+    key = Fernet.generate_key().decode()
+    key_file = key_file_path_for(db)
+    key_file.write_text(key, encoding="utf-8")
+    CredentialsProvider(db, environ={}, key_file=key_file).save(
+        "GITHUB_TOKEN", "still-encrypted"
+    )
+    key_file.unlink()
+
+    provider = CredentialsProvider(db, environ={}, key_file=key_file)
+    assert provider.bootstrap_key_file() == "recovery_required"
+    assert not key_file.exists()
+    assert provider.has_secret_key() is False
+    assert provider.resolve("GITHUB_TOKEN").status == "unreadable"
+
+
+def test_bootstrap_uses_env_or_keeps_invalid_files_untouched(tmp_path: Path) -> None:
+    from ai_news_agent.credentials import key_file_path_for
+
+    db = tmp_path / "env.sqlite"
+    DigestStore(db).init_schema()
+    key_file = key_file_path_for(db)
+    env_key = Fernet.generate_key().decode()
+
+    with_env = CredentialsProvider(
+        db,
+        environ={"AI_NEWS_AGENT_SECRET_KEY": env_key},
+        key_file=key_file,
+    )
+    assert with_env.bootstrap_key_file() == "env"
+    assert not key_file.exists()
+
+    malformed_env = CredentialsProvider(
+        db,
+        environ={"AI_NEWS_AGENT_SECRET_KEY": "not-a-fernet-key"},
+        key_file=key_file,
+    )
+    assert malformed_env.bootstrap_key_file() == "invalid"
+    assert not key_file.exists()
+
+    key_file.write_text("not-a-fernet-key", encoding="utf-8")
+    before = key_file.read_bytes()
+    broken = CredentialsProvider(db, environ={}, key_file=key_file)
+    assert broken.bootstrap_key_file() == "invalid"
+    assert key_file.read_bytes() == before
+
+
+def test_bootstrap_protects_before_writing_and_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_news_agent import credentials as credentials_module
+    from ai_news_agent.credentials import key_file_path_for
+
+    db = tmp_path / "protect.sqlite"
+    DigestStore(db).init_schema()
+    key_file = key_file_path_for(db)
+    observed: list[bytes] = []
+
+    def record(path: Path) -> None:
+        observed.append(path.read_bytes())
+
+    monkeypatch.setattr(credentials_module, "_protect_owner_only", record)
+    provider = CredentialsProvider(db, environ={}, key_file=key_file)
+    assert provider.bootstrap_key_file() == "created"
+    assert observed == [b""]
+    assert key_file.read_bytes().strip()
+
+    failed_db = tmp_path / "failed.sqlite"
+    DigestStore(failed_db).init_schema()
+    failed_key = key_file_path_for(failed_db)
+
+    def refuse(path: Path) -> None:
+        raise OSError("cannot restrict permissions")
+
+    monkeypatch.setattr(credentials_module, "_protect_owner_only", refuse)
+    failed = CredentialsProvider(failed_db, environ={}, key_file=failed_key)
+    assert failed.bootstrap_key_file() == "unavailable"
+    assert not failed_key.exists()
+    assert not list(tmp_path.glob("*failed.sqlite.key*"))
+
+
 def test_save_without_secret_key_raises(tmp_path: Path) -> None:
     provider = _provider(tmp_path / "nokey.db", environ={})
     with pytest.raises(MissingSecretKeyError):

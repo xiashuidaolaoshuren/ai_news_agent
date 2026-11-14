@@ -346,9 +346,11 @@ def _run_digest_command(ns: argparse.Namespace, *, stdout: TextIO) -> int:
         print(str(e), file=sys.stderr)
         return 2
 
-    from ai_news_agent.credentials import CredentialsProvider
+    from ai_news_agent.credentials import CredentialsProvider, key_file_path_for
 
-    credentials = CredentialsProvider(db_path)
+    credentials = CredentialsProvider(
+        db_path, key_file=None if ns.fake else key_file_path_for(db_path)
+    )
     connectors = build_connectors(
         fake=ns.fake,
         names=names,
@@ -361,7 +363,8 @@ def _run_digest_command(ns: argparse.Namespace, *, stdout: TextIO) -> int:
         llm = credentials.resolve_llm()
         if llm.status == "unreadable":
             print(
-                "Saved credentials cannot be read; set AI_NEWS_AGENT_SECRET_KEY.",
+                "Saved credentials cannot be read; restore the matching "
+                "<database>.key or set AI_NEWS_AGENT_SECRET_KEY.",
                 file=sys.stderr,
             )
             return 2

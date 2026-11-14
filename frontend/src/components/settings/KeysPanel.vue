@@ -61,6 +61,16 @@ function row(name: CredentialId): CredentialRowVm {
   return props.vm.rows[name] ?? EMPTY_ROW
 }
 
+/**
+ * Tests use the saved or environment value, so a readable configured row can be
+ * tested even while writes are locked. Unsaved drafts and unreadable rows cannot.
+ */
+function canTest(name: string): boolean {
+  const id = (name === 'llm' ? 'OPENAI_API_KEY' : name) as CredentialId
+  const status = row(id).status
+  return (status === 'app' || status === 'env') && props.vm.testing !== name
+}
+
 function testLabel(name: string): string {
   if (props.vm.testing === name) {
     return 'Testing…'
@@ -103,9 +113,11 @@ function onInput(key: KeyDraftKey, event: Event): void {
   >
     <AppIcon name="info" />
     <p>
-      <b>Keys are read-only.</b> Encryption isn’t enabled on this backend, so the app won’t
-      store secrets. Set them as environment variables and restart the backend; their status
-      shows below.
+      <b>Keys are read-only.</b> No usable encryption key is available. A local backend
+      normally creates <span class="mono">&lt;database&gt;.key</span> beside its database; check
+      that the app can write there or restore the original key, or set
+      <span class="mono">AI_NEWS_AGENT_SECRET_KEY</span> and restart. Configured credentials
+      can still be tested below.
     </p>
   </div>
   <div
@@ -185,7 +197,7 @@ function onInput(key: KeyDraftKey, event: Event): void {
         type="button"
         class="btn"
         data-od-id="test-llm"
-        :disabled="props.vm.readOnly || props.vm.testing === 'llm'"
+        :disabled="!canTest('llm')"
         @click="emit('test', 'llm')"
       >
         <AppIcon v-if="props.vm.testing === 'llm'" name="load" class="spin" />
@@ -241,7 +253,7 @@ function onInput(key: KeyDraftKey, event: Event): void {
           type="button"
           class="btn btn-sm"
           :data-od-id="`test-${item.name}`"
-          :disabled="props.vm.readOnly || props.vm.testing === item.name"
+          :disabled="!canTest(item.name)"
           @click="emit('test', item.name)"
         >
           {{ testLabel(item.name) }}

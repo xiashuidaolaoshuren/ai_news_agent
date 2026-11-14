@@ -244,6 +244,66 @@ def test_e2e_live_requires_openai_or_exits(monkeypatch, tmp_path, capsys) -> Non
     assert "OPENAI_API_KEY" in err
 
 
+def test_live_cli_reads_saved_llm_from_the_database_sidecar(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    from cryptography.fernet import Fernet
+
+    from ai_news_agent.credentials import CredentialsProvider, key_file_path_for
+    from ai_news_agent.storage import DigestStore
+
+    monkeypatch.delenv("AI_NEWS_AGENT_SECRET_KEY", raising=False)
+    monkeypatch.setattr("ai_news_agent.cli.load_local_env", lambda **kwargs: None)
+    db = tmp_path / "cli-sidecar.db"
+    DigestStore(db).init_schema()
+    key_file = key_file_path_for(db)
+    key_file.write_text(Fernet.generate_key().decode(), encoding="utf-8")
+    CredentialsProvider(db, environ={}, key_file=key_file).save_llm(
+        api_key="sk-sidecar", base_url="https://llm.example/v1", model="sidecar-model"
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_model(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    class _Result:
+        run_id = 1
+        warnings: list[object] = []
+        errors: list[object] = []
+        text = "sidecar digest"
+
+    async def fake_run(req, *, store, connectors, model):  # noqa: ANN001, ARG001
+        return _Result()
+
+    monkeypatch.setattr("ai_news_agent.cli.build_chat_model", fake_model)
+    monkeypatch.setattr("ai_news_agent.cli._run_digest_async", fake_run)
+
+    buf = io.StringIO()
+    code = main(
+        [
+            "digest",
+            "--db-path",
+            str(db),
+            "--sources",
+            "github",
+            "--topics",
+            "RAG",
+        ],
+        stdout=buf,
+    )
+
+    assert code == 0
+    assert captured == {
+        "api_key": "sk-sidecar",
+        "base_url": "https://llm.example/v1",
+        "model": "sidecar-model",
+    }
+    assert "sidecar digest" in buf.getvalue()
+    assert key_file.exists()
+
+
 def test_cli_digest_defaults_to_juya_when_sources_omitted(capsys) -> None:
     """Omitting --sources resolves to juya-only (DEFAULT_SOURCE_NAMES)."""
     parser = build_arg_parser()
