@@ -279,10 +279,17 @@ def _model_to_news_item(
 
 
 def _card_base_model(model: Any) -> str | None:
+    """The declared base model; a card list yields its first model ID."""
     card_data = model.card_data
     if card_data is None:
         return None
     value = getattr(card_data, "base_model", None)
+    if isinstance(value, list | tuple):
+        for candidate in value:
+            text = str(candidate).strip()
+            if text:
+                return text
+        return None
     if value is None:
         return None
     text = str(value).strip()

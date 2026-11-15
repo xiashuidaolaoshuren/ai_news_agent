@@ -645,3 +645,48 @@ describe('collection outcomes', () => {
     ).toBe('Juya · all stories')
   })
 })
+
+describe('summarizeRequest language', () => {
+  it('writes the request summary in Chinese', () => {
+    expect(
+      summarizeRequest(
+        {
+          sources: ['juya', 'github'],
+          per_source: 2,
+          timeframe: 'this_week',
+          topics: [],
+          language: 'zh-CN',
+          audience: null,
+        },
+        'zh-CN',
+      ),
+    ).toBe('Juya、GitHub · 每个来源 2 条 · 本周 · 中文')
+    expect(
+      summarizeRequest(
+        {
+          sources: ['juya', 'github', 'huggingface'],
+          per_source: null,
+          counts: { juya: '2 of 5', github: '3 of 5', huggingface: 'all' },
+          timeframe: 'today',
+          topics: [],
+          language: null,
+          audience: null,
+        },
+        'zh-CN',
+      ),
+    ).toBe('Juya、GitHub、Hugging Face · 2/5, 3/5, 全部 · 今天')
+  })
+
+  it('names known timeframes in English instead of their raw token', () => {
+    expect(
+      summarizeRequest({
+        sources: ['github'],
+        per_source: 5,
+        timeframe: 'this_week',
+        topics: [],
+        language: null,
+        audience: null,
+      }),
+    ).toBe('GitHub · 5 per source · this week')
+  })
+})

@@ -343,6 +343,7 @@ describe('DigestReply', () => {
       digestId: d.digestId ?? 15,
       rank: 1,
       title: 'NVIDIA/OpenShell',
+      lang: 'en',
     }
 
     const askBtn = wrapper
@@ -387,5 +388,49 @@ describe('DigestReply language', () => {
     expect(wrapper.get('.digest-head .digest-meta').text()).toContain('5 条 · 2/3 个来源有结果')
     expect(wrapper.get('[data-od-id="digest-run-again"] button').text()).toContain('重新运行')
     expect(wrapper.text()).not.toContain('Run again')
+  })
+})
+
+describe('DigestReply language notices', () => {
+  it('renders a zh-CN no-items notice without repeated or spaced punctuation', () => {
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          lang: 'zh-CN',
+          warnings: [
+            {
+              source: 'openrouter',
+              label: 'OpenRouter',
+              code: 'no_items',
+              message: '本次请求没有返回条目，其他来源已正常完成。',
+            },
+          ],
+        }),
+      },
+    })
+
+    const text = wrapper.get('[data-od-id="connector-warning-openrouter"] p').text()
+    expect(text).toBe('OpenRouter 连接器：本次请求没有返回条目，其他来源已正常完成。')
+  })
+
+  it('renders a zh-CN window notice with no space after the colon', () => {
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          lang: 'zh-CN',
+          warnings: [
+            {
+              source: 'openrouter',
+              label: 'OpenRouter',
+              code: 'window_widened',
+              message: '所选时间范围内没有匹配的模型，已改为显示近 7 天的匹配列表。',
+            },
+          ],
+        }),
+      },
+    })
+
+    const text = wrapper.get('[data-od-id="connector-warning-openrouter"] p').text()
+    expect(text).toBe('OpenRouter：所选时间范围内没有匹配的模型，已改为显示近 7 天的匹配列表。')
   })
 })

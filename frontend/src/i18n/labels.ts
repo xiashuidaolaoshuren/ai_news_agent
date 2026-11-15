@@ -26,8 +26,8 @@ const EN = {
   digestMeta: '{items} items · {returned} of {total} sources returned results',
   item: 'item',
   items: 'items',
-  connectorSuffix: ' connector:',
-  windowPrefix: ':',
+  connectorSuffix: ' connector: ',
+  windowPrefix: ': ',
   settingsFor: '{label} settings',
   runAgain: 'Run again',
   repeatHelp:
@@ -38,6 +38,7 @@ const EN = {
   expand: 'Show details',
   collapse: 'Hide details',
   deepDive: 'Deep dive',
+  deepDivePrompt: 'Deep dive: {title}',
   askAbout: 'Ask about this',
   relatedChip: 'Related: #{n}',
   relatedAria: 'Related: entry #{n} names the same model',
@@ -67,6 +68,16 @@ const EN = {
   trendingRepos: 'Trending repositories',
   modelsYouCanCall: 'Models you can call',
   noItems: 'Connector returned no items for this request. Other sources completed normally.',
+  perSource: '{n} per source',
+  allStories: 'all stories',
+  countOf: '{got} of {cap}',
+  allCount: 'all',
+  sourceSeparator: ', ',
+  tfToday: 'today',
+  tfThisWeek: 'this week',
+  tfLast7Days: 'last 7 days',
+  tfThisMonth: 'this month',
+  tfLatest: 'latest',
   windowNotice:
     'No models matched the requested window; showing matching listings from the last 7 days instead.',
 } as const
@@ -78,7 +89,7 @@ const ZH: Record<LabelKey, string> = {
   digestMeta: '{items} 条 · {returned}/{total} 个来源有结果',
   item: '项',
   items: '项',
-  connectorSuffix: '连接器：',
+  connectorSuffix: ' 连接器：',
   windowPrefix: '：',
   settingsFor: '{label} 设置',
   runAgain: '重新运行',
@@ -90,6 +101,7 @@ const ZH: Record<LabelKey, string> = {
   expand: '展开详情',
   collapse: '收起详情',
   deepDive: '深入了解',
+  deepDivePrompt: '深入了解：{title}',
   askAbout: '追问这条',
   relatedChip: '相关：#{n}',
   relatedAria: '相关：第 {n} 条指向同一模型',
@@ -117,8 +129,33 @@ const ZH: Record<LabelKey, string> = {
   trendingModels: '热门模型',
   trendingRepos: '热门仓库',
   modelsYouCanCall: '可调用的模型',
-  noItems: '该连接器本次请求没有返回条目，其他来源已正常完成。',
+  noItems: '本次请求没有返回条目，其他来源已正常完成。',
+  perSource: '每个来源 {n} 条',
+  allStories: '全部',
+  countOf: '{got}/{cap}',
+  allCount: '全部',
+  sourceSeparator: '、',
+  tfToday: '今天',
+  tfThisWeek: '本周',
+  tfLast7Days: '近 7 天',
+  tfThisMonth: '本月',
+  tfLatest: '最新',
   windowNotice: '所选时间范围内没有匹配的模型，已改为显示近 7 天的匹配列表。',
+}
+
+/** Timeframes the backend resolves, by their stored token. */
+const TIMEFRAME_KEYS: Record<string, LabelKey> = {
+  today: 'tfToday',
+  this_week: 'tfThisWeek',
+  last_7_days: 'tfLast7Days',
+  this_month: 'tfThisMonth',
+  latest: 'tfLatest',
+}
+
+/** A timeframe as it was written, in the given language; unknown ones pass through. */
+export function timeframeLabel(timeframe: string, lang: UiLang = 'en'): string {
+  const key = TIMEFRAME_KEYS[timeframe]
+  return key === undefined ? timeframe : t(lang, key)
 }
 
 /** Label for a key, with `{name}` placeholders filled from `vars`. */

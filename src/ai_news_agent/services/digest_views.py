@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from typing import Any
 
@@ -246,7 +247,7 @@ def extract_huggingface_evidence(source_evidence: dict[str, Any]) -> dict[str, A
             )
 
     return {
-        "base_model": _optional_str(source_evidence.get("base_model")),
+        "base_model": _base_model_text(source_evidence.get("base_model")),
         "trending_score": source_evidence.get("trending_score"),
         "downloads_30d": _optional_int(source_evidence.get("downloads_30d")),
         "likes": _optional_int(source_evidence.get("likes")),
@@ -297,6 +298,28 @@ def _optional_int(value: Any) -> int | None:
         return value
     if isinstance(value, float):
         return int(value)
+    return None
+
+
+def _base_model_text(value: Any) -> str | None:
+    """A base model ID, also from a list or a saved list-text value.
+
+    Digests saved before the connector read a card list keep its Python repr,
+    such as ``['Org/Model']``; show the first model ID instead.
+    """
+    text = _optional_str(value)
+    if text is None or not text.startswith("["):
+        return text
+    try:
+        parsed = ast.literal_eval(text)
+    except (ValueError, SyntaxError):
+        return text
+    if not isinstance(parsed, list | tuple):
+        return text
+    for candidate in parsed:
+        candidate_text = str(candidate).strip()
+        if candidate_text:
+            return candidate_text
     return None
 
 

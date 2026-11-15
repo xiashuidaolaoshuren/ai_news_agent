@@ -426,7 +426,7 @@ describe('digest language', () => {
     expect(vm.warnings).toEqual([
       expect.objectContaining({
         source: 'github',
-        message: '该连接器本次请求没有返回条目，其他来源已正常完成。',
+        message: '本次请求没有返回条目，其他来源已正常完成。',
       }),
     ])
   })

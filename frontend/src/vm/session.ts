@@ -4,6 +4,7 @@ import type {
   ResolvedRequestOut,
   SessionOut,
 } from '@/api/generated/types.gen'
+import { t, timeframeLabel, type UiLang } from '@/i18n/labels'
 import { sourceKindOf, sourceLabel, toDigestVm, toWarningVm } from '@/vm/digest'
 import type { DigestVm, WarningVm } from '@/vm/digest'
 import { textOrNull } from '@/vm/entries'
@@ -334,19 +335,30 @@ export interface MessageMapContext {
 
 const REPEAT_KINDS = new Set<MessageKind>(['digest', 'noresults', 'collectfailed'])
 
-const LANGUAGE_LABELS: Record<string, string> = {
-  en: 'English',
-  'zh-CN': '中文',
+const LANGUAGE_LABELS: Record<UiLang, Record<string, string>> = {
+  en: { en: 'English', 'zh-CN': '中文' },
+  'zh-CN': { en: '英文', 'zh-CN': '中文' },
 }
 
-function formatResolvedCount(request: ResolvedRequestOut): string | null {
+function formatCountLabel(value: string, lang: UiLang): string {
+  if (value === 'all') {
+    return t(lang, 'allCount')
+  }
+  const matched = /^(\d+) of (\d+)$/.exec(value)
+  if (matched !== null) {
+    return t(lang, 'countOf', { got: matched[1] ?? '', cap: matched[2] ?? '' })
+  }
+  return value
+}
+
+function formatResolvedCount(request: ResolvedRequestOut, lang: UiLang): string | null {
   const counts = request.counts
   if (counts !== undefined && Object.keys(counts).length > 0) {
     const values = Object.values(counts)
     const singleAll =
       values.length === 1 && values[0] === 'all' && (request.sources ?? []).length === 1
     if (singleAll) {
-      return 'all stories'
+      return t(lang, 'allStories')
     }
     const perSource =
       values.length > 0 &&
@@ -354,18 +366,18 @@ function formatResolvedCount(request: ResolvedRequestOut): string | null {
       request.per_source !== undefined &&
       values.every((value) => value === String(request.per_source))
     if (perSource) {
-      return `${request.per_source} per source`
+      return t(lang, 'perSource', { n: request.per_source ?? '' })
     }
-    return values.join(', ')
+    return values.map((value) => formatCountLabel(value, lang)).join(', ')
   }
   if (request.per_source === null || request.per_source === undefined) {
     return null
   }
-  return `${request.per_source} per source`
+  return t(lang, 'perSource', { n: request.per_source })
 }
 
 /** The prototype's request summary: sources, count, timeframe, and language. */
-export function summarizeRequest(request: ResolvedRequestOut): string {
+export function summarizeRequest(request: ResolvedRequestOut, lang: UiLang = 'en'): string {
   const sources = request.sources ?? []
   const sourceLine = sources
     .map((name) => {
@@ -373,21 +385,23 @@ export function summarizeRequest(request: ResolvedRequestOut): string {
       return kind === null ? name : sourceLabel(kind)
     })
     .filter((label) => label !== '')
-    .join(', ')
+    .join(t(lang, 'sourceSeparator'))
   const parts: string[] = []
-  const countText = formatResolvedCount(request)
+  const countText = formatResolvedCount(request, lang)
   const counts = request.counts
   if (sources.length === 1 && countText !== null) {
     const name = sourceLine
     if (counts !== undefined && counts[sources[0] ?? ''] === 'all') {
-      parts.push(`${name} · all stories`)
+      parts.push(`${name} · ${t(lang, 'allStories')}`)
     } else if (
       counts !== undefined &&
       Object.keys(counts).length === 1 &&
       sources[0] !== undefined
     ) {
       const label = counts[sources[0]]
-      parts.push(label !== undefined ? `${name} · ${label}` : name)
+      parts.push(
+        label !== undefined ? `${name} · ${formatCountLabel(label, lang)}` : name,
+      )
     } else {
       parts.push(`${name} · ${countText}`)
     }
@@ -401,11 +415,11 @@ export function summarizeRequest(request: ResolvedRequestOut): string {
   }
   const timeframe = textOrNull(request.timeframe ?? null)
   if (timeframe !== null) {
-    parts.push(timeframe)
+    parts.push(timeframeLabel(timeframe, lang))
   }
   const language = textOrNull(request.language ?? null)
   if (language !== null) {
-    parts.push(LANGUAGE_LABELS[language] ?? language)
+    parts.push(LANGUAGE_LABELS[lang][language] ?? language)
   }
   return parts.join(' · ')
 }
@@ -424,7 +438,7 @@ function attachRepeat(vm: MessageVm, context: MessageMapContext | undefined): vo
   vm.repeat = {
     userMessageId: user.id,
     text: user.text,
-    summary: summarizeRequest(user.request),
+    summary: summarizeRequest(user.request, vm.digest?.lang ?? 'en'),
     sources: [...(user.request.sources ?? [])],
     perSource: user.request.per_source ?? null,
   }

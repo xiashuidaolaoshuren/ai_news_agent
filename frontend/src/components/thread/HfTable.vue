@@ -34,6 +34,7 @@ function rowRef(entry: EntryVm): RefVm {
     digestId: props.digestId,
     rank: entry.rank,
     title: entry.hf?.modelId ?? entry.title,
+    lang: entry.lang,
   }
 }
 

@@ -51,6 +51,8 @@ export interface RefVm {
   rank: number
   /** Resolved entry title when known; otherwise a short fallback. */
   title: string
+  /** The entry's language, so a deep-dive bubble matches the digest. */
+  lang?: UiLang
 }
 
 export type FollowupActionVm = 'deep_dive' | 'ask'

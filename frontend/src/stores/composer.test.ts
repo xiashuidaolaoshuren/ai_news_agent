@@ -497,6 +497,20 @@ describe('composer prefill', () => {
     expect(controller.focusToken.value).toBe(1)
   })
 
+  it('sends the deep-dive bubble in the entry language', async () => {
+    const { controller, sends, marked } = await ready()
+    const ref: RefVm = { digestId: 15, rank: 3, title: 'NVIDIA/OpenShell', lang: 'zh-CN' }
+
+    expect(controller.deepDive(ref)).toBe(true)
+    expect(sends[0]?.body.content).toBe('深入了解：NVIDIA/OpenShell')
+    expect(sends[0]?.body.followup_action).toBe('deep_dive')
+    expect(marked[0]?.text).toBe('深入了解：NVIDIA/OpenShell')
+
+    const english: RefVm = { digestId: 15, rank: 3, title: 'NVIDIA/OpenShell' }
+    controller.deepDive(english)
+    expect(sends[1]?.body.content).toBe('Deep dive: NVIDIA/OpenShell')
+  })
+
   it('refills from the last user message on Run again and focuses', async () => {
     const harness = makeComposer()
     const controller = createComposerController({

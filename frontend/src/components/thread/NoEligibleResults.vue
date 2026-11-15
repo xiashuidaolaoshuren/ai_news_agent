@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 
 import SourceLogo from '@/components/thread/SourceLogo.vue'
+import { timeframeLabel } from '@/i18n/labels'
 import { sourceLabel } from '@/vm/digest'
 import type { CollectionVm, RepeatVm } from '@/vm/session'
 import type { EntryKind } from '@/vm/types'
@@ -31,6 +32,12 @@ const checkedLabels = computed(() =>
   props.collection.sources.map((kind) => sourceLabel(kind)).join(' and '),
 )
 
+const timeframe = computed(() =>
+  props.collection.timeframe === null
+    ? null
+    : timeframeLabel(props.collection.timeframe),
+)
+
 function trySource(name: string): void {
   if (props.repeat === null) {
     return
@@ -48,21 +55,23 @@ function trySource(name: string): void {
     <div class="section-head">
       <span class="tile"><SourceLogo :kind="props.collection.sources[0] ?? 'github'" /></span>
       <h3>No eligible results</h3>
-      <span class="sub">{{ checkedLabels }}{{ props.collection.timeframe ? ` · ${props.collection.timeframe}` : '' }}</span>
+      <span class="sub">{{ checkedLabels }}{{ timeframe ? ` · ${timeframe}` : '' }}</span>
     </div>
     <div class="set-body">
       <p style="margin: 0">
-        {{ checkedLabels }} was checked, and none of its stories
-        <template v-if="props.collection.timeframe"> from the {{ props.collection.timeframe }}</template>
-        <template v-if="props.collection.topic">
-          match <b>{{ props.collection.topic }}</b></template
+        {{ checkedLabels }} was checked, and none of its stories<template v-if="timeframe">{{
+          ' '
+        }}from {{ timeframe }}</template
+        ><template v-if="props.collection.topic">{{ ' ' }}match
+          <b>{{ props.collection.topic }}</b></template
         >.
       </p>
       <div>
         <p class="help" style="margin-bottom: 8px">
-          Try another source. It runs
-          <template v-if="props.collection.topic"> <b>{{ props.collection.topic }}</b></template>
-          <template v-if="props.collection.timeframe"> for the <b>{{ props.collection.timeframe }}</b></template>.
+          Try another source<template v-if="props.collection.topic">{{ ' ' }}for
+            <b>{{ props.collection.topic }}</b></template
+          ><template v-if="timeframe">{{ ' ' }}{{ timeframe }}</template
+          >.
         </p>
         <div class="seg">
           <button

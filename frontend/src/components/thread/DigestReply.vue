@@ -93,7 +93,7 @@ function warningStyle(index: number): string | undefined {
       :data-od-id="`connector-warning-${warning.source.toLowerCase()}`"
     >
       <AppIcon :name="isWindowNotice(warning) ? 'info' : 'alert'" />
-      <p><b>{{ warning.label }}{{ isWindowNotice(warning) ? tr('windowPrefix') : tr('connectorSuffix') }}</b> {{ warning.message }}</p>
+      <p><b>{{ warning.label }}{{ isWindowNotice(warning) ? tr('windowPrefix') : tr('connectorSuffix') }}</b>{{ warning.message }}</p>
       <button
         v-if="!isWindowNotice(warning) && settingsSource(warning.source) !== null"
         type="button"

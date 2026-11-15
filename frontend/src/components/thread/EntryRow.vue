@@ -7,7 +7,7 @@ import EntryParagraphs from '@/components/thread/EntryParagraphs.vue'
 import SourceTag from '@/components/thread/SourceTag.vue'
 import { riseStyle } from '@/lib/motion'
 import { t, type LabelKey } from '@/i18n/labels'
-import { hostOf } from '@/vm'
+import { hostOf, sourceLabel } from '@/vm'
 import type { EntryVm, RefVm } from '@/vm'
 
 const props = withDefaults(
@@ -34,6 +34,7 @@ function refForEntry(): RefVm {
     digestId: props.digestId,
     rank: props.entry.rank,
     title: props.entry.title,
+    lang: props.entry.lang,
   }
 }
 
@@ -53,13 +54,23 @@ function relatedRef(rank: number): RefVm {
 /** Juya stories link to the original story, everything else to the entry url. */
 const externalUrl = computed(() => props.entry.juya?.originalUrl ?? props.entry.url)
 const externalHost = computed(() => hostOf(externalUrl.value))
-const sourceText = computed(
-  () =>
-    props.entry.juya?.topic ??
-    (props.entry.kind === 'openrouter'
-      ? t(props.entry.lang, 'newModel')
-      : (props.entry.meta ?? props.entry.sourceName)),
-)
+/**
+ * The line after the source tag. Without metadata it falls back to the
+ * publisher name, unless that only repeats the tag.
+ */
+const sourceText = computed<string | null>(() => {
+  if (props.entry.juya?.topic) {
+    return props.entry.juya.topic
+  }
+  if (props.entry.kind === 'openrouter') {
+    return t(props.entry.lang, 'newModel')
+  }
+  if (props.entry.meta) {
+    return props.entry.meta
+  }
+  const name = props.entry.sourceName
+  return name.toLowerCase() === sourceLabel(props.entry.kind).toLowerCase() ? null : name
+})
 
 /** True while this row holds a stagger position, which is what `.rise` needs. */
 const rises = computed(() => props.rise !== null && props.rise !== undefined)
@@ -130,7 +141,7 @@ const showsBackground = computed(
 
       <div class="entry-src">
         <SourceTag :kind="props.entry.kind" />
-        <span>{{ sourceText }}</span>
+        <span v-if="sourceText">{{ sourceText }}</span>
         <a
           v-if="externalHost && externalUrl"
           class="ext"

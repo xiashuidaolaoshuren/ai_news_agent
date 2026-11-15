@@ -137,6 +137,23 @@ def test_huggingface_entry_view_exposes_family_metrics_and_variants() -> None:
     ]
 
 
+def test_extract_huggingface_evidence_cleans_saved_list_text_base_model() -> None:
+    """Saved evidence from before the connector fix holds a Python list repr."""
+    from ai_news_agent.services.digest_views import extract_huggingface_evidence
+
+    assert (
+        extract_huggingface_evidence({"base_model": "['MiniMaxAI/MiniMax-H3']"})["base_model"]
+        == "MiniMaxAI/MiniMax-H3"
+    )
+    assert (
+        extract_huggingface_evidence(
+            {"base_model": "['A/one', 'B/two']"}
+        )["base_model"]
+        == "A/one"
+    )
+    assert extract_huggingface_evidence({"base_model": "[]"})["base_model"] is None
+
+
 def test_extract_huggingface_evidence_projects_base_model() -> None:
     from ai_news_agent.services.digest_views import extract_huggingface_evidence
 

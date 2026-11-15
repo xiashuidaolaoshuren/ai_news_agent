@@ -9,6 +9,7 @@ import {
 import type { RequestLifecycle, RequestSnapshot } from '@/api/lifecycle'
 import { SseHttpError } from '@/api/sse'
 import { setupApiClient } from '@/api/setupClient'
+import { t } from '@/i18n/labels'
 import { useSessionsStore } from '@/stores/sessions'
 import { useThreadStore } from '@/stores/thread'
 import {
@@ -387,7 +388,7 @@ export function createComposerController(deps: ComposerDeps) {
     }
     errors.value = {}
     sendBlocked.value = false
-    const content = `Deep dive: ${ref.title}`
+    const content = t(ref.lang ?? 'en', 'deepDivePrompt', { title: ref.title })
     const body: PostMessageBody = {
       content,
       client_request_id: deps.newId(),

@@ -174,7 +174,7 @@ describe('EntryRow', () => {
   it('emits ask with a RefVm for a Juya story', async () => {
     const title = '有关部门拟增列AI技术'
     const entry = juyaEntry({ title, lang: 'en' })
-    const expected: RefVm = { digestId: DIGEST_ID, rank: entry.rank, title }
+    const expected: RefVm = { digestId: DIGEST_ID, rank: entry.rank, title, lang: 'en' }
     const wrapper = mount(EntryRow, {
       props: { entry, digestId: DIGEST_ID },
     })
@@ -189,7 +189,7 @@ describe('EntryRow', () => {
 
   it('emits ask with a RefVm for a GitHub entry', async () => {
     const entry = githubEntry()
-    const expected: RefVm = { digestId: DIGEST_ID, rank: entry.rank, title: entry.title }
+    const expected: RefVm = { digestId: DIGEST_ID, rank: entry.rank, title: entry.title, lang: 'en' }
     const wrapper = mount(EntryRow, { props: { entry, digestId: DIGEST_ID } })
 
     const askBtn = wrapper
@@ -225,5 +225,25 @@ describe('EntryRow language', () => {
     expect(labels).toContain('Summary')
     expect(wrapper.text()).not.toContain('摘要')
     expect(wrapper.get('[data-od-id="deepdive-juya-3"]').text()).toContain('Deep dive')
+  })
+})
+
+describe('EntryRow source label', () => {
+  it('shows the source once when the entry has no metadata', () => {
+    const wrapper = mount(EntryRow, {
+      props: { entry: githubEntry({ meta: undefined, sourceName: 'GitHub' }), digestId: DIGEST_ID },
+    })
+
+    const src = wrapper.get('.entry-src')
+    expect(src.findAll('.src-tag')).toHaveLength(1)
+    expect(src.text().match(/GitHub/g)).toHaveLength(1)
+  })
+
+  it('keeps a publisher name that differs from the source tag', () => {
+    const wrapper = mount(EntryRow, {
+      props: { entry: githubEntry({ meta: undefined, sourceName: 'NVIDIA' }), digestId: DIGEST_ID },
+    })
+
+    expect(wrapper.get('.entry-src').text()).toContain('NVIDIA')
   })
 })

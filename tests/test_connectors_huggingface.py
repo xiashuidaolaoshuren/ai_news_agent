@@ -217,6 +217,33 @@ def test_collect_maps_card_summary_to_raw_snippet() -> None:
     asyncio.run(main())
 
 
+def test_collect_reads_first_base_model_from_a_card_list() -> None:
+    model = _model_info_from_dict(
+        {
+            "id": "org/variant-model",
+            "author": "org",
+            "downloads": 10,
+            "likes": 1,
+            "trending_score": 5,
+            "pipeline_tag": "text-generation",
+            "card_data": SimpleNamespace(base_model=["BaseOrg/base-one", "BaseOrg/base-two"]),
+        }
+    )
+
+    async def main() -> None:
+        conn = HuggingFaceConnector(api=FakeHfApi(models=[model]))
+        out = await conn.collect(
+            ConnectorRequest(
+                topics=["models"],
+                max_items=5,
+                huggingface_discovery_mode="global",
+            )
+        )
+        assert out.items[0].source_evidence["base_model"] == "BaseOrg/base-one"
+
+    asyncio.run(main())
+
+
 def test_collect_skips_malformed_model_missing_id() -> None:
     valid = _model_info_from_dict(_load_fixture("huggingface_models_sample.json")[0])
     malformed = _model_info_from_dict(
