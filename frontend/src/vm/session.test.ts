@@ -690,3 +690,83 @@ describe('summarizeRequest language', () => {
     ).toBe('GitHub · 5 per source · this week')
   })
 })
+
+describe('summarizeRequest per-source windows', () => {
+  it('names each source window when they differ', () => {
+    expect(
+      summarizeRequest({
+        sources: ['juya', 'openrouter'],
+        per_source: 5,
+        counts: {},
+        timeframe: null,
+        windows: { juya: '', openrouter: 'last_7_days' },
+        topics: [],
+        language: 'en',
+        audience: null,
+      }),
+    ).toBe('Juya, OpenRouter · 5 per source · OpenRouter: last 7 days · English')
+  })
+
+  it('prints one window without a source prefix when every source agrees', () => {
+    expect(
+      summarizeRequest({
+        sources: ['openrouter'],
+        per_source: 5,
+        counts: {},
+        timeframe: null,
+        windows: { openrouter: 'last_7_days' },
+        topics: [],
+        language: null,
+        audience: null,
+      }),
+    ).toBe('OpenRouter · 5 per source · last 7 days')
+  })
+
+  it('writes per-source windows in Chinese', () => {
+    expect(
+      summarizeRequest(
+        {
+          sources: ['juya', 'openrouter'],
+          per_source: 5,
+          counts: {},
+          timeframe: null,
+          windows: { juya: '', openrouter: 'last_7_days' },
+          topics: [],
+          language: 'en',
+          audience: null,
+        },
+        'zh-CN',
+      ),
+    ).toBe('Juya、OpenRouter · 每个来源 5 条 · OpenRouter：近 7 天 · 英文')
+  })
+
+  it('keeps the shared timeframe as one label', () => {
+    expect(
+      summarizeRequest({
+        sources: ['juya', 'openrouter'],
+        per_source: 5,
+        counts: {},
+        timeframe: 'last_7_days',
+        windows: { juya: 'last_7_days', openrouter: 'last_7_days' },
+        topics: [],
+        language: null,
+        audience: null,
+      }),
+    ).toBe('Juya, OpenRouter · 5 per source · last 7 days')
+  })
+
+  it('prints nothing extra when the request carries no windows', () => {
+    expect(
+      summarizeRequest({
+        sources: ['juya', 'openrouter'],
+        per_source: 5,
+        counts: {},
+        timeframe: null,
+        windows: { juya: '', openrouter: '' },
+        topics: [],
+        language: null,
+        audience: null,
+      }),
+    ).toBe('Juya, OpenRouter · 5 per source')
+  })
+})

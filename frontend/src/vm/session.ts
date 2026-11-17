@@ -416,6 +416,24 @@ export function summarizeRequest(request: ResolvedRequestOut, lang: UiLang = 'en
   const timeframe = textOrNull(request.timeframe ?? null)
   if (timeframe !== null) {
     parts.push(timeframeLabel(timeframe, lang))
+  } else {
+    const windows = request.windows ?? {}
+    const resolved = sources
+      .map((name) => ({ name, window: textOrNull(windows[name] ?? null) }))
+      .filter((entry): entry is { name: string; window: string } => entry.window !== null)
+    const uniform =
+      resolved.length > 0 &&
+      resolved.length === sources.length &&
+      resolved.every((entry) => entry.window === resolved[0]?.window)
+    if (uniform && resolved[0] !== undefined) {
+      parts.push(timeframeLabel(resolved[0].window, lang))
+    } else {
+      for (const entry of resolved) {
+        const kind = sourceKindOf(entry.name)
+        const label = kind === null ? entry.name : sourceLabel(kind)
+        parts.push(`${label}${t(lang, 'windowPrefix')}${timeframeLabel(entry.window, lang)}`)
+      }
+    }
   }
   const language = textOrNull(request.language ?? null)
   if (language !== null) {
