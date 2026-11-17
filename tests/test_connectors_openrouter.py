@@ -132,6 +132,10 @@ def test_unknown_prices_stay_null_not_zero() -> None:
     assert _price_per_million("") == (None, None)
     assert _price_per_million("nope") == (None, None)
     assert _price_per_million("-1") == (None, None)
+    assert _price_per_million("NaN") == (None, None)
+    assert _price_per_million("Infinity") == (None, None)
+    assert _price_per_million("-Infinity") == (None, None)
+    assert _price_per_million("0") == ("0", True)
 
 
 def test_per_token_price_scales_to_per_million() -> None:
@@ -335,6 +339,99 @@ def test_request_failures_emit_single_request_failed_warning() -> None:
 
         bad_shape = await _collect({"data": "x"}, ConnectorRequest(topics=[]))
         assert bad_shape.items == [] and bad_shape.warnings[0].code == "request_failed"
+
+    asyncio.run(main())
+
+
+def test_non_dict_json_body_emits_request_failed_warning() -> None:
+    async def main() -> None:
+        out = await _collect(
+            {},
+            ConnectorRequest(topics=[]),
+            text=json.dumps([]),
+        )
+        assert out.items == []
+        assert len(out.warnings) == 1
+        assert out.warnings[0].code == "request_failed"
+        assert out.warnings[0].connector == "openrouter"
+        assert out.raw_count == 0
+
+    asyncio.run(main())
+
+
+def test_collect_keeps_sibling_when_one_row_has_nan_prices() -> None:
+    recent = int(FIXED_NOW.timestamp()) - 3600
+    rows = [
+        {
+            "id": "bad/nan",
+            "name": "Bad NaN",
+            "created": recent,
+            "pricing": {"prompt": "NaN", "completion": "0"},
+            "architecture": {"input_modalities": []},
+        },
+        {
+            "id": "good/paid",
+            "name": "Good",
+            "created": recent,
+            "pricing": {"prompt": "0.000001", "completion": "0.000001"},
+            "architecture": {"input_modalities": []},
+        },
+    ]
+
+    async def main() -> None:
+        out = await _collect(
+            {"data": rows},
+            ConnectorRequest(topics=[], timeframe="last_7_days"),
+        )
+        assert len(out.items) == 2
+        by_id = {i.source_id: i for i in out.items}
+        bad = by_id["bad/nan"]
+        assert bad.source_evidence["prompt_price_per_million"] is None
+        assert bad.source_evidence["free_token_pricing"] is False
+        assert not out.warnings
+
+        free_only = await _collect(
+            {"data": rows},
+            ConnectorRequest(topics=[], timeframe="last_7_days", free_only=True),
+        )
+        assert [i.source_id for i in free_only.items] == []
+
+    asyncio.run(main())
+
+
+def test_malformed_pricing_and_architecture_do_not_abort_payload() -> None:
+    recent = int(FIXED_NOW.timestamp()) - 3600
+    rows = [
+        {
+            "id": "bad/shape",
+            "name": "Bad shape",
+            "created": recent,
+            "pricing": "not-an-object",
+            "architecture": "also-not",
+        },
+        {
+            "id": "good/x",
+            "name": "Good",
+            "created": recent,
+            "pricing": {"prompt": "0", "completion": "0"},
+            "architecture": {"input_modalities": []},
+        },
+    ]
+
+    async def main() -> None:
+        out = await _collect(
+            {"data": rows},
+            ConnectorRequest(topics=[], timeframe="last_7_days"),
+        )
+        assert len(out.items) == 2
+        by_id = {i.source_id: i for i in out.items}
+        bad = by_id["bad/shape"]
+        assert bad.source_evidence["prompt_price_per_million"] is None
+        assert bad.source_evidence["completion_price_per_million"] is None
+        assert bad.source_evidence["free_token_pricing"] is False
+        assert bad.source_evidence["input_modalities"] == []
+        assert not out.warnings
+        assert out.raw_count == 2
 
     asyncio.run(main())
 

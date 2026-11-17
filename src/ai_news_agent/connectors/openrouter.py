@@ -53,6 +53,8 @@ def _price_per_million(raw: Any) -> tuple[str | None, bool | None]:
         d = Decimal(s)
     except (InvalidOperation, ValueError):
         return None, None
+    if not d.is_finite():
+        return None, None
     if d < 0:
         return None, None
     is_zero = d == 0
@@ -83,11 +85,13 @@ def _model_to_news_item(model: dict[str, Any], collected_at: datetime) -> NewsIt
     if description and len(description) > SNIPPET_MAX:
         description = description[:SNIPPET_MAX]
     published_at = _parse_created_ts(model.get("created"))
-    pricing = model.get("pricing") or {}
+    raw_pricing = model.get("pricing")
+    pricing = raw_pricing if isinstance(raw_pricing, dict) else {}
     prompt_pm, prompt_zero = _price_per_million(pricing.get("prompt"))
     completion_pm, completion_zero = _price_per_million(pricing.get("completion"))
     free_pricing = _free_token_pricing(prompt_zero, completion_zero)
-    arch = model.get("architecture") or {}
+    raw_arch = model.get("architecture")
+    arch = raw_arch if isinstance(raw_arch, dict) else {}
     modalities = arch.get("input_modalities")
     input_modalities = (
         [str(m) for m in modalities if m is not None]
@@ -231,6 +235,14 @@ class OpenRouterConnector:
             return ConnectorResult(
                 items=[],
                 warnings=[_request_failed_warning(f"invalid JSON: {exc}")],
+                raw_count=0,
+            )
+        if not isinstance(body, dict):
+            return ConnectorResult(
+                items=[],
+                warnings=[
+                    _request_failed_warning("response body is not an object")
+                ],
                 raw_count=0,
             )
         models = body.get("data")
