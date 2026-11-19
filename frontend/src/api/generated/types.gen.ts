@@ -738,6 +738,10 @@ export type MessageOut = {
      * Followup Action
      */
     followup_action?: 'deep_dive' | 'ask' | null;
+    /**
+     * Followup Related Display Ranks
+     */
+    followup_related_display_ranks?: Array<number>;
     juya_confirmation?: JuyaConfirmationOut | null;
     /**
      * Collection Outcome

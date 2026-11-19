@@ -5408,6 +5408,13 @@
             ],
             "title": "Followup Action"
           },
+          "followup_related_display_ranks": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Followup Related Display Ranks"
+          },
           "juya_confirmation": {
             "anyOf": [
               {

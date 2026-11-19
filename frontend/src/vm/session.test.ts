@@ -459,6 +459,27 @@ describe('deep-dive related ranks', () => {
     expect(reply?.relatedRanks).toBeUndefined()
   })
 
+  it('uses the ranks the message carries when the target digest is off-page', () => {
+    const [, reply] = toMessages([
+      message({
+        id: 2,
+        sequence: 2,
+        content: 'Deep dive on something older',
+        followup_action: 'deep_dive',
+        followup_target: { digest_id: 99, display_rank: 3 },
+      }),
+      message({
+        id: 3,
+        sequence: 3,
+        role: 'assistant',
+        content: 'It wraps tool calls.',
+        followup_related_display_ranks: [2],
+      }),
+    ])
+
+    expect(reply?.relatedRanks).toEqual([2])
+  })
+
   it('carries no ranks when the target digest is not in the transcript', () => {
     const [, , reply] = toMessages([
       message({
@@ -597,6 +618,41 @@ describe('collection outcomes', () => {
       perSource: 5,
     })
     expect(withoutRequest?.repeat).toBeUndefined()
+  })
+
+  it('adds the effective window from a saved window_widened warning to the summary', () => {
+    const stored = {
+      sources: ['openrouter'],
+      per_source: 5,
+      timeframe: 'today',
+      windows: { openrouter: 'today' },
+      topics: [],
+      language: null,
+      audience: null,
+    }
+    const digestWith = (detail: string | null) =>
+      message({
+        id: 8,
+        sequence: 2,
+        role: 'assistant',
+        content: '',
+        run_id: 4,
+        digest_id: 15,
+        digest: { generated_at: '2026-10-01T20:04:00Z', entries: [] },
+        collection_outcome: 'results',
+        warnings: [
+          { connector: 'openrouter', code: 'window_widened', message: 'widened', detail },
+        ],
+      })
+    const user = message({ id: 7, content: 'Digest today', request: stored })
+    const [, widened] = toMessages([
+      user,
+      digestWith('{"requested_timeframe":"today","effective_timeframe":"last_7_days"}'),
+    ])
+    const [, malformed] = toMessages([user, digestWith('not json')])
+
+    expect(widened?.repeat?.summary).toBe('OpenRouter · 5 per source · today → last 7 days')
+    expect(malformed?.repeat?.summary).toBe('OpenRouter · 5 per source · today')
   })
 
   it('summarizes a stored request the way the prototype does', () => {
@@ -753,6 +809,28 @@ describe('summarizeRequest per-source windows', () => {
         audience: null,
       }),
     ).toBe('Juya, OpenRouter · 5 per source · last 7 days')
+  })
+
+  it('shows requested and effective windows for a widened source', () => {
+    const request = {
+      sources: ['juya', 'openrouter'],
+      per_source: 5,
+      counts: {},
+      timeframe: 'today',
+      windows: { juya: 'today', openrouter: 'today' },
+      topics: [],
+      language: null,
+      audience: null,
+    }
+
+    expect(summarizeRequest(request, 'en', { openrouter: 'last_7_days' })).toBe(
+      'Juya, OpenRouter · 5 per source · Juya: today · OpenRouter: today → last 7 days',
+    )
+    expect(
+      summarizeRequest({ ...request, sources: ['openrouter'] }, 'en', {
+        openrouter: 'last_7_days',
+      }),
+    ).toBe('OpenRouter · 5 per source · today → last 7 days')
   })
 
   it('prints nothing extra when the request carries no windows', () => {

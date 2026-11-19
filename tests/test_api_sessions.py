@@ -313,6 +313,7 @@ def _seed_session_owned_digest(
     tmp_path: Path,
     *,
     db_name: str = "target-digest.db",
+    titles: tuple[str, ...] = ("Repo 1",),
 ) -> tuple[object, str, int]:
     """Session with one digest linked through a succeeded session_request."""
     from ai_news_agent.models import Digest, DigestEntry, FollowUpAction, SourceKind
@@ -342,15 +343,16 @@ def _seed_session_owned_digest(
         entries=[
             DigestEntry(
                 source_kind=SourceKind.GITHUB,
-                source_id="repo-1",
-                title="Repo 1",
+                source_id=f"repo-{index}",
+                title=title,
                 source_name="GitHub",
-                source_url="https://example.com/repo-1",
+                source_url=f"https://example.com/repo-{index}",
                 summary="summary",
                 why_it_matters="why",
                 background_knowledge="bg",
                 follow_up_action=FollowUpAction.READ,
             )
+            for index, title in enumerate(titles, start=1)
         ],
         topics=["ai"],
         timeframe="today",
@@ -432,6 +434,34 @@ def test_list_messages_includes_followup_target_on_user_and_assistant(
 
     reloaded = client.get(f"/api/v1/sessions/{session_id}/messages").json()
     assert reloaded["messages"] == page["messages"]
+
+
+def test_deep_dive_reply_carries_related_ranks_when_digest_is_off_page(
+    tmp_path: Path,
+) -> None:
+    client, session_id, digest_id = _seed_session_owned_digest(
+        tmp_path, titles=("Llama 3.1 8B", "Llama 3.1 8B")
+    )
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "follow up on item 1",
+            "client_request_id": "req-related-ranks",
+            "followup_target": {"digest_id": digest_id, "display_rank": 1},
+            "followup_action": "deep_dive",
+        },
+    ) as response:
+        assert response.status_code == 200
+        response.read()
+
+    # Only the follow-up user/assistant pair fits on the page; the digest is older.
+    page = client.get(f"/api/v1/sessions/{session_id}/messages?limit=2").json()
+    by_role = {message["role"]: message for message in page["messages"]}
+    assert by_role["assistant"]["digest"] is None
+    assert by_role["assistant"]["followup_related_display_ranks"] == [2]
+    assert by_role["user"]["followup_related_display_ranks"] == []
 
 
 def test_post_message_rejects_followup_target_from_other_session(

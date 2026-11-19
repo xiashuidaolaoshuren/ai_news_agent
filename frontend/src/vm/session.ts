@@ -377,7 +377,11 @@ function formatResolvedCount(request: ResolvedRequestOut, lang: UiLang): string 
 }
 
 /** The prototype's request summary: sources, count, timeframe, and language. */
-export function summarizeRequest(request: ResolvedRequestOut, lang: UiLang = 'en'): string {
+export function summarizeRequest(
+  request: ResolvedRequestOut,
+  lang: UiLang = 'en',
+  widened: Record<string, string> = {},
+): string {
   const sources = request.sources ?? []
   const sourceLine = sources
     .map((name) => {
@@ -414,7 +418,26 @@ export function summarizeRequest(request: ResolvedRequestOut, lang: UiLang = 'en
     parts.push(countText)
   }
   const timeframe = textOrNull(request.timeframe ?? null)
-  if (timeframe !== null) {
+  const widenedSources = sources.filter((name) => widened[name] !== undefined)
+  if (timeframe !== null && widenedSources.length > 0) {
+    // Run again replays the requested window; show what the run actually used too.
+    const windowText = (name: string): string => {
+      const requested = timeframeLabel(timeframe, lang)
+      const effective = widened[name]
+      return effective === undefined
+        ? requested
+        : `${requested} → ${timeframeLabel(effective, lang)}`
+    }
+    if (widenedSources.length === sources.length) {
+      parts.push(windowText(sources[0] ?? ''))
+    } else {
+      for (const name of sources) {
+        const kind = sourceKindOf(name)
+        const label = kind === null ? name : sourceLabel(kind)
+        parts.push(`${label}${t(lang, 'windowPrefix')}${windowText(name)}`)
+      }
+    }
+  } else if (timeframe !== null) {
     parts.push(timeframeLabel(timeframe, lang))
   } else {
     const windows = request.windows ?? {}
@@ -442,7 +465,34 @@ export function summarizeRequest(request: ResolvedRequestOut, lang: UiLang = 'en
   return parts.join(' · ')
 }
 
-function attachRepeat(vm: MessageVm, context: MessageMapContext | undefined): void {
+/** Effective window per source from saved `window_widened` warnings; bad detail is ignored. */
+function widenedWindows(warnings: MessageOut['warnings']): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const warning of warnings ?? []) {
+    if (warning.code !== 'window_widened' || typeof warning.detail !== 'string') {
+      continue
+    }
+    try {
+      const parsed: unknown = JSON.parse(warning.detail)
+      const effective =
+        typeof parsed === 'object' && parsed !== null
+          ? (parsed as Record<string, unknown>).effective_timeframe
+          : undefined
+      if (typeof effective === 'string' && effective !== '') {
+        out[warning.connector] = effective
+      }
+    } catch {
+      // Malformed detail: keep the plain summary.
+    }
+  }
+  return out
+}
+
+function attachRepeat(
+  vm: MessageVm,
+  context: MessageMapContext | undefined,
+  warnings: MessageOut['warnings'] = [],
+): void {
   const user = context?.previousUser
   if (
     user === undefined ||
@@ -456,7 +506,7 @@ function attachRepeat(vm: MessageVm, context: MessageMapContext | undefined): vo
   vm.repeat = {
     userMessageId: user.id,
     text: user.text,
-    summary: summarizeRequest(user.request, vm.digest?.lang ?? 'en'),
+    summary: summarizeRequest(user.request, vm.digest?.lang ?? 'en', widenedWindows(warnings)),
     sources: [...(user.request.sources ?? [])],
     perSource: user.request.per_source ?? null,
   }
@@ -587,7 +637,7 @@ export function toMessageVm(message: MessageOut, context?: MessageMapContext): M
     if (context?.previousUserRef !== undefined && context?.previousUserRef !== null) {
       vm.replyRef = context.previousUserRef
     }
-    attachRepeat(vm, context)
+    attachRepeat(vm, context, warnings)
     return vm
   }
   if (message.content === CANCELLED_ASSISTANT_MESSAGE) {
@@ -602,17 +652,27 @@ export function toMessageVm(message: MessageOut, context?: MessageMapContext): M
   if (context?.previousUserRef !== undefined && context?.previousUserRef !== null) {
     vm.replyRef = context.previousUserRef
   }
-  attachDeepDiveRelated(vm, context)
+  attachDeepDiveRelated(vm, context, message.followup_related_display_ranks)
   return vm
 }
 
 /**
  * A deep-dive reply is markdown, so it has no entry of its own. Give it the
- * targeted entry's related ranks, which the digest row it came from shows.
+ * targeted entry's related ranks, which the digest row it came from shows. The API
+ * carries them on the message, so they survive the digest being on an older page;
+ * the loaded digest rows stay as the fallback.
  */
-function attachDeepDiveRelated(vm: MessageVm, context?: MessageMapContext): void {
+function attachDeepDiveRelated(
+  vm: MessageVm,
+  context: MessageMapContext | undefined,
+  carried: number[] | undefined,
+): void {
   const ref = vm.replyRef
   if (ref === undefined || context?.previousUserAction !== 'deep_dive') {
+    return
+  }
+  if (carried !== undefined && carried.length > 0) {
+    vm.relatedRanks = [...carried]
     return
   }
   const related = context.digestRelated?.get(`${ref.digestId}:${ref.rank}`)
