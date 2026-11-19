@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, Overflow
 from typing import Any
 
 import httpx
@@ -58,7 +58,13 @@ def _price_per_million(raw: Any) -> tuple[str | None, bool | None]:
     if d < 0:
         return None, None
     is_zero = d == 0
-    scaled = d * Decimal(1_000_000)
+    try:
+        scaled = d * Decimal(1_000_000)
+    except (Overflow, InvalidOperation):
+        return None, None
+    if not is_zero and scaled == 0:
+        # Underflow rounded a nonzero price to zero; that is unknown, not free.
+        return None, None
     formatted = format(scaled, "f")
     if "." in formatted:
         formatted = formatted.rstrip("0").rstrip(".")

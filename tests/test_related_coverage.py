@@ -165,6 +165,26 @@ def test_counts_that_are_not_versions_do_not_link() -> None:
     assert result[2] == []
 
 
+def test_numeric_only_identity_residue_does_not_link() -> None:
+    from ai_news_agent.related_coverage import related_display_ranks
+
+    model = _entry("模型 3", source_id="1")
+    product = _entry("产品 3", source_id="2")
+    result = related_display_ranks([_pair(model), _pair(product)])
+    assert result[1] == []
+    assert result[2] == []
+
+
+def test_marker_only_titles_do_not_link() -> None:
+    from ai_news_agent.related_coverage import related_display_ranks
+
+    a = _entry("3 Pro", source_id="1")
+    b = _entry("3 Pro", source_id="2")
+    result = related_display_ranks([_pair(a), _pair(b)])
+    assert result[1] == []
+    assert result[2] == []
+
+
 def test_same_product_same_version_and_size_links() -> None:
     from ai_news_agent.related_coverage import related_display_ranks
 

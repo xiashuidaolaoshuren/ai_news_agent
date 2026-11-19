@@ -87,6 +87,10 @@ def _identity_signature(
             {word for word in _WORD_RE.findall(residue) if word not in _VARIANT_TOKENS}
         )
     )
+    # A numeric residue is not a product name; it only repeats a version token.
+    # An empty residue is allowed: "M3.1 8B" is identified by its markers.
+    if product and not any(ch.isalpha() for ch in product):
+        return None
     return (product, versions, sizes, variants)
 
 

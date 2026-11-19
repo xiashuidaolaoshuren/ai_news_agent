@@ -864,6 +864,33 @@ def test_build_digest_view_openrouter_free_suffix_without_zero_prices() -> None:
     assert entry.free_token_pricing is False
 
 
+def test_build_digest_view_openrouter_tiny_positive_price_is_not_free() -> None:
+    from ai_news_agent.api.schemas.digests import OpenRouterDigestEntryView, build_digest_view
+
+    or_entry = _openrouter_entry()
+    for prompt, completion in (("1e-400", "0"), ("0", "1e-400")):
+        digest = Digest(generated_at=_fixture_dt(), entries=[or_entry])
+        news_items = [
+            NewsItem(
+                source=SourceKind.OPENROUTER,
+                source_id=or_entry.source_id,
+                url=or_entry.source_url,
+                title=or_entry.title,
+                source_evidence={
+                    "prompt_price_per_million": prompt,
+                    "completion_price_per_million": completion,
+                    "free_token_pricing": True,
+                },
+            )
+        ]
+
+        entry = build_digest_view(digest, news_items=news_items).entries[0]
+        assert isinstance(entry, OpenRouterDigestEntryView)
+        assert entry.prompt_price_per_million == prompt
+        assert entry.completion_price_per_million == completion
+        assert entry.free_token_pricing is False
+
+
 def test_build_digest_view_union_validates_all_kinds_plus_openrouter() -> None:
     from ai_news_agent.api.schemas.digests import (
         DigestEntryView,

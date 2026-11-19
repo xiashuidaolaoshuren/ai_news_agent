@@ -138,6 +138,12 @@ def test_unknown_prices_stay_null_not_zero() -> None:
     assert _price_per_million("0") == ("0", True)
 
 
+def test_positive_price_that_underflows_to_zero_stays_unknown() -> None:
+    from ai_news_agent.connectors.openrouter import _price_per_million
+
+    assert _price_per_million("1e-1010000") == (None, None)
+
+
 def test_per_token_price_scales_to_per_million() -> None:
     from ai_news_agent.connectors.openrouter import _price_per_million
 
@@ -432,6 +438,47 @@ def test_malformed_pricing_and_architecture_do_not_abort_payload() -> None:
         assert bad.source_evidence["input_modalities"] == []
         assert not out.warnings
         assert out.raw_count == 2
+
+    asyncio.run(main())
+
+
+def test_overflowing_price_is_unknown_and_sibling_survives() -> None:
+    recent = int(FIXED_NOW.timestamp()) - 3600
+    rows = [
+        {
+            "id": "bad/overflow",
+            "name": "Overflow",
+            "created": recent,
+            "pricing": {"prompt": "1e999999", "completion": "0"},
+            "architecture": {"input_modalities": []},
+        },
+        {
+            "id": "good/free",
+            "name": "Free",
+            "created": recent,
+            "pricing": {"prompt": "0", "completion": "0"},
+            "architecture": {"input_modalities": []},
+        },
+    ]
+
+    async def main() -> None:
+        out = await _collect(
+            {"data": rows},
+            ConnectorRequest(topics=[], timeframe="last_7_days"),
+        )
+        assert [i.source_id for i in out.items] == ["bad/overflow", "good/free"]
+        by_id = {i.source_id: i for i in out.items}
+        bad = by_id["bad/overflow"]
+        assert bad.source_evidence["prompt_price_per_million"] is None
+        assert bad.source_evidence["free_token_pricing"] is False
+        assert not out.warnings
+        assert out.raw_count == 2
+
+        free_only = await _collect(
+            {"data": rows},
+            ConnectorRequest(topics=[], timeframe="last_7_days", free_only=True),
+        )
+        assert [i.source_id for i in free_only.items] == ["good/free"]
 
     asyncio.run(main())
 

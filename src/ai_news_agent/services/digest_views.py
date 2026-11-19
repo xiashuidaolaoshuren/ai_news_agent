@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from ai_news_agent.digest_content import extract_digest_fields
@@ -264,12 +265,7 @@ def extract_openrouter_evidence(source_evidence: dict[str, Any]) -> dict[str, An
     modalities: list[str] = []
     if isinstance(modalities_raw, list):
         modalities = [str(m) for m in modalities_raw if m is not None]
-    free_token_pricing = False
-    if prompt is not None and completion is not None:
-        try:
-            free_token_pricing = float(prompt) == 0.0 and float(completion) == 0.0
-        except ValueError:
-            free_token_pricing = False
+    free_token_pricing = _is_exact_zero(prompt) and _is_exact_zero(completion)
     return {
         "context_length": _optional_int(source_evidence.get("context_length")),
         "prompt_price_per_million": prompt,
@@ -278,6 +274,17 @@ def extract_openrouter_evidence(source_evidence: dict[str, Any]) -> dict[str, An
         "input_modalities": modalities,
         "provider": _optional_str(source_evidence.get("provider")),
     }
+
+
+def _is_exact_zero(value: str | None) -> bool:
+    """True only for a finite decimal that is exactly zero; unknown prices are not zero."""
+    if value is None:
+        return False
+    try:
+        price = Decimal(value)
+    except (InvalidOperation, ValueError):
+        return False
+    return price.is_finite() and price == 0
 
 
 def _safe_http_url(value: Any) -> str | None:
