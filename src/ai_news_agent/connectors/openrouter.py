@@ -11,11 +11,14 @@ from typing import Any
 import httpx
 
 from ai_news_agent.connectors.base import ConnectorRequest, ConnectorResult
-from ai_news_agent.connectors.juya import _text_matches_topic
+from ai_news_agent.connectors.topic_match import text_matches_topic
 from ai_news_agent.models import ConfidenceLevel, ConnectorWarning, NewsItem, SourceKind
 from ai_news_agent.ranking import _timeframe_bounds_at, within_timeframe
 
 SNIPPET_MAX = 650
+# Per-million price bounds; a nonzero price outside them is treated as unknown.
+_MIN_PRICE_PER_MILLION = Decimal("0.000001")
+_MAX_PRICE_PER_MILLION = Decimal("1000000")
 
 
 def _parse_created_ts(value: Any) -> datetime | None:
@@ -62,8 +65,10 @@ def _price_per_million(raw: Any) -> tuple[str | None, bool | None]:
         scaled = d * Decimal(1_000_000)
     except (Overflow, InvalidOperation):
         return None, None
-    if not is_zero and scaled == 0:
-        # Underflow rounded a nonzero price to zero; that is unknown, not free.
+    if not is_zero and not (
+        _MIN_PRICE_PER_MILLION <= scaled <= _MAX_PRICE_PER_MILLION
+    ):
+        # Absurd magnitudes (including underflow to zero) are unknown, never free.
         return None, None
     formatted = format(scaled, "f")
     if "." in formatted:
@@ -186,7 +191,7 @@ def _matches_topics(model: dict[str, Any], topics: list[str]) -> bool:
             str(model.get("description") or ""),
         ]
     )
-    return any(_text_matches_topic(haystack, topic) for topic in topics if topic.strip())
+    return any(text_matches_topic(haystack, topic) for topic in topics if topic.strip())
 
 
 class OpenRouterConnector:

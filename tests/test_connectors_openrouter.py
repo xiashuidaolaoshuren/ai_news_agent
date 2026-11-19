@@ -144,6 +144,16 @@ def test_positive_price_that_underflows_to_zero_stays_unknown() -> None:
     assert _price_per_million("1e-1010000") == (None, None)
 
 
+def test_out_of_range_prices_are_unknown_and_boundaries_stay_known() -> None:
+    from ai_news_agent.connectors.openrouter import _price_per_million
+
+    assert _price_per_million("1e999993") == (None, None)
+    assert _price_per_million("1e-30") == (None, None)
+    assert _price_per_million("1") == ("1000000", False)
+    assert _price_per_million("1e-12") == ("0.000001", False)
+    assert _price_per_million("0") == ("0", True)
+
+
 def test_per_token_price_scales_to_per_million() -> None:
     from ai_news_agent.connectors.openrouter import _price_per_million
 
