@@ -62,6 +62,12 @@ describe('SourceSettings layout', () => {
     ])
   })
 
+  it('shows a logo tile on the OpenRouter section head like the other sources', () => {
+    const wrapper = mountSettings()
+
+    expect(wrapper.find('[data-od-id="settings-source-openrouter"] .tile img').exists()).toBe(true)
+  })
+
   it('shows the hidden Bilibili source with selection chip and editable fields', () => {
     const wrapper = mountSettings()
 

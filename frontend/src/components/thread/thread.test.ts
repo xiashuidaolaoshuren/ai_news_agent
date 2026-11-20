@@ -275,6 +275,49 @@ describe('Thread', () => {
     expect(wrapper.emitted('repeat')?.[0]?.[0]).not.toHaveProperty('replaceSource')
   })
 
+  it('ends a collection reason with one full stop before the no-results sentence', () => {
+    const failedWith = (message: string) => {
+      const [, failed] = toMessages([
+        assistantMessage({
+          id: 1,
+          sequence: 1,
+          role: 'user',
+          content: 'New models today?',
+          digest: null,
+          digest_id: null,
+          warnings: [],
+          request: {
+            sources: ['openrouter'],
+            per_source: 5,
+            timeframe: null,
+            topics: [],
+            language: null,
+            audience: null,
+          },
+        }),
+        assistantMessage({
+          id: 2,
+          sequence: 2,
+          content: '',
+          digest: { generated_at: '2026-10-01T20:04:00', entries: [] } as DigestView,
+          warnings: [{ connector: 'openrouter', code: 'request_failed', message }],
+          collection_outcome: 'failed',
+        }),
+      ])
+      return mount(Thread, { props: { messages: [failed!] } }).get(
+        '[data-od-id="collection-failed"]',
+      ).text()
+    }
+
+    expect(failedWith('OpenRouter models request failed')).toContain(
+      'OpenRouter models request failed. No stories were checked',
+    )
+    expect(failedWith('GitHub search returned 503.')).toContain(
+      'GitHub search returned 503. No stories were checked',
+    )
+    expect(failedWith('GitHub search returned 503.')).not.toContain('..')
+  })
+
   it('renders a user message as a bubble with no agent label', () => {
     const wrapper = mount(Thread, {
       props: {
