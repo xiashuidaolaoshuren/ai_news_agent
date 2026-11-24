@@ -19,7 +19,8 @@ import { formatClock } from '@/components/thread/format'
 import { installHoverPreviewListeners } from '@/lib/useHoverPreview'
 import { prefersReducedMotion } from '@/lib/motion'
 import { shouldStickToBottom } from '@/lib/scroll'
-import { PENDING_MESSAGE_ID } from '@/stores/thread'
+import { t, type LabelKey } from '@/i18n/labels'
+import { PENDING_MESSAGE_ID, type OlderPageResult } from '@/stores/thread'
 import type { MessageVm, RequestStateVm } from '@/vm'
 import type { RepeatVm } from '@/vm/session'
 import type { EntryKind } from '@/vm/types'
@@ -45,6 +46,13 @@ const props = defineProps<{
   loadError?: string | null
   /** Sources a no-results block can offer instead of the ones already checked. */
   catalog?: { name: string; label: string; kind: EntryKind | null }[]
+  /**
+   * Changes when the transcript is replaced. An off-page jump started for an older
+   * value must not page or scroll after that.
+   */
+  transcriptGeneration?: number
+  /** Load one earlier transcript page. The manual button still uses the emit. */
+  loadOlder?: () => Promise<OlderPageResult>
 }>()
 
 const emit = defineEmits<{
@@ -142,23 +150,22 @@ function dataRefAttr(refVm: RefVm): string {
  * exactly as the digest row emits it.
  */
 function cardRelatedRef(replyRef: RefVm, rank: number): RefVm {
-  return { digestId: replyRef.digestId, rank, title: `#${rank}` }
+  return { ...replyRef, rank, title: `#${rank}` }
 }
 
-/**
- * Scroll an entry into view and flash it. Uses `data-ref` on rows; related navigations
- * emit from digest children with the same key shape.
- */
-function gotoRef(refVm: RefVm): void {
+/** The digest row named by a ref, never a reply link that carries the same key. */
+function entryRow(refVm: RefVm): HTMLElement | null {
   const root = thread.value
   if (root === null) {
-    return
+    return null
   }
-  const selector = `[data-ref="${dataRefAttr(refVm)}"]`
-  const el = root.querySelector<HTMLElement>(selector)
-  if (el === null) {
-    return
-  }
+  return root.querySelector<HTMLElement>(
+    `.entry[data-ref="${dataRefAttr(refVm)}"], .hf-row[data-ref="${dataRefAttr(refVm)}"]`,
+  )
+}
+
+/** Scroll an element into view and flash it. */
+function reveal(el: HTMLElement): void {
   el.scrollIntoView({ block: 'center', behavior: 'smooth' })
   el.classList.add('hl')
   if (hlClearTimer !== null) {
@@ -181,6 +188,83 @@ function gotoRef(refVm: RefVm): void {
   }
   el.addEventListener('animationend', onEnd)
 }
+
+/**
+ * Scroll an entry into view and flash it. Uses `data-ref` on rows; related navigations
+ * emit from digest children with the same key shape.
+ */
+function gotoRef(refVm: RefVm): void {
+  const root = thread.value
+  if (root === null) {
+    return
+  }
+  const el = root.querySelector<HTMLElement>(`[data-ref="${dataRefAttr(refVm)}"]`)
+  if (el === null) {
+    return
+  }
+  reveal(el)
+}
+
+const relatedJump = ref<{ messageId: number; text: string } | null>(null)
+let relatedAttempt = 0
+
+/** The deep-dive chip can page backward before jumping to the exact digest row. */
+async function gotoRelatedEntry(messageId: number, refVm: RefVm): Promise<void> {
+  const attempt = ++relatedAttempt
+  const generation = props.transcriptGeneration
+  const current = () => attempt === relatedAttempt && generation === props.transcriptGeneration
+  const showStatus = (label: LabelKey): void => {
+    relatedJump.value = { messageId, text: t(refVm.lang ?? 'en', label) }
+  }
+  relatedJump.value = null
+  const loadedRow = entryRow(refVm)
+  if (loadedRow !== null) {
+    reveal(loadedRow)
+    return
+  }
+  if (props.loadOlder === undefined) {
+    return
+  }
+
+  showStatus('relatedLoading')
+  const seen = new Set<string>()
+  while (current()) {
+    const page = await props.loadOlder()
+    if (!current()) {
+      return
+    }
+    // Let Vue render the prepend, then let the arrival watcher restore its anchor.
+    await nextTick()
+    await nextTick()
+    if (!current()) {
+      return
+    }
+    const row = entryRow(refVm)
+    if (row !== null) {
+      relatedJump.value = null
+      reveal(row)
+      return
+    }
+    if (page.status === 'exhausted' || (page.status === 'loaded' && page.nextCursor === null)) {
+      showStatus('relatedUnavailable')
+      return
+    }
+    if (page.status !== 'loaded') {
+      showStatus('relatedRetry')
+      return
+    }
+    seen.add(page.requestedCursor)
+    if (page.nextCursor !== null && seen.has(page.nextCursor)) {
+      showStatus('relatedRetry')
+      return
+    }
+  }
+}
+
+watch(
+  () => props.transcriptGeneration,
+  () => { relatedJump.value = null },
+)
 
 /**
  * The transcript changed. A question the user just sent belongs in view whatever
@@ -277,6 +361,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  relatedAttempt += 1
   thread.value?.removeEventListener('scroll', onScroll)
   uninstall?.()
   uninstall = null
@@ -475,10 +560,18 @@ defineExpose({ gotoRef })
               class="chip rel-chip"
               :data-od-id="`related-reply-${relatedRank}`"
               :aria-label="`Related: entry #${relatedRank} names the same model`"
-              @click="gotoRef(cardRelatedRef(message.replyRef, relatedRank))"
+              @click="gotoRelatedEntry(message.id, cardRelatedRef(message.replyRef, relatedRank))"
             >
               Related: #{{ relatedRank }}
             </button>
+            <p
+              v-if="relatedJump?.messageId === message.id"
+              class="related-jump"
+              role="status"
+              data-od-id="related-jump-status"
+            >
+              {{ relatedJump.text }}
+            </p>
           </div>
         </div>
       </template>

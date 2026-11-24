@@ -801,7 +801,14 @@ tr.hl,
   margin-top: 8px;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
+}
+
+.related-jump {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .table-wrap td.r,

@@ -1106,6 +1106,195 @@ describe('thread store older messages', () => {
     expect(asked).toEqual([undefined])
   })
 
+  it('clears the paging error after a successful retry at the same cursor', async () => {
+    const loadMessages = vi.fn<NonNullable<StoreOptions['loadMessages']>>()
+      .mockResolvedValueOnce({ messages: [], nextCursor: 'older-1' })
+      .mockRejectedValueOnce(new Error('Page failed'))
+      .mockResolvedValueOnce({ messages: [], nextCursor: null })
+    const { controller } = makeStore({ loadMessages })
+    await controller.openSession(sessionOut())
+
+    expect(await controller.loadOlder()).toEqual({ status: 'failed' })
+    expect(controller.loadError.value).toBe('Page failed')
+    expect(controller.nextCursor.value).toBe('older-1')
+    expect(await controller.loadOlder()).toMatchObject({ status: 'loaded' })
+    expect(loadMessages).toHaveBeenLastCalledWith('s1', 'older-1')
+    expect(controller.loadError.value).toBeNull()
+  })
+
+  it('lets a replacement load finish opening even if the original load is still pending', async () => {
+    const original = deferred<MessagePage>()
+    const loadMessages = vi.fn<NonNullable<StoreOptions['loadMessages']>>()
+      .mockReturnValueOnce(original.promise)
+      .mockResolvedValueOnce({ messages: [], nextCursor: null })
+    const { controller } = makeStore({ loadMessages })
+    const opening = controller.openSession(sessionOut())
+    expect(controller.opening.value).toBe(true)
+
+    await controller.loadMessages('s1')
+    expect(controller.opening.value).toBe(false)
+    original.resolve({ messages: [message({ content: 'Old page' })], nextCursor: null })
+    await opening
+    expect(controller.messages.value).toEqual([])
+  })
+
+  it('ignores a reload for a different conversation without invalidating active paging', async () => {
+    const older = deferred<MessagePage>()
+    const loadMessages = vi.fn<NonNullable<StoreOptions['loadMessages']>>()
+      .mockResolvedValueOnce({ messages: [], nextCursor: 'older-1' })
+      .mockReturnValueOnce(older.promise)
+      .mockResolvedValue({ messages: [], nextCursor: null })
+    const { controller } = makeStore({ loadMessages })
+    await controller.openSession(sessionOut())
+    const paging = controller.loadOlder()
+
+    await controller.loadMessages('previous-session')
+    older.resolve({ messages: [message()], nextCursor: null })
+    expect(await paging).toMatchObject({ status: 'loaded' })
+    expect(loadMessages).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not use the old cursor while a full transcript reload is pending', async () => {
+    const reloaded = deferred<MessagePage>()
+    const loadMessages = vi.fn<NonNullable<StoreOptions['loadMessages']>>()
+      .mockResolvedValueOnce({ messages: [], nextCursor: 'old-cursor' })
+      .mockReturnValueOnce(reloaded.promise)
+      .mockResolvedValueOnce({ messages: [], nextCursor: null })
+    const { controller } = makeStore({ loadMessages })
+    await controller.openSession(sessionOut())
+    const reloading = controller.loadMessages('s1')
+
+    expect(await controller.loadOlder()).toEqual({ status: 'stale' })
+    expect(loadMessages).toHaveBeenCalledTimes(2)
+
+    reloaded.resolve({ messages: [], nextCursor: 'new-cursor' })
+    await reloading
+    await controller.loadOlder()
+    expect(loadMessages).toHaveBeenLastCalledWith('s1', 'new-cursor')
+  })
+
+  it('drops a page that answers a transcript the session has since reloaded', async () => {
+    const older = deferred<MessagePage>()
+    const reloaded = deferred<MessagePage>()
+    let firstLoad = true
+    const store = makeStore({
+      loadMessages: async (_sessionId, cursor) => {
+        if (cursor === 'older-1') {
+          return older.promise
+        }
+        if (firstLoad) {
+          firstLoad = false
+          return {
+            messages: [message({ id: 2, sequence: 2, content: 'Newest' })],
+            nextCursor: 'older-1',
+          }
+        }
+        return reloaded.promise
+      },
+    })
+    await store.controller.openSession(sessionOut())
+
+    const paging = store.controller.loadOlder()
+    const reloading = store.controller.loadMessages('s1')
+    older.resolve({
+      messages: [message({ id: 1, sequence: 1, content: 'Stale older' })],
+      nextCursor: 'older-2',
+    })
+    expect(await paging).toEqual({ status: 'stale' })
+    expect(store.controller.loadingOlder.value).toBe(true)
+
+    reloaded.resolve({
+      messages: [message({ id: 3, sequence: 3, content: 'Reloaded' })],
+      nextCursor: null,
+    })
+    await reloading
+
+    expect(store.controller.messages.value.map((item) => item.text)).toEqual(['Reloaded'])
+    expect(store.controller.nextCursor.value).toBeNull()
+    expect(store.controller.loadingOlder.value).toBe(false)
+    expect(store.controller.loading.value).toBe(false)
+  })
+
+  it('invalidates an outstanding page when closing the current transcript', async () => {
+    const older = deferred<MessagePage>()
+    const loadMessages = vi.fn<NonNullable<StoreOptions['loadMessages']>>()
+      .mockResolvedValueOnce({ messages: [], nextCursor: 'older-1' })
+      .mockReturnValueOnce(older.promise)
+    const { controller } = makeStore({ loadMessages })
+    await controller.openSession(sessionOut())
+    const generation = controller.transcriptGeneration.value
+    const paging = controller.loadOlder()
+
+    await controller.openSession(null)
+    expect(controller.transcriptGeneration.value).not.toBe(generation)
+    expect(controller.loadingOlder.value).toBe(false)
+    older.resolve({ messages: [message()], nextCursor: null })
+    expect(await paging).toEqual({ status: 'stale' })
+    expect(controller.messages.value).toEqual([])
+  })
+
+  it('drops an older page after leaving a session and opening it again', async () => {
+    const older = deferred<MessagePage>()
+    let loads = 0
+    const store = makeStore({
+      loadMessages: async (sessionId, cursor) => {
+        if (cursor === 'older-1') {
+          return older.promise
+        }
+        loads += 1
+        return sessionId === 's1' && loads === 1
+          ? { messages: [], nextCursor: 'older-1' }
+          : { messages: [], nextCursor: null }
+      },
+    })
+    await store.controller.openSession(sessionOut())
+
+    const paging = store.controller.loadOlder()
+    await store.controller.openSession(sessionOut({ id: 's2' }))
+    await store.controller.openSession(sessionOut())
+    older.resolve({
+      messages: [message({ id: 9, sequence: 9, content: 'From the first visit' })],
+      nextCursor: 'older-2',
+    })
+
+    expect(await paging).toEqual({ status: 'stale' })
+    expect(store.controller.messages.value).toEqual([])
+    expect(store.controller.nextCursor.value).toBeNull()
+    expect(store.controller.loadingOlder.value).toBe(false)
+  })
+
+  it('lets a second caller await the same in-flight older page', async () => {
+    const gate = deferred<MessagePage>()
+    let fetches = 0
+    const store = makeStore({
+      loadMessages: async (_sessionId, cursor) => {
+        if (cursor === undefined || cursor === null) {
+          return { messages: [], nextCursor: 'older-1' }
+        }
+        fetches += 1
+        return gate.promise
+      },
+    })
+    await store.controller.openSession(sessionOut())
+
+    const first = store.controller.loadOlder()
+    const second = store.controller.loadOlder()
+    gate.resolve({
+      messages: [message({ id: 1, sequence: 1, content: 'First' })],
+      nextCursor: null,
+    })
+    const [firstOutcome, secondOutcome] = await Promise.all([first, second])
+
+    expect(fetches).toBe(1)
+    expect(firstOutcome).toEqual({
+      status: 'loaded',
+      requestedCursor: 'older-1',
+      nextCursor: null,
+    })
+    expect(secondOutcome).toEqual(firstOutcome)
+    expect(store.controller.messages.value.map((item) => item.text)).toEqual(['First'])
+  })
+
   it('drops the older page of a conversation that was left behind', async () => {
     const gate = deferred<MessagePage>()
     const store = makeStore({

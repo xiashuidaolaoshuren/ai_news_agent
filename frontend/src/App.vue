@@ -221,6 +221,8 @@ onUnmounted(() => {
         :loading="thread.opening || (sessions.loading && sessions.activeId === null)"
         :load-error="thread.loadError"
         :catalog="composer.sources"
+        :transcript-generation="thread.transcriptGeneration"
+        :load-older="thread.loadOlder"
         @load-older="thread.loadOlder()"
         @retry-load="thread.retryLoad()"
         @repeat="composer.repeat($event)"
