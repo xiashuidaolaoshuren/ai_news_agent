@@ -258,6 +258,51 @@ def test_post_message_fake_mode_all_sources_returns_presentation_evidence(
     assert juya["issue"]["lead_title"] == "Fake Juya lead headline"
 
 
+def test_post_message_forwards_research_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_news_agent.services.chat import StartedEvent
+
+    client = _build_test_client(fake=True, db_path=tmp_path / "research-forward.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+    captured = {}
+
+    async def fake_stream(message, **kwargs):
+        captured.update(kwargs)
+        yield StartedEvent(request_id="r", user_message_id=1)
+
+    monkeypatch.setattr(client.app.state.application.chat_service, "stream_events", fake_stream)
+    response = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "Research this", "research_target": {"digest_id": 3, "display_rank": 2},
+              "research_continuation_of": "previous"},
+    )
+    assert response.status_code == 200
+    assert captured["research_target"].model_dump() == {"digest_id": 3, "display_rank": 2}
+    assert captured["research_continuation_of"] == "previous"
+
+
+def test_research_rejects_mixed_operations_before_creating_turn(tmp_path: Path) -> None:
+    from pydantic import ValidationError
+    from ai_news_agent.api.schemas.sessions import PostMessageBody
+
+    target = {"digest_id": 1, "display_rank": 1}
+    with pytest.raises(ValidationError):
+        PostMessageBody(content="Research", research_target=target,
+                        followup_target=target, followup_action="ask")
+    client = _build_test_client(fake=True, db_path=tmp_path / "research-mixed.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+    target = {"digest_id": 1, "display_rank": 1}
+    for extra in (
+        {"followup_target": target, "followup_action": "ask"},
+        {"repeat_of_user_message_id": 1},
+    ):
+        response = client.post(
+            f"/api/v1/sessions/{session_id}/messages",
+            json={"content": "Research", "research_target": target, **extra},
+        )
+        assert response.status_code == 400
+    assert client.get(f"/api/v1/sessions/{session_id}/messages").json()["messages"] == []
+
+
 def test_post_message_body_followup_target_and_action_must_be_paired() -> None:
     from pydantic import ValidationError
 
@@ -374,6 +419,38 @@ def _seed_session_owned_digest(
     session_store.update_request_run_id(session_id, "req-digest", run_id)
     session_store.mark_terminal(session_id, "req-digest", status="succeeded")
     return client, session_id, digest_id
+
+
+def test_research_rejects_unknown_continuation_without_creating_turn(tmp_path: Path) -> None:
+    client, session_id, _ = _seed_session_owned_digest(tmp_path)
+    path = f"/api/v1/sessions/{session_id}/messages"
+    before = client.get(path).json()["messages"]
+    response = client.post(path, json={"content": "Continue", "research_continuation_of": "missing"})
+    assert response.status_code == 400
+    assert client.get(path).json()["messages"] == before
+
+
+def test_research_changed_invalid_target_conflicts_before_validation(tmp_path: Path) -> None:
+    client, session_id, digest_id = _seed_session_owned_digest(tmp_path)
+    path = f"/api/v1/sessions/{session_id}/messages"
+    body = {"content": "Research this", "client_request_id": "research", "research_target": {"digest_id": digest_id, "display_rank": 1}}
+    assert client.post(path, json=body).status_code == 200
+    changed = {**body, "research_target": {"digest_id": digest_id, "display_rank": 999}}
+    response = client.post(path, json=changed)
+    assert response.status_code == 409
+    assert response.json()["detail"] == {"code": "request_conflict"}
+
+
+def test_research_rejects_invalid_target_without_creating_turn(tmp_path: Path) -> None:
+    client, session_id, digest_id = _seed_session_owned_digest(tmp_path)
+    before = client.get(f"/api/v1/sessions/{session_id}/messages").json()["messages"]
+    for target in ({"digest_id": digest_id + 500, "display_rank": 1},
+                   {"digest_id": digest_id, "display_rank": 999}):
+        response = client.post(f"/api/v1/sessions/{session_id}/messages", json={
+            "content": "Research", "research_target": target,
+        })
+        assert response.status_code == 400
+    assert client.get(f"/api/v1/sessions/{session_id}/messages").json()["messages"] == before
 
 
 def test_post_message_rejects_unknown_followup_digest(tmp_path: Path) -> None:

@@ -78,7 +78,7 @@ Dependency notation: `Blocked by: R3` means start after R3 is done. `Blocked by:
 
 ### R1 — Research request identity
 
-- [ ] **Do:** Accept an explicit research request for one conversation entry without using `followup_action`.
+- [x] **Do:** Accept an explicit research request for one conversation entry without using `followup_action`.
 - **Consumes:** Backend **B1** resolver: the digest belongs to the session, the rank exists, and the latest successful digest does not move. B1 submission comparison.
 - **Produces:** `ResearchTarget { digest_id: int, display_rank: int }`. `PostMessageBody.research_target`. `PostMessageBody.research_continuation_of: str | None` (a prior session request id). Sending `research_target` together with `followup_target` returns 400. A present `research_target` skips `interpret_message`, binds that entry, and is part of the submission comparison. Text that explicitly asks to research an entry in the conversation is the same operation when the target is unambiguous. An evidence-only Ask about this may say that research is available and must not fetch. Ambiguous subject uses the existing single pending clarification and does not retrieve.
 - **Acceptance:** "Research whether item 3 can run on my 8 GB GPU," or acceptance of a specific offer, starts research and does not ask for a second confirmation. Ask about this with insufficient evidence does not fetch. The target stays the selected entry after a newer digest. Latest-digest context is unchanged. A subject that the entry does not identify is clarified before any fetch, and a model family does not switch size or variant. A body that sets both research and follow-up targets returns 400. An identical request id replays. A changed research target or continuation id under that id returns 409 `request_conflict`.
@@ -194,3 +194,4 @@ Per subtask, obey **`TDD suitable`**. **`yes`** means strict test-first. The lis
 |---|---|---|
 | 2026-10-30 | Initial plan | — |
 | 2026-10-30 | Follow-ups F1/F2/F5 became backend B1/B2 and frontend U1. Research records moved from schema 4 to schema 5 because settings owns schema 4. | material |
+| 2026-11-26 | R1 shipped. Text-only "research item N" binds the session's latest successful digest and pins its digest id when it asks for a subject; a specific offer is accepted only on the immediately following completed turn. Ask appends an invitation only when a research handoff is wired, and the default handoff reports research as unavailable until R7. | material |

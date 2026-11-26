@@ -485,6 +485,24 @@ def test_begin_request_rejects_changed_submission_on_terminal_replay(
         )
 
 
+def test_begin_request_research_fields_join_submission_identity(tmp_path: Path) -> None:
+    from ai_news_agent.services.session_service import RequestConflictError, SessionService
+
+    db_path = tmp_path / "research-identity.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    session = service.create_session()
+    values = {"content": "Research", "request_id": "research", "research_target": {"digest_id": 1, "display_rank": 2}, "research_continuation_of": "prior"}
+    service.begin_request(session.id, **values)
+    store.mark_terminal(session.id, "research", status="succeeded")
+    assert service.begin_request(session.id, **values).status == "succeeded"
+    for change in ({"research_target": {"digest_id": 1, "display_rank": 3}}, {"research_continuation_of": "other"}):
+        with pytest.raises(RequestConflictError):
+            service.begin_request(session.id, **{**values, **change})
+    assert len(store.list_messages(session.id)) == 1
+
+
 def test_begin_request_repeat_fields_join_the_submission_comparison(
     tmp_path: Path,
 ) -> None:
@@ -561,6 +579,42 @@ def test_begin_request_replays_when_submission_matches(tmp_path: Path) -> None:
         followup_target={"digest_id": 3, "display_rank": 1},
         followup_action="ask",
     )
+
+    assert replay.status == "succeeded"
+    assert len(store.list_messages(created.id)) == 1
+
+
+def test_begin_request_legacy_submission_without_research_keys_still_replays(
+    tmp_path: Path,
+) -> None:
+    from ai_news_agent.services.session_service import SessionService
+
+    db_path = tmp_path / "svc-legacy-research.db"
+    _init_db(db_path)
+    store = SessionStore(db_path)
+    service = SessionService(store)
+    created = service.create_session()
+    store.create_request(
+        created.id,
+        "req-legacy",
+        user_message_id=store.insert_message(created.id, role="user", content="Old turn"),
+        correlation_id="corr-legacy",
+    )
+    store.set_request_interpretation(
+        created.id,
+        "req-legacy",
+        {
+            "submission": {
+                "content": "Old turn",
+                "juya_item_mode": "issue",
+                "followup_target": None,
+                "followup_action": None,
+            }
+        },
+    )
+    store.mark_terminal(created.id, "req-legacy", status="succeeded")
+
+    replay = service.begin_request(created.id, content="Old turn", request_id="req-legacy")
 
     assert replay.status == "succeeded"
     assert len(store.list_messages(created.id)) == 1

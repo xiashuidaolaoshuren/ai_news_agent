@@ -446,7 +446,7 @@ def request_from_payload(payload: object) -> DigestRequest | None:
         return None
 
 
-def _is_self_contained_request(text: str) -> bool:
+def is_self_contained_request(text: str) -> bool:
     """True when the message is a new request, not a short clarification reply."""
     if _REFERENCES_DIGEST.search(text):
         return True
@@ -502,7 +502,7 @@ def interpret_message(
     ctx = context or ConversationContext()
     if is_structured_followup(text):
         return ConversationDecision(intent="followup")
-    if ctx.pending and not _is_self_contained_request(text):
+    if ctx.pending and not is_self_contained_request(text):
         resumed = _resume_decision(text, ctx.pending, context=ctx)
         if resumed is not None:
             return resumed

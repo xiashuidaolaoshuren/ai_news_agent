@@ -452,6 +452,42 @@ def _repeat_streaming_runner(store: DigestStore, db_path: Path, seen: list[Diges
     return runner
 
 
+def test_repeat_turn_is_not_hijacked_by_research_wording(tmp_path: Path) -> None:
+    db_path = tmp_path / "repeat-research-wording.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    session_store = SessionStore(db_path)
+    session_service = SessionService(session_store)
+    created = session_service.create_session()
+    _run_id, user_message_id, _stored = _seed_repeatable_digest_request(
+        store, session_store, session_service, session_id=created.id,
+        topics=["agents"], request_id="req-original",
+    )
+    calls = []
+
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound"
+
+    seen: list[DigestRequest] = []
+    svc = ChatService(
+        store=store,
+        workflow_runner=_repeat_streaming_runner(store, db_path, seen),
+        streaming_workflow_runner=_repeat_streaming_runner(store, db_path, seen),
+        session_service=session_service,
+        research_handoff=handoff,
+    )
+    events = asyncio.run(
+        _collect_stream_events(
+            svc, "Research item 1", session_id=created.id, request_id="req-repeat-research",
+            repeat_of_user_message_id=user_message_id, chunk_size=1000, chunk_delay_s=0,
+        )
+    )
+    assert calls == []
+    assert next(e for e in events if isinstance(e, StartedEvent)).intent == "digest"
+    assert len(seen) == 1
+
+
 def test_stream_events_repeat_reuses_stored_resolution_and_starts_fresh_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -580,6 +616,394 @@ def test_stream_events_repeat_replaces_only_the_source_list(
         )
     )
     assert started.request == expected
+
+
+def test_explicit_text_research_binds_latest_rank_without_confirmation(tmp_path: Path) -> None:
+    db_path = tmp_path / "research-text.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["topic"], request_id="digest", ensure_session=False)
+    calls = []
+
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound research"
+
+    async def unused_runner(_):
+        raise AssertionError("digest runner must not run")
+
+    svc = ChatService(store=store, workflow_runner=unused_runner, session_service=service, research_handoff=handoff)
+    events = asyncio.run(_collect_stream_events(svc, "Research whether item 1 can run on my 8 GB GPU", session_id=session.id, request_id="text", chunk_size=1000, chunk_delay_s=0))
+    assert len(calls) == 1
+    assert calls[0]["target"] == {"digest_id": digest_id, "display_rank": 1}
+    assert next(e for e in events if isinstance(e, StartedEvent)).intent == "research"
+
+
+def test_polite_explicit_research_request_routes_to_research(tmp_path: Path) -> None:
+    db_path = tmp_path / "research-polite.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["topic"], request_id="digest", ensure_session=False)
+    calls = []
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound"
+    svc = ChatService(store=store, workflow_runner=handoff, session_service=service, research_handoff=handoff)
+    asyncio.run(_collect_stream_events(svc, "Please research item 1", session_id=session.id, request_id="polite", chunk_size=1000, chunk_delay_s=0))
+    assert len(calls) == 1
+    assert calls[0]["target"] == {"digest_id": digest_id, "display_rank": 1}
+
+
+def test_could_you_research_item_is_explicit_authorization(tmp_path: Path) -> None:
+    db_path = tmp_path / "research-question-form.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["topic"], request_id="digest", ensure_session=False)
+    calls = []
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound"
+    svc = ChatService(store=store, workflow_runner=handoff, session_service=service, research_handoff=handoff)
+    asyncio.run(_collect_stream_events(svc, "Could you research item 1?", session_id=session.id, request_id="question", chunk_size=1000, chunk_delay_s=0))
+    assert len(calls) == 1
+    assert calls[0]["target"] == {"digest_id": digest_id, "display_rank": 1}
+
+
+def test_ambiguous_text_research_asks_for_entry_without_fetch(tmp_path: Path) -> None:
+    db_path = tmp_path / "research-ambiguous.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _save_session_digest_ids(store, sessions, session_id=session.id, topics=["topic"], request_id="digest", ensure_session=False)
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("ambiguous research must not fetch")
+
+    svc = ChatService(store=store, workflow_runner=forbidden, session_service=service, research_handoff=forbidden, tool_agent_runner=forbidden)
+    events = asyncio.run(_collect_stream_events(svc, "Research this entry", session_id=session.id, request_id="ambiguous", chunk_size=1000, chunk_delay_s=0))
+    assert next(e for e in events if isinstance(e, StartedEvent)).intent == "clarify"
+    assert "entry" in "".join(e.text for e in events if isinstance(e, DeltaEvent)).lower()
+
+
+def test_unbound_research_clarification_resumes_original_question(tmp_path: Path) -> None:
+    db_path = tmp_path / "research-entry-clarify.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["topic"], request_id="digest", ensure_session=False)
+    calls = []
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound"
+    svc = ChatService(store=store, workflow_runner=handoff, session_service=service, research_handoff=handoff)
+    common = dict(session_id=session.id, chunk_size=1000, chunk_delay_s=0)
+    asyncio.run(_collect_stream_events(svc, "Research this entry", request_id="first", **common))
+    asyncio.run(_collect_stream_events(svc, "item 1", request_id="reply", **common))
+    assert len(calls) == 1
+    assert calls[0]["target"] == {"digest_id": digest_id, "display_rank": 1}
+    assert calls[0]["question"] == "Research this entry"
+
+
+def test_research_clarifies_multi_story_issue_and_resumes_pinned_question(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "research-subject.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["issue"], request_id="digest", ensure_session=False)
+    item = NewsItem(source=SourceKind.JUYA, source_id="juya-rss-1", url="https://daily.juya.uk/1", title="Issue", raw_snippet="Alpha model launches。Beta model launches。")
+    monkeypatch.setattr("ai_news_agent.services.chat.match_news_item_for_digest_entry", lambda entry, items: item)
+    calls = []
+
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound research"
+
+    async def unused_runner(_):
+        raise AssertionError("digest runner must not run")
+
+    svc = ChatService(store=store, workflow_runner=unused_runner, session_service=service, research_handoff=handoff)
+    kwargs = dict(session_id=session.id, chunk_size=1000, chunk_delay_s=0)
+    first = asyncio.run(_collect_stream_events(svc, "Research this issue", request_id="research-issue", research_target={"digest_id": digest_id, "display_rank": 1}, **kwargs))
+    assert next(e for e in first if isinstance(e, StartedEvent)).intent == "clarify"
+    assert not calls
+    asyncio.run(_collect_stream_events(svc, "Alpha model launches", request_id="clarified", **kwargs))
+    assert len(calls) == 1
+    assert calls[0]["target"] == {"digest_id": digest_id, "display_rank": 1}
+    assert calls[0]["question"] == "Research this issue"
+    assert calls[0]["subject"] == "Alpha model launches"
+
+
+def test_research_issue_without_saved_stories_does_not_fetch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "research-empty-issue.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["issue"], request_id="digest", ensure_session=False)
+    item = NewsItem(source=SourceKind.JUYA, source_id="juya-rss-1", url="https://daily.juya.uk/1", title="Issue")
+    monkeypatch.setattr("ai_news_agent.services.chat.match_news_item_for_digest_entry", lambda entry, items: item)
+    calls = []
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound"
+    svc = ChatService(store=store, workflow_runner=handoff, session_service=service, research_handoff=handoff)
+    events = asyncio.run(_collect_stream_events(svc, "Research this issue", session_id=session.id, request_id="issue", research_target={"digest_id": digest_id, "display_rank": 1}, chunk_size=1000, chunk_delay_s=0))
+    assert next(e for e in events if isinstance(e, StartedEvent)).intent == "clarify"
+    assert not calls
+
+
+def test_unknown_research_subject_reply_stays_pending_without_fetch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "research-unknown-subject.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["issue"], request_id="digest", ensure_session=False)
+    item = NewsItem(source=SourceKind.JUYA, source_id="juya-rss-1", url="https://daily.juya.uk/1", title="Issue", raw_snippet="Alpha model launches。Beta model launches。")
+    monkeypatch.setattr("ai_news_agent.services.chat.match_news_item_for_digest_entry", lambda entry, items: item)
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("ambiguous subject must not fetch")
+    svc = ChatService(store=store, workflow_runner=forbidden, session_service=service, research_handoff=forbidden)
+    common = dict(session_id=session.id, chunk_size=1000, chunk_delay_s=0)
+    asyncio.run(_collect_stream_events(svc, "Research this issue", request_id="first", research_target={"digest_id": digest_id, "display_rank": 1}, **common))
+    events = asyncio.run(_collect_stream_events(svc, "The other one", request_id="reply", **common))
+    assert next(e for e in events if isinstance(e, StartedEvent)).intent == "clarify"
+    assert service.pending_clarification(session.id)["target"] == {"digest_id": digest_id, "display_rank": 1}
+
+
+def test_research_does_not_substitute_unsupported_model_variant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "research-variant.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["model"], request_id="digest", ensure_session=False)
+    item = NewsItem(source=SourceKind.HUGGINGFACE, source_id="Org/Model-7B", url="https://huggingface.co/Org/Model-7B", title="Model-7B", source_evidence={"family_variants": [{"source_id": "Org/Model-14B", "title": "Model-14B"}]})
+    monkeypatch.setattr("ai_news_agent.services.chat.match_news_item_for_digest_entry", lambda entry, items: item)
+    calls = []
+
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound research"
+
+    svc = ChatService(store=store, workflow_runner=handoff, session_service=service, research_handoff=handoff)
+    events = asyncio.run(_collect_stream_events(svc, "Research whether Model-8B works", session_id=session.id, request_id="variant", research_target={"digest_id": digest_id, "display_rank": 1}, chunk_size=1000, chunk_delay_s=0))
+    assert next(e for e in events if isinstance(e, StartedEvent)).intent == "clarify"
+    assert not calls
+
+
+def test_research_rejects_unsaved_variant_with_same_model_size(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "research-unsaved-sku.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["model"], request_id="digest", ensure_session=False)
+    item = NewsItem(source=SourceKind.HUGGINGFACE, source_id="Org/Model-7B-Base", url="https://huggingface.co/Org/Model-7B-Base", title="Model-7B-Base", source_evidence={"family_variants": [{"source_id": "Org/Model-7B-Instruct", "title": "Model-7B-Instruct"}]})
+    monkeypatch.setattr("ai_news_agent.services.chat.match_news_item_for_digest_entry", lambda entry, items: item)
+    calls = []
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound"
+    svc = ChatService(store=store, workflow_runner=handoff, session_service=service, research_handoff=handoff)
+    events = asyncio.run(_collect_stream_events(svc, "Research Model-7B-Chat", session_id=session.id, request_id="variant", research_target={"digest_id": digest_id, "display_rank": 1}, chunk_size=1000, chunk_delay_s=0))
+    assert next(e for e in events if isinstance(e, StartedEvent)).intent == "clarify"
+    assert calls == []
+
+
+def test_research_variant_clarification_can_resume_with_saved_choice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "research-variant-resume.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["model"], request_id="digest", ensure_session=False)
+    item = NewsItem(source=SourceKind.HUGGINGFACE, source_id="Org/Model-7B-Base", url="https://huggingface.co/Org/Model-7B-Base", title="Model-7B-Base", source_evidence={"family_variants": [{"source_id": "Org/Model-7B-Instruct", "title": "Model-7B-Instruct"}]})
+    monkeypatch.setattr("ai_news_agent.services.chat.match_news_item_for_digest_entry", lambda entry, items: item)
+    calls = []
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound"
+    svc = ChatService(store=store, workflow_runner=handoff, session_service=service, research_handoff=handoff)
+    common = dict(session_id=session.id, chunk_size=1000, chunk_delay_s=0)
+    asyncio.run(_collect_stream_events(svc, "Research Model-7B-Chat", request_id="variant", research_target={"digest_id": digest_id, "display_rank": 1}, **common))
+    asyncio.run(_collect_stream_events(svc, "Org/Model-7B-Instruct", request_id="choice", **common))
+    assert len(calls) == 1
+    assert calls[0]["subject"] == "Org/Model-7B-Instruct"
+    assert calls[0]["question"] == "Research Model-7B-Chat"
+
+
+def test_research_preserves_named_saved_hf_variant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "research-named-variant.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["model"], request_id="digest", ensure_session=False)
+    item = NewsItem(source=SourceKind.HUGGINGFACE, source_id="Org/Model-7B-Base", url="https://huggingface.co/Org/Model-7B-Base", title="Model-7B-Base", source_evidence={"family_variants": [{"source_id": "Org/Model-7B-Instruct", "title": "Model-7B-Instruct"}]})
+    monkeypatch.setattr("ai_news_agent.services.chat.match_news_item_for_digest_entry", lambda entry, items: item)
+    calls = []
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound"
+    svc = ChatService(store=store, workflow_runner=handoff, session_service=service, research_handoff=handoff)
+    asyncio.run(_collect_stream_events(svc, "Research Model-7B-Instruct", session_id=session.id, request_id="variant", research_target={"digest_id": digest_id, "display_rank": 1}, chunk_size=1000, chunk_delay_s=0))
+    assert len(calls) == 1
+    assert calls[0]["subject"] == "Org/Model-7B-Instruct"
+
+
+def test_targeted_ask_offers_research_without_fetch_when_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "research-offer.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["topic"], request_id="digest", ensure_session=False)
+    calls = []
+
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound"
+
+    async def ask(*args, **kwargs):
+        return "Not enough evidence."
+
+    svc = ChatService(store=store, workflow_runner=handoff, session_service=service, research_handoff=handoff)
+    monkeypatch.setattr(svc, "_handle_targeted_followup_async", ask)
+    events = asyncio.run(_collect_stream_events(svc, "Can it run?", session_id=session.id, request_id="ask", followup_target={"digest_id": digest_id, "display_rank": 1}, followup_action="ask", chunk_size=1000, chunk_delay_s=0))
+    assert "research" in "".join(e.text for e in events if isinstance(e, DeltaEvent)).lower()
+    assert calls == []
+    assert service.get_request(session.id, "ask").interpretation["research_offer"]["target"] == {"digest_id": digest_id, "display_rank": 1}
+
+
+def test_accepting_specific_research_offer_reuses_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "research-accept.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["topic"], request_id="digest", ensure_session=False)
+    calls = []
+
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound"
+
+    async def ask(*args, **kwargs):
+        return "Not enough evidence."
+
+    svc = ChatService(store=store, workflow_runner=handoff, session_service=service, research_handoff=handoff)
+    monkeypatch.setattr(svc, "_handle_targeted_followup_async", ask)
+    common = dict(session_id=session.id, chunk_size=1000, chunk_delay_s=0)
+    asyncio.run(_collect_stream_events(svc, "Can it run?", request_id="ask", followup_target={"digest_id": digest_id, "display_rank": 1}, followup_action="ask", **common))
+    events = asyncio.run(_collect_stream_events(svc, "Yes", request_id="accept", **common))
+    assert len(calls) == 1
+    assert calls[0]["question"] == "Can it run?"
+    assert calls[0]["target"] == {"digest_id": digest_id, "display_rank": 1}
+    assert next(e for e in events if isinstance(e, StartedEvent)).intent == "research"
+
+
+def test_research_offer_cannot_be_accepted_after_intervening_failed_turn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "research-stale-offer.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["topic"], request_id="digest", ensure_session=False)
+    calls = []
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound"
+    async def ask(*args, **kwargs):
+        return "Not enough evidence."
+    svc = ChatService(store=store, workflow_runner=handoff, session_service=service, research_handoff=handoff)
+    monkeypatch.setattr(svc, "_handle_targeted_followup_async", ask)
+    common = dict(session_id=session.id, chunk_size=1000, chunk_delay_s=0)
+    asyncio.run(_collect_stream_events(svc, "Can it run?", request_id="ask", followup_target={"digest_id": digest_id, "display_rank": 1}, followup_action="ask", **common))
+    service.begin_request(session.id, content="Another question", request_id="failed")
+    sessions.mark_terminal(session.id, "failed", status="failed")
+    asyncio.run(_collect_stream_events(svc, "Yes", request_id="accept", **common))
+    assert calls == []
+
+
+def test_research_continuation_reuses_session_binding(tmp_path: Path) -> None:
+    db_path = tmp_path / "research-continuation.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, digest_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["topic"], request_id="digest", ensure_session=False)
+    calls = []
+
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound"
+
+    svc = ChatService(store=store, workflow_runner=handoff, session_service=service, research_handoff=handoff)
+    common = dict(session_id=session.id, chunk_size=1000, chunk_delay_s=0)
+    asyncio.run(_collect_stream_events(svc, "Research this", request_id="prior", research_target={"digest_id": digest_id, "display_rank": 1}, **common))
+    asyncio.run(_collect_stream_events(svc, "Continue", request_id="next", research_continuation_of="prior", **common))
+    assert len(calls) == 2
+    assert calls[1]["target"] == {"digest_id": digest_id, "display_rank": 1}
+    assert calls[1]["continuation_of"] == "prior"
+
+
+def test_research_target_handoff_uses_older_digest_and_replays(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "research-target.db"
+    store = DigestStore(db_path)
+    store.init_schema()
+    sessions = SessionStore(db_path)
+    service = SessionService(sessions)
+    session = service.create_session()
+    _, old_id = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["older"], request_id="old", ensure_session=False)
+    newest, _ = _save_session_digest_ids(store, sessions, session_id=session.id, topics=["newer"], request_id="new", ensure_session=False)
+    calls = []
+
+    async def handoff(**kwargs):
+        calls.append(kwargs)
+        return "Bound research"
+
+    async def unused_runner(_):
+        raise AssertionError("digest runner must not run")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("explicit research must bypass interpretation")
+
+    monkeypatch.setattr("ai_news_agent.services.chat.interpret_message", forbidden)
+    svc = ChatService(store=store, workflow_runner=unused_runner, session_service=service, research_handoff=handoff)
+    kwargs = dict(session_id=session.id, request_id="research", research_target={"digest_id": old_id, "display_rank": 1}, chunk_size=1000, chunk_delay_s=0)
+    first = asyncio.run(_collect_stream_events(svc, "Research this", **kwargs))
+    second = asyncio.run(_collect_stream_events(svc, "Research this", **kwargs))
+    assert len(calls) == 1
+    assert calls[0]["target"] == {"digest_id": old_id, "display_rank": 1}
+    assert next(e for e in first if isinstance(e, StartedEvent)).intent == "research"
+    assert "Bound research" in "".join(e.text for e in second if isinstance(e, DeltaEvent))
+    assert store.get_followup_context_for_session(session.id).run_id == newest
 
 
 def test_stream_events_targeted_followup_uses_named_digest_skips_interpreter(

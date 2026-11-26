@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import replace
 
 from ai_news_agent.digest_request_builder import resolve_digest_request
+from ai_news_agent.models import DigestEntry
+from ai_news_agent.repositories.digest_store import DigestStore, FollowupContext
 from ai_news_agent.repositories.session_store import SessionStore
 from ai_news_agent.repositories.unit_of_work import SqliteUnitOfWork
 from ai_news_agent.request import DigestRequest
@@ -30,6 +33,29 @@ class RequestInProgressError(Exception):
 
 class RequestConflictError(Exception):
     """The same request ID was reused with a different submission."""
+
+
+def resolve_session_entry(
+    digest_store: DigestStore,
+    session_service: SessionService,
+    session_id: str,
+    target: dict[str, int],
+) -> tuple[FollowupContext, DigestEntry]:
+    """Resolve a saved entry only when its digest belongs to the session."""
+    ctx = digest_store.get_followup_context_for_digest(target["digest_id"])
+    if ctx is None or ctx.digest is None:
+        raise ValueError("target digest not found")
+    rank = target["display_rank"]
+    if rank < 1 or rank > len(ctx.digest.entries):
+        raise ValueError("target rank not found on digest")
+    run_ids = {
+        request.run_id
+        for request in session_service.list_requests(session_id)
+        if request.run_id is not None
+    }
+    if ctx.run_id not in run_ids:
+        raise ValueError("target digest not in session")
+    return ctx, ctx.digest.entries[rank - 1]
 
 
 class _CancelRaceLost(Exception):
@@ -264,6 +290,8 @@ class SessionService:
         juya_item_mode: str | None,
         followup_target: dict[str, object] | None,
         followup_action: str | None,
+        research_target: dict[str, object] | None = None,
+        research_continuation_of: str | None = None,
         repeat_of_user_message_id: int | None = None,
         replace_source: str | None = None,
     ) -> dict[str, object]:
@@ -272,6 +300,8 @@ class SessionService:
             "juya_item_mode": juya_item_mode if juya_item_mode is not None else "issue",
             "followup_target": followup_target,
             "followup_action": followup_action,
+            "research_target": research_target,
+            "research_continuation_of": research_continuation_of,
             "repeat_of_user_message_id": repeat_of_user_message_id,
             "replace_source": replace_source,
         }
@@ -284,6 +314,8 @@ class SessionService:
             # so an identical replay still matches.
             return {
                 **stored,
+                "research_target": stored.get("research_target"),
+                "research_continuation_of": stored.get("research_continuation_of"),
                 "repeat_of_user_message_id": stored.get(
                     "repeat_of_user_message_id"
                 ),
@@ -313,8 +345,11 @@ class SessionService:
         juya_item_mode: str | None = None,
         followup_target: dict[str, object] | None = None,
         followup_action: str | None = None,
+        research_target: dict[str, object] | None = None,
+        research_continuation_of: str | None = None,
         repeat_of_user_message_id: int | None = None,
         replace_source: str | None = None,
+        validate_research_target: Callable[[], None] | None = None,
     ) -> SessionRequestRecord:
         if self._store.get_session(session_id) is None:
             raise KeyError(f"session not found: {session_id}")
@@ -324,6 +359,8 @@ class SessionService:
             juya_item_mode=juya_item_mode,
             followup_target=followup_target,
             followup_action=followup_action,
+            research_target=research_target,
+            research_continuation_of=research_continuation_of,
             repeat_of_user_message_id=repeat_of_user_message_id,
             replace_source=replace_source,
         )
@@ -340,6 +377,9 @@ class SessionService:
                         f"request {request_id!r} submission does not match for session {session_id!r}"
                     )
                 return existing
+
+        if validate_research_target is not None:
+            validate_research_target()
 
         active_requests = [
             request

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
 from ai_news_agent.graph.state import DigestResult, WorkflowError
-from ai_news_agent.models import ConnectorWarning, Digest
+from ai_news_agent.models import ConnectorWarning, Digest, SourceKind
 from ai_news_agent.logging_setup import get_logger
 from ai_news_agent.followup_structured import (
     NO_SAVED_DIGEST,
@@ -17,7 +18,12 @@ from ai_news_agent.followup_structured import (
     answer_targeted_deep_dive,
     build_targeted_card,
 )
-from ai_news_agent.juya_followup import match_news_item_for_digest_entry
+from ai_news_agent.juya_followup import (
+    is_juya_news_item,
+    is_juya_story_item,
+    match_news_item_for_digest_entry,
+    parse_juya_sub_news,
+)
 from ai_news_agent.history_interface import (
     HISTORY_NOT_FOUND,
     HistoryChatCommand,
@@ -31,6 +37,7 @@ from ai_news_agent.services.conversation import (
     ConversationContext,
     ConversationDecision,
     interpret_message,
+    is_self_contained_request,
     request_from_payload,
     request_metadata,
     request_payload,
@@ -39,6 +46,7 @@ from ai_news_agent.services.session_records import SessionRequestRecord
 from ai_news_agent.services.session_service import (
     CANCELLED_ASSISTANT_MESSAGE,
     SessionService,
+    resolve_session_entry,
 )
 from ai_news_agent.connectors.base import ConnectorRequest
 from ai_news_agent.source_settings import (
@@ -194,6 +202,7 @@ class ChatService:
         conversation_model: Any | None = None,
         huggingface_connector_factory: Callable[[], Any] | None = None,
         juya_connector_factory: Callable[[], Any] | None = None,
+        research_handoff: Callable[..., Awaitable[str]] | None = None,
     ) -> None:
         self._store = store
         self._workflow_runner = workflow_runner
@@ -206,6 +215,7 @@ class ChatService:
         self._conversation_model = conversation_model
         self._huggingface_connector_factory = huggingface_connector_factory
         self._juya_connector_factory = juya_connector_factory
+        self._research_handoff = research_handoff
 
     async def stream_events(
         self,
@@ -216,6 +226,8 @@ class ChatService:
         juya_item_mode: str | None = None,
         followup_target: Any | None = None,
         followup_action: str | None = None,
+        research_target: Any | None = None,
+        research_continuation_of: str | None = None,
         repeat_of_user_message_id: int | None = None,
         replace_source: str | None = None,
         chunk_size: int = 80,
@@ -232,6 +244,26 @@ class ChatService:
                 else dict(followup_target)
             )
 
+        research_target_payload = (
+            research_target.model_dump() if hasattr(research_target, "model_dump")
+            else dict(research_target) if research_target is not None else None
+        )
+
+        def validate_research_target() -> None:
+            target = research_target_payload
+            if research_continuation_of is not None:
+                if not research_continuation_of.strip() or research_continuation_of == request_id:
+                    raise ValueError("invalid research continuation")
+                prior = self._session_service.get_request(session_id, research_continuation_of)
+                binding = (prior.interpretation or {}).get("research") if prior is not None else None
+                if prior is None or prior.status != "succeeded" or not isinstance(binding, dict) or not isinstance(binding.get("target"), dict):
+                    raise ValueError("research continuation not found in session")
+                if target is not None and target != binding["target"]:
+                    raise ValueError("research continuation target does not match")
+                target = binding["target"]
+            if target is not None:
+                resolve_session_entry(self._store, self._session_service, session_id, target)
+
         record = self._session_service.begin_request(
             session_id,
             content=message,
@@ -239,6 +271,9 @@ class ChatService:
             juya_item_mode=juya_item_mode,
             followup_target=followup_target_payload,
             followup_action=followup_action,
+            research_target=research_target_payload,
+            research_continuation_of=research_continuation_of,
+            validate_research_target=validate_research_target,
             repeat_of_user_message_id=repeat_of_user_message_id,
             replace_source=replace_source,
         )
@@ -250,6 +285,145 @@ class ChatService:
                 chunk_delay_s=chunk_delay_s,
             ):
                 yield event
+            return
+
+        research_question = message
+        research_subject = None
+        if research_continuation_of is not None:
+            prior = self._session_service.get_request(session_id, research_continuation_of)
+            assert prior is not None
+            binding = (prior.interpretation or {})["research"]
+            research_target_payload = dict(binding["target"])
+            research_subject = binding.get("subject")
+        if research_target_payload is None and re.fullmatch(r"\s*(?:yes|yes please|please do|go ahead|sure)[.!]?\s*", message, re.I):
+            for previous in self._session_service.list_requests(session_id):
+                if previous.id == record.id:
+                    continue
+                if previous.status == "succeeded":
+                    offer = (previous.interpretation or {}).get("research_offer")
+                    if isinstance(offer, dict) and isinstance(offer.get("target"), dict):
+                        research_target_payload = dict(offer["target"])
+                        research_question = str(offer.get("question") or "")
+                break
+        pending = self._session_service.pending_clarification(session_id)
+        if research_target_payload is None and pending and pending.get("kind") == "research_entry":
+            match = re.fullmatch(r"\s*(?:item|entry|story|rank)\s+(\d+)\s*[.!]?\s*", message, re.I)
+            if match and pending.get("digest_id") is not None:
+                candidate = {"digest_id": pending["digest_id"], "display_rank": int(match.group(1))}
+                try:
+                    resolve_session_entry(self._store, self._session_service, session_id, candidate)
+                except ValueError:
+                    pass
+                else:
+                    research_target_payload = candidate
+                    research_question = str(pending["question"])
+        if research_target_payload is None and pending and pending.get("kind") == "research_subject":
+            choices = pending.get("subjects", [])
+            matches = [value for value in choices if isinstance(value, str) and value.casefold() == message.strip().casefold()]
+            if len(matches) == 1:
+                research_target_payload = dict(pending["target"])
+                research_question = str(pending["question"])
+                research_subject = matches[0]
+            elif not is_self_contained_request(message):
+                async for event in self._stream_research_clarification(
+                    session_id=session_id, record=record,
+                    text="Which story should I research? " + "; ".join(choices),
+                    pending=pending, chunk_size=chunk_size, chunk_delay_s=chunk_delay_s,
+                ):
+                    yield event
+                return
+
+        if (research_target_payload is None and repeat_of_user_message_id is None
+                and re.match(r"^\s*(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?research\b", message, re.I)):
+            ranks = re.findall(r"\b(?:item|entry|story|rank)\s+(\d+)\b", message, re.I)
+            latest = self._store.get_followup_context_for_session(session_id)
+            digest_id = self._store.get_digest_id_for_run(latest.run_id) if latest.run_id is not None else None
+            if len(ranks) == 1 and digest_id is not None and latest.digest is not None and 1 <= int(ranks[0]) <= len(latest.digest.entries):
+                research_target_payload = {"digest_id": digest_id, "display_rank": int(ranks[0])}
+            else:
+                async for event in self._stream_research_clarification(
+                    session_id=session_id, record=record,
+                    text="Which saved entry should I research?",
+                    pending={"kind": "research_entry", "digest_id": digest_id, "question": message},
+                    chunk_size=chunk_size, chunk_delay_s=chunk_delay_s,
+                ):
+                    yield event
+                return
+
+        if research_target_payload is not None:
+            ctx, entry = resolve_session_entry(self._store, self._session_service, session_id, research_target_payload)
+            item = match_news_item_for_digest_entry(entry, ctx.news_items)
+            if item is not None and item.source == SourceKind.HUGGINGFACE:
+                variants = [{"source_id": item.source_id, "title": item.title}]
+                extra_variants = item.source_evidence.get("family_variants")
+                if isinstance(extra_variants, list):
+                    variants.extend(v for v in extra_variants if isinstance(v, dict))
+                matched_variants = []
+                for variant in variants:
+                    variant_id = variant.get("source_id")
+                    if not isinstance(variant_id, str) or not variant_id:
+                        continue
+                    labels = (variant_id, variant.get("title"))
+                    if any(isinstance(label, str) and label and re.search(
+                        r"(?<![\w-])" + re.escape(label) + r"(?![\w-])", research_question, re.I
+                    ) for label in labels):
+                        matched_variants.append(variant_id)
+                if len(set(matched_variants)) == 1:
+                    research_subject = matched_variants[0]
+                requested_sizes = set(re.findall(r"(?<![\w.])\d+(?:\.\d+)?b(?![\w])", research_question, re.I))
+                saved_sizes = set(re.findall(r"(?<![\w.])\d+(?:\.\d+)?b(?![\w])", research_subject or item.source_id, re.I))
+                named_variants = re.findall(r"\b[\w./]+-\d+(?:\.\d+)?b-[\w.-]+", research_question, re.I)
+                if (research_subject is None and
+                    ((requested_sizes and {s.casefold() for s in requested_sizes} != {s.casefold() for s in saved_sizes})
+                     or (named_variants and not matched_variants))):
+                    choices = [v["source_id"] for v in variants if isinstance(v.get("source_id"), str)]
+                    async for event in self._stream_research_clarification(
+                        session_id=session_id, record=record,
+                        text="Which exact saved model variant should I research? " + "; ".join(choices),
+                        pending={"kind": "research_subject", "target": research_target_payload,
+                                 "question": research_question, "subjects": choices},
+                        chunk_size=chunk_size, chunk_delay_s=chunk_delay_s,
+                    ):
+                        yield event
+                    return
+            if item is not None and is_juya_news_item(item) and not is_juya_story_item(item):
+                subjects = [story.title for story in parse_juya_sub_news(item.raw_snippet or "")]
+                if len(subjects) != 1 and research_subject is None:
+                    matches = [subject for subject in subjects if subject.casefold() in research_question.casefold()]
+                    if len(matches) == 1:
+                        research_subject = matches[0]
+                    else:
+                        async for event in self._stream_research_clarification(
+                            session_id=session_id, record=record,
+                            text="Which story should I research? " + "; ".join(subjects),
+                            pending={"kind": "research_subject", "target": research_target_payload,
+                                     "question": research_question, "subjects": subjects},
+                            chunk_size=chunk_size, chunk_delay_s=chunk_delay_s,
+                        ):
+                            yield event
+                        return
+            self._session_service.set_request_interpretation(
+                session_id, record.id,
+                {"intent": "research", "research": {"target": research_target_payload, "question": research_question, "subject": research_subject, "continuation_of": research_continuation_of}},
+            )
+            yield StartedEvent(request_id=record.id, user_message_id=record.user_message_id, intent="research")
+            try:
+                if self._research_handoff is None:
+                    text = "Research is not available yet; no investigation was started."
+                else:
+                    text = await self._research_handoff(
+                        session_id=session_id, request_id=record.id, target=research_target_payload,
+                        question=research_question, subject=research_subject, context=ctx, entry=entry,
+                        continuation_of=research_continuation_of,
+                    )
+                async for event in self._stream_session_text_events(
+                    session_id=session_id, record=record, text=text, path="research",
+                    chunk_size=chunk_size, chunk_delay_s=chunk_delay_s,
+                ):
+                    yield event
+            except Exception as exc:
+                async for event in self._emit_request_failed_events(session_id, record, exc=exc):
+                    yield event
             return
 
         if followup_target_payload is not None and followup_action is not None:
@@ -845,6 +1019,12 @@ class ChatService:
         if cancelled is not None:
             yield cancelled
             return
+        if followup_action == "ask" and self._research_handoff is not None:
+            assert self._session_service is not None
+            self._session_service.set_request_interpretation(session_id, record.id, {
+                "research_offer": {"target": {"digest_id": digest_id, "display_rank": display_rank}, "question": message},
+            })
+            text += "\n\nWould you like me to research this question for this entry?"
         async for event in self._stream_session_text_events(
             session_id=session_id,
             record=record,
@@ -877,6 +1057,38 @@ class ChatService:
             record=record,
             text=text,
             path="followup",
+            chunk_size=chunk_size,
+            chunk_delay_s=chunk_delay_s,
+        ):
+            yield event
+
+    async def _stream_research_clarification(
+        self,
+        *,
+        session_id: str,
+        record: SessionRequestRecord,
+        text: str,
+        pending: dict[str, Any],
+        chunk_size: int,
+        chunk_delay_s: float,
+    ) -> AsyncIterator[ChatEvent]:
+        """Ask the one pending research question and stop before any retrieval."""
+        assert self._session_service is not None
+        self._session_service.set_request_interpretation(
+            session_id,
+            record.id,
+            {"intent": "clarify", "pending": pending},
+        )
+        yield StartedEvent(
+            request_id=record.id,
+            user_message_id=record.user_message_id,
+            intent="clarify",
+        )
+        async for event in self._stream_session_text_events(
+            session_id=session_id,
+            record=record,
+            text=text,
+            path="clarify",
             chunk_size=chunk_size,
             chunk_delay_s=chunk_delay_s,
         ):
@@ -971,7 +1183,8 @@ class ChatService:
                 request_id=record.id,
                 message_id=record.assistant_message_id or 0,
                 run_id=record.run_id,
-                path="digest" if record.run_id is not None else "followup",
+                path=("digest" if record.run_id is not None else
+                      "research" if (record.interpretation or {}).get("intent") == "research" else "followup"),
             )
             return
         yield ErrorEvent(

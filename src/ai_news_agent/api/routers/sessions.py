@@ -72,6 +72,7 @@ from ai_news_agent.services.session_service import (
     RequestInProgressError,
     SessionBusyError,
     SessionService,
+    resolve_session_entry,
 )
 from ai_news_agent.sources import ALLOWED_SOURCES
 from ai_news_agent.storage import DigestStore
@@ -279,28 +280,15 @@ def _validate_followup_target(
     session_id: str,
     target: FollowupTarget,
 ) -> None:
-    ctx = application.digest_store.get_followup_context_for_digest(target.digest_id)
-    if ctx is None or ctx.digest is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="follow-up target digest not found",
+    try:
+        resolve_session_entry(
+            application.digest_store,
+            application.session_service,
+            session_id,
+            target.model_dump(),
         )
-    entry_count = len(ctx.digest.entries)
-    if target.display_rank < 1 or target.display_rank > entry_count:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="follow-up target rank not found on digest",
-        )
-    session_run_ids = {
-        request.run_id
-        for request in application.session_service.list_requests(session_id)
-        if request.run_id is not None
-    }
-    if ctx.run_id not in session_run_ids:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="follow-up target digest not in session",
-        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"follow-up {exc}") from exc
 
 
 def _validate_repeat(
@@ -760,6 +748,8 @@ async def post_message(
         juya_item_mode=body.juya_item_mode,
         followup_target=body.followup_target,
         followup_action=body.followup_action,
+        research_target=body.research_target,
+        research_continuation_of=body.research_continuation_of,
         repeat_of_user_message_id=body.repeat_of_user_message_id,
         replace_source=body.replace_source,
     )
@@ -773,6 +763,8 @@ async def post_message(
         ) from exc
     except KeyError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except SessionBusyError as exc:
         raise HTTPException(
             status.HTTP_409_CONFLICT,

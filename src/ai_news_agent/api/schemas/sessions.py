@@ -50,6 +50,13 @@ class FollowupTarget(BaseModel):
     display_rank: int
 
 
+class ResearchTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    digest_id: int
+    display_rank: int
+
+
 class JuyaConfirmationOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -120,6 +127,10 @@ class PostMessageBody(BaseModel):
     juya_item_mode: Literal["issue", "stories"] = "issue"
     followup_target: FollowupTarget | None = None
     followup_action: FollowupAction | None = None
+    #: Investigate one saved entry; never combined with follow-up or repeat fields.
+    research_target: ResearchTarget | None = None
+    #: Link a new research request to an earlier research request in this session.
+    research_continuation_of: str | None = None
     #: Start a fresh run from the resolution stored for this earlier user message.
     repeat_of_user_message_id: int | None = None
     #: With a repeat id: use this catalog source instead of the stored sources.
@@ -129,6 +140,10 @@ class PostMessageBody(BaseModel):
     def _followup_target_and_action_paired(self) -> PostMessageBody:
         has_target = self.followup_target is not None
         has_action = self.followup_action is not None
+        if (self.research_target is not None or self.research_continuation_of is not None) and (
+            has_target or has_action or self.repeat_of_user_message_id is not None
+        ):
+            raise ValueError("research and follow-up or repeat fields are mutually exclusive")
         if has_target != has_action:
             raise ValueError(
                 "followup_target and followup_action must both be present or both absent"
