@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ai_news_agent.connectors.base import ConnectorRequest, ConnectorResult, SourceConnector
@@ -13,11 +14,12 @@ from ai_news_agent.connectors.bilibili import BilibiliConnector
 from ai_news_agent.connectors.github import GitHubConnector
 from ai_news_agent.connectors.huggingface import HuggingFaceConnector
 from ai_news_agent.connectors.juya import JuyaConnector
+from ai_news_agent.connectors.openrouter import OpenRouterConnector
 from ai_news_agent.connectors.zhihu import ZhihuConnector
 from ai_news_agent.models import NewsItem, SourceKind
 
 ALLOWED_SOURCES: frozenset[str] = frozenset(
-    {"juya", "github", "bilibili", "huggingface", "zhihu"}
+    {"juya", "github", "bilibili", "huggingface", "openrouter", "zhihu"}
 )
 DEFAULT_SOURCE_NAMES: tuple[str, ...] = ("juya",)
 
@@ -206,6 +208,101 @@ class FakeZhihuConnector:
         return ConnectorResult(items=[item], warnings=[], raw_count=1)
 
 
+def _fake_openrouter_rows(
+    scenario: str, now: datetime
+) -> tuple[int, dict[str, Any]] | None:
+    if scenario == "request-failed":
+        return 503, {"data": []}
+    if scenario == "empty-today":
+        created = datetime.combine(
+            now.date() - timedelta(days=1), datetime.min.time(), tzinfo=UTC
+        )
+        return 200, {
+            "data": [
+                {
+                    "id": "lab/fallback-model",
+                    "name": "Fallback OpenRouter model",
+                    "created": int(created.timestamp()),
+                    "description": "Listed yesterday",
+                    "pricing": {"prompt": "0.0000001", "completion": "0.0000002"},
+                    "architecture": {"input_modalities": ["text"]},
+                }
+            ]
+        }
+    if scenario == "in-window":
+        return 200, {
+            "data": [
+                {
+                    "id": "lab/today-model",
+                    "name": "Today OpenRouter model",
+                    "created": int((now - timedelta(hours=1)).timestamp()),
+                    "description": "Listed today",
+                    "pricing": {"prompt": "0.0000003", "completion": "0.0000004"},
+                    "architecture": {"input_modalities": ["text"]},
+                }
+            ]
+        }
+    return None
+
+
+class FakeOpenRouterConnector:
+    """Deterministic offline stand-in for OpenRouter."""
+
+    def name(self) -> str:
+        return "openrouter"
+
+    async def collect(self, request) -> ConnectorResult:  # noqa: ANN001
+        scenario = os.environ.get("AI_NEWS_AGENT_FAKE_OPENROUTER", "").strip()
+        now = datetime.now(UTC)
+        scenario_rows = _fake_openrouter_rows(scenario, now)
+        if scenario_rows is not None:
+            import httpx
+
+            status, payload = scenario_rows
+
+            def handler(_request: httpx.Request) -> httpx.Response:
+                return httpx.Response(status, json=payload)
+
+            client = httpx.AsyncClient(
+                transport=httpx.MockTransport(handler),
+                base_url="https://openrouter.ai",
+            )
+            try:
+                return await OpenRouterConnector(client=client, now=lambda: now).collect(
+                    request
+                )
+            finally:
+                await client.aclose()
+        published = now - timedelta(hours=2)
+        free_item = NewsItem(
+            source=SourceKind.OPENROUTER,
+            source_id="vendor/free-model:free",
+            url="https://openrouter.ai/vendor/free-model:free",
+            title="Fake free OpenRouter model",
+            published_at=published,
+            collected_at=now,
+            source_evidence={
+                "free_token_pricing": True,
+                "prompt_price_per_million": "0",
+                "completion_price_per_million": "0",
+            },
+        )
+        priced_item = NewsItem(
+            source=SourceKind.OPENROUTER,
+            source_id="vendor/paid-model",
+            url="https://openrouter.ai/vendor/paid-model",
+            title="Fake priced OpenRouter model",
+            published_at=published,
+            collected_at=now,
+            source_evidence={
+                "free_token_pricing": False,
+                "prompt_price_per_million": "0.12",
+                "completion_price_per_million": "0.25",
+            },
+        )
+        return ConnectorResult(items=[free_item, priced_item], warnings=[], raw_count=2)
+
+
 def parse_sources_csv(value: str | None) -> list[str]:
     if value is None or value.strip() == "":
         return []
@@ -295,6 +392,7 @@ def _connector_for_name(
             "github": FakeGitHubConnector(),
             "bilibili": FakeBilibiliConnector(),
             "huggingface": FakeHuggingFaceConnector(),
+            "openrouter": FakeOpenRouterConnector(),
             "zhihu": FakeZhihuConnector(),
         }
         return fake_map[name]
@@ -305,6 +403,7 @@ def _connector_for_name(
             "github": GitHubConnector(preview_enrichment=True, trending_enrichment=True),
             "bilibili": BilibiliConnector(),
             "huggingface": HuggingFaceConnector(owner_enrichment=True),
+            "openrouter": OpenRouterConnector(),
             "zhihu": ZhihuConnector(),
         }
         return live_map[name]
@@ -335,6 +434,8 @@ def _connector_for_name(
         if status == "unset" or cred is None:
             return BilibiliConnector()
         return BilibiliConnector(credential=cred)
+    if name == "openrouter":
+        return OpenRouterConnector()
     return JuyaConnector()
 
 
@@ -382,6 +483,7 @@ __all__ = [
     "FakeGitHubConnector",
     "FakeHuggingFaceConnector",
     "FakeJuyaConnector",
+    "FakeOpenRouterConnector",
     "FakeZhihuConnector",
     "build_connector_factory",
     "build_connectors",

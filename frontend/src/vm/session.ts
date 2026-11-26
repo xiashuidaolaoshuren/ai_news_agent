@@ -4,6 +4,7 @@ import type {
   ResolvedRequestOut,
   SessionOut,
 } from '@/api/generated/types.gen'
+import { t, timeframeLabel, type UiLang } from '@/i18n/labels'
 import { sourceKindOf, sourceLabel, toDigestVm, toWarningVm } from '@/vm/digest'
 import type { DigestVm, WarningVm } from '@/vm/digest'
 import { textOrNull } from '@/vm/entries'
@@ -97,6 +98,11 @@ export interface MessageVm {
   followupAction?: FollowupActionVm
   /** Assistant message: link to the preceding user's follow-up target (`re: #n`). */
   replyRef?: RefVm
+  /**
+   * Assistant reply to a deep dive: the targeted entry's related display ranks,
+   * so the card can offer the same chips its digest row does.
+   */
+  relatedRanks?: number[]
   /** Set on a finished empty collect or a source failure. */
   collection?: CollectionVm
   /** A stored digest request this row can run again. */
@@ -292,10 +298,35 @@ function followupTargetToRef(
   }
 }
 
+/** Map `(digest_id, display_rank)` → the entry's related ranks, from digest messages. */
+function buildDigestRelatedIndex(messages: MessageOut[]): Map<string, number[]> {
+  const index = new Map<string, number[]>()
+  for (const message of messages) {
+    if (message.role !== 'assistant' || message.digest === undefined || message.digest === null) {
+      continue
+    }
+    const digestId = message.digest_id
+    if (digestId === undefined || digestId === null) {
+      continue
+    }
+    for (const entry of message.digest.entries ?? []) {
+      const related = entry.related_display_ranks
+      if (related !== undefined && related.length > 0) {
+        index.set(`${digestId}:${entry.display_rank}`, [...related])
+      }
+    }
+  }
+  return index
+}
+
 export interface MessageMapContext {
   digestTitles: Map<string, string>
+  /** Related ranks per `(digest_id, display_rank)`, for a deep-dive reply's chip row. */
+  digestRelated?: Map<string, number[]>
   /** The immediately preceding user message's follow-up ref, for assistant `re:`. */
   previousUserRef: RefVm | null
+  /** The immediately preceding user message's follow-up action. */
+  previousUserAction?: FollowupActionVm | null
   /** The immediately preceding user message's stored resolution, when it has one. */
   previousRequest?: ResolvedRequestOut | null
   /** The immediately preceding user message, for repeat actions. */
@@ -304,19 +335,30 @@ export interface MessageMapContext {
 
 const REPEAT_KINDS = new Set<MessageKind>(['digest', 'noresults', 'collectfailed'])
 
-const LANGUAGE_LABELS: Record<string, string> = {
-  en: 'English',
-  'zh-CN': '中文',
+const LANGUAGE_LABELS: Record<UiLang, Record<string, string>> = {
+  en: { en: 'English', 'zh-CN': '中文' },
+  'zh-CN': { en: '英文', 'zh-CN': '中文' },
 }
 
-function formatResolvedCount(request: ResolvedRequestOut): string | null {
+function formatCountLabel(value: string, lang: UiLang): string {
+  if (value === 'all') {
+    return t(lang, 'allCount')
+  }
+  const matched = /^(\d+) of (\d+)$/.exec(value)
+  if (matched !== null) {
+    return t(lang, 'countOf', { got: matched[1] ?? '', cap: matched[2] ?? '' })
+  }
+  return value
+}
+
+function formatResolvedCount(request: ResolvedRequestOut, lang: UiLang): string | null {
   const counts = request.counts
   if (counts !== undefined && Object.keys(counts).length > 0) {
     const values = Object.values(counts)
     const singleAll =
       values.length === 1 && values[0] === 'all' && (request.sources ?? []).length === 1
     if (singleAll) {
-      return 'all stories'
+      return t(lang, 'allStories')
     }
     const perSource =
       values.length > 0 &&
@@ -324,18 +366,22 @@ function formatResolvedCount(request: ResolvedRequestOut): string | null {
       request.per_source !== undefined &&
       values.every((value) => value === String(request.per_source))
     if (perSource) {
-      return `${request.per_source} per source`
+      return t(lang, 'perSource', { n: request.per_source ?? '' })
     }
-    return values.join(', ')
+    return values.map((value) => formatCountLabel(value, lang)).join(', ')
   }
   if (request.per_source === null || request.per_source === undefined) {
     return null
   }
-  return `${request.per_source} per source`
+  return t(lang, 'perSource', { n: request.per_source })
 }
 
 /** The prototype's request summary: sources, count, timeframe, and language. */
-export function summarizeRequest(request: ResolvedRequestOut): string {
+export function summarizeRequest(
+  request: ResolvedRequestOut,
+  lang: UiLang = 'en',
+  widened: Record<string, string> = {},
+): string {
   const sources = request.sources ?? []
   const sourceLine = sources
     .map((name) => {
@@ -343,21 +389,23 @@ export function summarizeRequest(request: ResolvedRequestOut): string {
       return kind === null ? name : sourceLabel(kind)
     })
     .filter((label) => label !== '')
-    .join(', ')
+    .join(t(lang, 'sourceSeparator'))
   const parts: string[] = []
-  const countText = formatResolvedCount(request)
+  const countText = formatResolvedCount(request, lang)
   const counts = request.counts
   if (sources.length === 1 && countText !== null) {
     const name = sourceLine
     if (counts !== undefined && counts[sources[0] ?? ''] === 'all') {
-      parts.push(`${name} · all stories`)
+      parts.push(`${name} · ${t(lang, 'allStories')}`)
     } else if (
       counts !== undefined &&
       Object.keys(counts).length === 1 &&
       sources[0] !== undefined
     ) {
       const label = counts[sources[0]]
-      parts.push(label !== undefined ? `${name} · ${label}` : name)
+      parts.push(
+        label !== undefined ? `${name} · ${formatCountLabel(label, lang)}` : name,
+      )
     } else {
       parts.push(`${name} · ${countText}`)
     }
@@ -370,17 +418,81 @@ export function summarizeRequest(request: ResolvedRequestOut): string {
     parts.push(countText)
   }
   const timeframe = textOrNull(request.timeframe ?? null)
-  if (timeframe !== null) {
-    parts.push(timeframe)
+  const widenedSources = sources.filter((name) => widened[name] !== undefined)
+  if (timeframe !== null && widenedSources.length > 0) {
+    // Run again replays the requested window; show what the run actually used too.
+    const windowText = (name: string): string => {
+      const requested = timeframeLabel(timeframe, lang)
+      const effective = widened[name]
+      return effective === undefined
+        ? requested
+        : `${requested} → ${timeframeLabel(effective, lang)}`
+    }
+    if (widenedSources.length === sources.length) {
+      parts.push(windowText(sources[0] ?? ''))
+    } else {
+      for (const name of sources) {
+        const kind = sourceKindOf(name)
+        const label = kind === null ? name : sourceLabel(kind)
+        parts.push(`${label}${t(lang, 'windowPrefix')}${windowText(name)}`)
+      }
+    }
+  } else if (timeframe !== null) {
+    parts.push(timeframeLabel(timeframe, lang))
+  } else {
+    const windows = request.windows ?? {}
+    const resolved = sources
+      .map((name) => ({ name, window: textOrNull(windows[name] ?? null) }))
+      .filter((entry): entry is { name: string; window: string } => entry.window !== null)
+    const uniform =
+      resolved.length > 0 &&
+      resolved.length === sources.length &&
+      resolved.every((entry) => entry.window === resolved[0]?.window)
+    if (uniform && resolved[0] !== undefined) {
+      parts.push(timeframeLabel(resolved[0].window, lang))
+    } else {
+      for (const entry of resolved) {
+        const kind = sourceKindOf(entry.name)
+        const label = kind === null ? entry.name : sourceLabel(kind)
+        parts.push(`${label}${t(lang, 'windowPrefix')}${timeframeLabel(entry.window, lang)}`)
+      }
+    }
   }
   const language = textOrNull(request.language ?? null)
   if (language !== null) {
-    parts.push(LANGUAGE_LABELS[language] ?? language)
+    parts.push(LANGUAGE_LABELS[lang][language] ?? language)
   }
   return parts.join(' · ')
 }
 
-function attachRepeat(vm: MessageVm, context: MessageMapContext | undefined): void {
+/** Effective window per source from saved `window_widened` warnings; bad detail is ignored. */
+function widenedWindows(warnings: MessageOut['warnings']): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const warning of warnings ?? []) {
+    if (warning.code !== 'window_widened' || typeof warning.detail !== 'string') {
+      continue
+    }
+    try {
+      const parsed: unknown = JSON.parse(warning.detail)
+      const effective =
+        typeof parsed === 'object' && parsed !== null
+          ? (parsed as Record<string, unknown>).effective_timeframe
+          : undefined
+      if (typeof effective === 'string' && effective !== '') {
+        out[warning.connector] = effective
+      }
+    } catch {
+      // Malformed detail: keep the plain summary.
+    }
+  }
+  return out
+}
+
+function attachRepeat(
+  vm: MessageVm,
+  context: MessageMapContext | undefined,
+  warnings: MessageOut['warnings'] = [],
+): void {
   const user = context?.previousUser
   if (
     user === undefined ||
@@ -394,7 +506,7 @@ function attachRepeat(vm: MessageVm, context: MessageMapContext | undefined): vo
   vm.repeat = {
     userMessageId: user.id,
     text: user.text,
-    summary: summarizeRequest(user.request),
+    summary: summarizeRequest(user.request, vm.digest?.lang ?? 'en', widenedWindows(warnings)),
     sources: [...(user.request.sources ?? [])],
     perSource: user.request.per_source ?? null,
   }
@@ -464,7 +576,7 @@ export function toMessageVm(message: MessageOut, context?: MessageMapContext): M
     kind: 'markdown',
     text: message.content,
     createdAt: message.created_at,
-    warnings: warnings.map(toWarningVm),
+    warnings: warnings.map((warning) => toWarningVm(warning)),
   }
   if (message.role === 'user') {
     vm.kind = 'user'
@@ -517,12 +629,15 @@ export function toMessageVm(message: MessageOut, context?: MessageMapContext): M
       digest: message.digest,
       digestId: message.digest_id ?? null,
       warnings,
+      // The question's own resolution, not the session preference: a source named in
+      // the message (or dropped from it) is what this run actually asked for.
+      connectorNames: context?.previousRequest?.sources ?? null,
     })
     vm.warnings = vm.digest.warnings
     if (context?.previousUserRef !== undefined && context?.previousUserRef !== null) {
       vm.replyRef = context.previousUserRef
     }
-    attachRepeat(vm, context)
+    attachRepeat(vm, context, warnings)
     return vm
   }
   if (message.content === CANCELLED_ASSISTANT_MESSAGE) {
@@ -537,27 +652,58 @@ export function toMessageVm(message: MessageOut, context?: MessageMapContext): M
   if (context?.previousUserRef !== undefined && context?.previousUserRef !== null) {
     vm.replyRef = context.previousUserRef
   }
+  attachDeepDiveRelated(vm, context, message.followup_related_display_ranks)
   return vm
+}
+
+/**
+ * A deep-dive reply is markdown, so it has no entry of its own. Give it the
+ * targeted entry's related ranks, which the digest row it came from shows. The API
+ * carries them on the message, so they survive the digest being on an older page;
+ * the loaded digest rows stay as the fallback.
+ */
+function attachDeepDiveRelated(
+  vm: MessageVm,
+  context: MessageMapContext | undefined,
+  carried: number[] | undefined,
+): void {
+  const ref = vm.replyRef
+  if (ref === undefined || context?.previousUserAction !== 'deep_dive') {
+    return
+  }
+  if (carried !== undefined && carried.length > 0) {
+    vm.relatedRanks = [...carried]
+    return
+  }
+  const related = context.digestRelated?.get(`${ref.digestId}:${ref.rank}`)
+  if (related !== undefined && related.length > 0) {
+    vm.relatedRanks = [...related]
+  }
 }
 
 /** Sort and map a page of API messages; resolves follow-up titles from digest rows. */
 export function toMessages(loaded: MessageOut[]): MessageVm[] {
   const sorted = [...loaded].sort((a, b) => a.sequence - b.sequence)
   const digestTitles = buildDigestEntryTitleIndex(sorted)
+  const digestRelated = buildDigestRelatedIndex(sorted)
   let previousUserRef: RefVm | null = null
+  let previousUserAction: FollowupActionVm | null = null
   let previousRequest: ResolvedRequestOut | null = null
   let previousUser: MessageMapContext['previousUser'] = null
   const out: MessageVm[] = []
   for (const message of sorted) {
     const vm = toMessageVm(message, {
       digestTitles,
+      digestRelated,
       previousUserRef,
+      previousUserAction,
       previousRequest,
       previousUser,
     })
     out.push(vm)
     if (message.role === 'user') {
       previousUserRef = vm.ref ?? null
+      previousUserAction = vm.followupAction ?? null
       previousRequest = message.request ?? null
       previousUser = {
         id: message.id,

@@ -12,6 +12,7 @@ from ai_news_agent.intent import parse_digest_intent
 from ai_news_agent.request import DigestRequest
 from ai_news_agent.source_settings import (
     build_public_counts,
+    hidden_source_names,
     parse_message_item_counts,
     public_per_source,
 )
@@ -66,6 +67,7 @@ _SOURCE_WORDS = (
     ("juya", re.compile(r"\bjuya\b|\u65e9\u62a5\b", re.I)),
     ("github", re.compile(r"\bgithub\b", re.I)),
     ("huggingface", re.compile(r"\bhugging\s*face\b|\bhuggingface\b", re.I)),
+    ("openrouter", re.compile(r"\bopenrouter\b", re.I)),
     ("zhihu", re.compile(r"\bzhihu\b|\u77e5\u4e4e\b", re.I)),
     ("bilibili", re.compile(r"\bbilibili\b|B\u7ad9\b", re.I)),
 )
@@ -99,7 +101,8 @@ _AUDIENCE = re.compile(
     re.I,
 )
 _SOURCE_NAME_IN_TOPIC = re.compile(
-    r"\b(?:juya|github|hugging\s*face|huggingface|zhihu|bilibili)\b", re.I
+    r"\b(?:juya|github|hugging\s*face|huggingface|openrouter|zhihu|bilibili)\b",
+    re.I,
 )
 _TOPIC_TAIL = re.compile(
     r"\s+(?:news|digest|bulletin|updates?|\u65e9\u62a5|\u65e5\u62a5|\u5468\u62a5)$",
@@ -215,6 +218,19 @@ def _explicit_sources(text: str) -> list[str] | None:
     return normalize_source_names(names)
 
 
+def _session_sources(context: ConversationContext) -> list[str]:
+    """Stored session sources minus the names hidden from discovery.
+
+    The composer shows the visible catalog, so a hidden stored name must not reach
+    the run either. An empty result falls back to the message's own inference.
+    """
+    if not context.connector_names:
+        return []
+    hidden = hidden_source_names()
+    visible = [name for name in context.connector_names if name not in hidden]
+    return normalize_source_names(visible) if visible else []
+
+
 def _infer_sources(text: str) -> list[str]:
     if _HF_PURPOSE.search(text):
         return ["huggingface"]
@@ -238,8 +254,9 @@ def _digest_decision(text: str, *, context: ConversationContext) -> Conversation
         sources = list(resolve_digest_request(text).connector_names or ["juya"])
     else:
         sources = explicit or _infer_sources(text)
-        if context.connector_names and explicit is None:
-            sources = normalize_source_names(context.connector_names)
+        stored = _session_sources(context) if explicit is None else []
+        if stored:
+            sources = stored
     topics = [topic] if topic else []
     if topic is not None:
         cleaned = _clean_topic(topic)
@@ -342,8 +359,9 @@ def _model_decision(
         topics = _validated_topics(raw.get("topics"))
         timeframe = _validated_timeframe(raw.get("timeframe"))
         sources = _validated_sources(raw.get("sources")) or _infer_sources(text)
-        if context.connector_names and not raw.get("sources"):
-            sources = normalize_source_names(context.connector_names)
+        stored = _session_sources(context) if not raw.get("sources") else []
+        if stored:
+            sources = stored
         request = DigestRequest(
             topics=topics,
             topics_are_filters=bool(topics),
@@ -384,6 +402,19 @@ def _fallback_decision(text: str, context: ConversationContext) -> ConversationD
     return ConversationDecision(intent="general", question=text)
 
 
+def _request_windows(request: DigestRequest) -> dict[str, str]:
+    sources = list(request.connector_names or [])
+    if not sources:
+        return {}
+    tf = request.timeframe
+    if tf:
+        return {name: tf for name in sources}
+    out: dict[str, str] = {name: "" for name in sources}
+    if "openrouter" in out:
+        out["openrouter"] = "last_7_days"
+    return out
+
+
 def request_metadata(request: DigestRequest) -> dict[str, Any]:
     """Public, user-relevant options of one resolved digest request."""
     return {
@@ -391,6 +422,7 @@ def request_metadata(request: DigestRequest) -> dict[str, Any]:
         "per_source": public_per_source(request),
         "counts": build_public_counts(request),
         "timeframe": request.timeframe,
+        "windows": _request_windows(request),
         "topics": list(request.topics or []),
         "language": request.output_language,
         "audience": request.audience,

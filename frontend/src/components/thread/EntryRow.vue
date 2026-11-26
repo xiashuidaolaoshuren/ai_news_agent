@@ -6,7 +6,8 @@ import AvatarTile from '@/components/thread/AvatarTile.vue'
 import EntryParagraphs from '@/components/thread/EntryParagraphs.vue'
 import SourceTag from '@/components/thread/SourceTag.vue'
 import { riseStyle } from '@/lib/motion'
-import { hostOf } from '@/vm'
+import { t, type LabelKey } from '@/i18n/labels'
+import { hostOf, sourceLabel } from '@/vm'
 import type { EntryVm, RefVm } from '@/vm'
 
 const props = withDefaults(
@@ -33,7 +34,13 @@ function refForEntry(): RefVm {
     digestId: props.digestId,
     rank: props.entry.rank,
     title: props.entry.title,
+    lang: props.entry.lang,
   }
+}
+
+/** Chrome label in the entry's own language. */
+function tr(key: LabelKey, vars?: Record<string, string | number>): string {
+  return t(props.entry.lang, key, vars)
 }
 
 function relatedRef(rank: number): RefVm {
@@ -47,9 +54,23 @@ function relatedRef(rank: number): RefVm {
 /** Juya stories link to the original story, everything else to the entry url. */
 const externalUrl = computed(() => props.entry.juya?.originalUrl ?? props.entry.url)
 const externalHost = computed(() => hostOf(externalUrl.value))
-const sourceText = computed(
-  () => props.entry.juya?.topic ?? props.entry.meta ?? props.entry.sourceName,
-)
+/**
+ * The line after the source tag. Without metadata it falls back to the
+ * publisher name, unless that only repeats the tag.
+ */
+const sourceText = computed<string | null>(() => {
+  if (props.entry.juya?.topic) {
+    return props.entry.juya.topic
+  }
+  if (props.entry.kind === 'openrouter') {
+    return t(props.entry.lang, 'newModel')
+  }
+  if (props.entry.meta) {
+    return props.entry.meta
+  }
+  const name = props.entry.sourceName
+  return name.toLowerCase() === sourceLabel(props.entry.kind).toLowerCase() ? null : name
+})
 
 /** True while this row holds a stagger position, which is what `.rise` needs. */
 const rises = computed(() => props.rise !== null && props.rise !== undefined)
@@ -63,11 +84,11 @@ const background = computed(() => props.entry.juya?.background ?? null)
 const COLLAPSED_SUMMARY_MAX = 120
 const COLLAPSED_WHY_MAX = 90
 
-const labels = computed(() =>
-  isJuya.value
-    ? { summary: '摘要', why: '为什么重要', background: '背景知识' }
-    : { summary: 'Summary', why: 'Why it matters', background: '' },
-)
+const labels = computed(() => ({
+  summary: t(props.entry.lang, 'summary'),
+  why: t(props.entry.lang, 'whyItMatters'),
+  background: t(props.entry.lang, 'background'),
+}))
 
 /**
  * Show the disclosure whenever expanding reveals something: background text,
@@ -120,7 +141,7 @@ const showsBackground = computed(
 
       <div class="entry-src">
         <SourceTag :kind="props.entry.kind" />
-        <span>{{ sourceText }}</span>
+        <span v-if="sourceText">{{ sourceText }}</span>
         <a
           v-if="externalHost && externalUrl"
           class="ext"
@@ -129,18 +150,35 @@ const showsBackground = computed(
           rel="noopener"
           >{{ externalHost }}<AppIcon name="ext" /></a
         >
+        <span
+          v-if="props.entry.badge"
+          class="badge-fake badge-ok"
+          :data-od-id="`badge-free-${props.entry.rank}`"
+          >{{ props.entry.badge }}</span
+        >
         <button
           v-for="relatedRank in props.entry.relatedRanks ?? []"
           :key="`related-${relatedRank}`"
           type="button"
           class="chip rel-chip"
           :data-od-id="`related-${relatedRank}`"
-          :aria-label="`Related: entry #${relatedRank} names the same model`"
+          :aria-label="tr('relatedAria', { n: relatedRank })"
           @click="emit('goto-related', relatedRef(relatedRank))"
         >
-          Related: #{{ relatedRank }}
+          {{ tr('relatedChip', { n: relatedRank }) }}
         </button>
       </div>
+
+      <dl
+        v-if="props.entry.spec"
+        class="entry-body spec"
+        :data-od-id="`openrouter-spec-${props.entry.rank}`"
+      >
+        <div v-for="field in props.entry.spec" :key="field.label">
+          <dt>{{ field.label }}</dt>
+          <dd class="num">{{ field.value }}</dd>
+        </div>
+      </dl>
 
       <dl
         v-if="props.entry.summary || props.entry.whyItMatters || showsBackground"
@@ -176,7 +214,7 @@ const showsBackground = computed(
           :aria-expanded="expanded"
           @click="expanded = !expanded"
         >
-          {{ expanded ? '收起详情' : '展开详情' }}
+          {{ expanded ? tr('collapse') : tr('expand') }}
         </button>
       </div>
 
@@ -187,7 +225,7 @@ const showsBackground = computed(
           :data-od-id="`deepdive-${props.entry.kind}-${props.entry.rank}`"
           @click="emit('deepdive', refForEntry())"
         >
-          <AppIcon name="layers" />Deep dive
+          <AppIcon name="layers" />{{ tr('deepDive') }}
         </button>
         <button
           type="button"
@@ -195,7 +233,7 @@ const showsBackground = computed(
           :data-od-id="`followup-${props.entry.kind}-${props.entry.rank}`"
           @click="emit('ask', refForEntry())"
         >
-          <AppIcon name="reply" />Ask about this
+          <AppIcon name="reply" />{{ tr('askAbout') }}
         </button>
       </div>
     </div>

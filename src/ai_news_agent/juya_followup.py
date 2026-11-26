@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from urllib.parse import urlsplit
+
+from ai_news_agent.card_labels import legacy_card_lang, text
+from ai_news_agent.juya_content import is_image_url
 
 from ai_news_agent.models import DigestEntry, NewsItem, SourceKind
 
@@ -108,32 +112,136 @@ def format_juya_story_deep_dive(
     *,
     rank: int,
 ) -> str:
-    """Render a single persisted Juya bulletin story."""
+    """Render a single persisted Juya bulletin story as sectioned markdown."""
+    lang = legacy_card_lang(entry.language, entry.source_kind)
     evidence = news_item.source_evidence or {}
-    lines = [
-        f"第 {rank} 条：{entry.title}",
-        f"来源：{entry.source_url}",
-    ]
+    blocks: list[str] = []
+    eyebrow = _story_eyebrow(evidence, lang)
+    if eyebrow:
+        blocks.append(eyebrow)
+    blocks.append(f"### {text(lang, 'story_heading', rank=rank, title=entry.title)}")
+    if entry.summary:
+        blocks.append(f"> **{text(lang, 'summary_label')}** {entry.summary}")
+    if entry.why_it_matters:
+        blocks.append(f"**{text(lang, 'juya_why')}** {entry.why_it_matters}")
+    paragraphs, legacy_links = _story_body(
+        news_item.raw_snippet or "",
+        summary=entry.summary or "",
+    )
+    if paragraphs:
+        blocks.append(f"#### {text(lang, 'detail')}\n\n" + "\n\n".join(paragraphs))
+    links = evidence.get("story_links")
+    if not isinstance(links, list) or not links:
+        links = list(legacy_links)
+    if isinstance(links, list) and links:
+        items = "\n".join(f"- [{_link_label(str(url))}]({url})" for url in links)
+        blocks.append(f"#### {text(lang, 'related_links')}\n\n" + items)
+    sources = []
+    original_url = evidence.get("story_original_url")
+    if original_url:
+        sources.append(f"- [{text(lang, 'original')}]({original_url})")
+    if entry.source_url:
+        sources.append(f"- [{text(lang, 'bulletin_link')}]({entry.source_url})")
+    if sources:
+        blocks.append(f"#### {text(lang, 'source')}\n\n" + "\n".join(sources))
+    if entry.confidence_caveat:
+        blocks.append(f"**{text(lang, 'note')}** {entry.confidence_caveat}")
+    return "\n\n".join(blocks).rstrip()
+
+
+def _story_eyebrow(evidence: dict[str, object], lang: str) -> str:
+    parts: list[str] = []
     section = evidence.get("story_section")
     if section:
         heading = _section_heading(str(section))
         if heading:
-            lines.extend(["", heading, ""])
+            parts.append(heading)
     story_number = evidence.get("story_number")
     if story_number is not None:
-        lines.append(f"简报 #{story_number}")
-    if news_item.raw_snippet:
-        lines.extend(["", news_item.raw_snippet.strip(), ""])
-    original_url = evidence.get("story_original_url")
-    if original_url:
-        lines.append(f"原文：{original_url}")
-    if entry.summary:
-        lines.append(f"摘要：{entry.summary}")
-    if entry.why_it_matters:
-        lines.append(f"要点：{entry.why_it_matters}")
-    if entry.confidence_caveat:
-        lines.append(f"注意：{entry.confidence_caveat}")
-    return "\n".join(lines).rstrip()
+        parts.append(text(lang, "bulletin", number=story_number))
+    return " · ".join(parts)
+
+
+def _paragraphs(body: str) -> list[str]:
+    return [part.strip() for part in body.split("\n\n") if part.strip()]
+
+
+def _story_body(body: str, *, summary: str) -> tuple[list[str], tuple[str, ...]]:
+    """Story paragraphs plus related links.
+
+    Stories saved before paragraph splitting hold one joined line that opens
+    with the lede and ends with an inline ``相关链接`` list. That shape is
+    repaired here, at render time, so old digests read like new ones.
+    """
+    if "\n\n" in body:
+        return _paragraphs(body), ()
+    prose, links = _split_inline_links(body)
+    prose = _drop_lede(prose, summary)
+    return _split_joined_paragraphs(prose), links
+
+
+_LINK_TAIL_RE = re.compile(r"相关链接\s*[:：]?")
+_URL_RE = re.compile(r"https?://[^\s)\]>）]+")
+#: Characters that end a sentence when the original line break was lost.
+_SENTENCE_END_RE = re.compile(r"(?<=[。！？!?；;]) +")
+
+
+def _split_inline_links(body: str) -> tuple[str, tuple[str, ...]]:
+    """Split a flattened story into prose and the URLs after ``相关链接``."""
+    marker = _LINK_TAIL_RE.search(body)
+    if marker is None:
+        return body.strip(), ()
+    prose = body[: marker.start()].strip()
+    url_matches = [
+        match.group(0).rstrip(".,，")
+        for match in _URL_RE.finditer(body[marker.end() :])
+    ]
+    urls: list[str] = []
+    for url in url_matches:
+        if is_image_url(url) or url in urls:
+            continue
+        urls.append(url)
+    return prose, tuple(urls)
+
+
+def _drop_lede(prose: str, summary: str) -> str:
+    """Remove a leading copy of the story summary, which the card shows once."""
+    lede = " ".join(summary.split())
+    if not lede:
+        return prose
+    text_value = " ".join(prose.split())
+    if text_value.startswith(lede):
+        return text_value[len(lede) :].strip()
+    return text_value
+
+
+def _split_joined_paragraphs(prose: str) -> list[str]:
+    """Recover paragraphs from a line that joined them with spaces."""
+    parts = [part.strip() for part in _SENTENCE_END_RE.split(prose)]
+    return [part for part in parts if part]
+
+
+#: Path shapes whose last segment is an opaque ID rather than a readable name.
+_STATUS_PATH_RE = re.compile(r"/([A-Za-z0-9_]{1,30})/status(?:es)?/[0-9]+/?$")
+_OPAQUE_TAIL_RE = re.compile(r"^(?:[0-9]+|[A-Za-z0-9_-]{16,})$")
+
+
+def _link_label(url: str) -> str:
+    """A compact, readable link label: host plus a handle or a slug.
+
+    X and Twitter status URLs show the account handle; an opaque ID (a long
+    mixed-case token or a bare number) shows the host alone.
+    """
+    parts = urlsplit(url)
+    host = parts.netloc
+    path = parts.path.rstrip("/")
+    status = _STATUS_PATH_RE.search(path)
+    if status is not None and host.lower().endswith(("x.com", "twitter.com")):
+        return f"{host} · @{status.group(1)}"
+    tail = path.rsplit("/", 1)[-1]
+    if not tail or _OPAQUE_TAIL_RE.match(tail):
+        return host
+    return f"{host} · {tail}"
 
 
 def format_juya_issue_deep_dive(

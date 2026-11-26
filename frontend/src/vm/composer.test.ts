@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   healthHint,
+  parseHiddenSources,
   parseSources,
   prefsFor,
   TEXT_REQUIRED,
@@ -91,16 +92,49 @@ describe('parseSources', () => {
   })
 })
 
+describe('parseHiddenSources', () => {
+  it('reads the hidden names the catalog reports', () => {
+    expect(parseHiddenSources({ hidden: ['bilibili'] })).toEqual(['bilibili'])
+    expect(parseHiddenSources({ hidden: ['bilibili', 'zhihu'] })).toEqual(['bilibili', 'zhihu'])
+  })
+
+  it('treats a missing, empty or malformed list as nothing hidden', () => {
+    expect(parseHiddenSources({ hidden: [] })).toEqual([])
+    expect(parseHiddenSources({})).toEqual([])
+    expect(parseHiddenSources({ hidden: 'bilibili' })).toEqual([])
+    expect(parseHiddenSources(null)).toEqual([])
+  })
+
+  it('skips entries that are not names', () => {
+    expect(parseHiddenSources({ hidden: ['bilibili', 3, null, ''] })).toEqual(['bilibili'])
+  })
+})
+
 describe('prefsFor', () => {
   const options = parseSources(CATALOG)
 
   it('shows the catalog defaults before the first PATCH', () => {
-    expect(prefsFor(null, options)).toEqual({ selected: ['juya'] })
+    expect(prefsFor(null, options, [])).toEqual({ selected: ['juya'] })
   })
 
   it('prefers the sources the session already stores', () => {
     const session = { connector_names: ['github', 'zhihu'] }
-    expect(prefsFor(session, options)).toEqual({ selected: ['github', 'zhihu'] })
+    expect(prefsFor(session, options, [])).toEqual({ selected: ['github', 'zhihu'] })
+  })
+
+  it('drops a stored name the catalog hides', () => {
+    const session = { connector_names: ['juya', 'bilibili'] }
+    expect(prefsFor(session, options, ['bilibili'])).toEqual({ selected: ['juya'] })
+  })
+
+  it('falls back to the visible defaults when every stored name is hidden', () => {
+    const session = { connector_names: ['bilibili'] }
+    expect(prefsFor(session, options, ['bilibili'])).toEqual({ selected: ['juya'] })
+  })
+
+  it('falls back to the visible defaults when the visible catalog is empty', () => {
+    const session = { connector_names: ['bilibili'] }
+    expect(prefsFor(session, [], ['bilibili'])).toEqual({ selected: [] })
   })
 })
 

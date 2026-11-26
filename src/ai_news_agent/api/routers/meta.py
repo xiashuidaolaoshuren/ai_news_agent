@@ -7,15 +7,8 @@ from fastapi import APIRouter, Depends
 from ai_news_agent.api.deps import get_application
 from ai_news_agent.credential_health import summary_for_catalog_source
 from ai_news_agent.services.composition import Application
+from ai_news_agent.source_settings import SOURCE_CATALOG_ORDER, hidden_source_names
 from ai_news_agent.sources import DEFAULT_SOURCE_NAMES
-
-_SOURCE_CATALOG_ORDER: tuple[str, ...] = (
-    "juya",
-    "huggingface",
-    "github",
-    "zhihu",
-    "bilibili",
-)
 
 router = APIRouter()
 
@@ -39,10 +32,15 @@ def _health_payload(summary) -> dict[str, object]:
 def sources(application: Application = Depends(get_application)) -> dict[str, object]:
     defaults = list(DEFAULT_SOURCE_NAMES)
     default_set = set(defaults)
+    hidden = hidden_source_names()
     store = application.credential_health_store
     provider = application.credentials_service
     catalog: list[dict[str, object]] = []
-    for name in _SOURCE_CATALOG_ORDER:
+    hidden_list: list[str] = []
+    for name in SOURCE_CATALOG_ORDER:
+        if name in hidden:
+            hidden_list.append(name)
+            continue
         health = summary_for_catalog_source(store, provider, name)
         catalog.append(
             {
@@ -55,4 +53,5 @@ def sources(application: Application = Depends(get_application)) -> dict[str, ob
     return {
         "defaults": defaults,
         "sources": catalog,
+        "hidden": hidden_list,
     }

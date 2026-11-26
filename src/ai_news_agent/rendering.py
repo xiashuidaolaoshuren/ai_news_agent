@@ -10,6 +10,7 @@ from ai_news_agent.models import ConnectorWarning, Digest, DigestEntry, NewsItem
 _SECTION_LABELS: dict[SourceKind, str] = {
     SourceKind.JUYA: "Juya",
     SourceKind.HUGGINGFACE: "Hugging Face",
+    SourceKind.OPENROUTER: "OpenRouter",
     SourceKind.GITHUB: "GitHub",
     SourceKind.ZHIHU: "Zhihu",
     SourceKind.BILIBILI: "Bilibili",
@@ -18,6 +19,7 @@ _SECTION_LABELS: dict[SourceKind, str] = {
 _SECTION_EMOJI: dict[SourceKind, str] = {
     SourceKind.JUYA: "🗞️",
     SourceKind.HUGGINGFACE: "🤗",
+    SourceKind.OPENROUTER: "🔗",
     SourceKind.GITHUB: "🐙",
     SourceKind.ZHIHU: "💬",
     SourceKind.BILIBILI: "📺",

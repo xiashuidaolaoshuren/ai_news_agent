@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import ast
 import re
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from ai_news_agent.digest_content import extract_digest_fields
-from ai_news_agent.huggingface_families import family_key
+from ai_news_agent.related_coverage import related_display_ranks as _related_display_ranks
 from ai_news_agent.juya_content import clean_lead_title, is_image_url, split_linked_title
 from ai_news_agent.models import Digest, DigestEntry, NewsItem, SourceKind
 
@@ -21,10 +23,11 @@ def build_digest_view_payload(
 ) -> dict[str, Any]:
     """Map a saved digest and optional news evidence to a DigestView-shaped dict."""
     lookup = _news_items_by_key(news_items)
-    related_by_rank = _huggingface_related_ranks_by_display_rank(
-        digest,
-        news_items=lookup,
-    )
+    pairs = [
+        (entry, lookup.get((entry.source_kind, entry.source_id)))
+        for entry in digest.entries
+    ]
+    related_by_rank = _related_display_ranks(pairs)
     entries = [
         _build_entry_payload(
             entry,
@@ -50,41 +53,6 @@ def _news_items_by_key(
     return {(item.source, item.source_id): item for item in news_items}
 
 
-def huggingface_related_display_ranks(
-    digest: Digest,
-    *,
-    news_items: list[NewsItem] | None,
-    display_rank: int,
-) -> list[int]:
-    """Other HF entries in the same digest that share saved model identity."""
-    lookup = _news_items_by_key(news_items)
-    return _huggingface_related_ranks_by_display_rank(digest, news_items=lookup).get(
-        display_rank,
-        [],
-    )
-
-
-def _huggingface_related_ranks_by_display_rank(
-    digest: Digest,
-    *,
-    news_items: dict[tuple[SourceKind, str], NewsItem],
-) -> dict[int, list[int]]:
-    keys_by_rank: dict[int, str] = {}
-    for index, entry in enumerate(digest.entries, start=1):
-        if entry.source_kind is not SourceKind.HUGGINGFACE:
-            continue
-        news_item = news_items.get((entry.source_kind, entry.source_id))
-        if news_item is None:
-            continue
-        keys_by_rank[index] = family_key(news_item)
-
-    related: dict[int, list[int]] = {}
-    for rank, key in keys_by_rank.items():
-        siblings = sorted(r for r, other in keys_by_rank.items() if other == key and r != rank)
-        related[rank] = siblings
-    return related
-
-
 def _build_entry_payload(
     entry: DigestEntry,
     *,
@@ -92,7 +60,11 @@ def _build_entry_payload(
     news_items: dict[tuple[SourceKind, str], NewsItem],
     related_display_ranks: list[int] | None = None,
 ) -> dict[str, Any]:
-    payload = _entry_common_fields(entry, display_rank=display_rank)
+    payload = _entry_common_fields(
+        entry,
+        display_rank=display_rank,
+        related_display_ranks=related_display_ranks,
+    )
     news_item = news_items.get((entry.source_kind, entry.source_id))
     evidence = news_item.source_evidence if news_item is not None else {}
 
@@ -101,11 +73,12 @@ def _build_entry_payload(
     elif entry.source_kind is SourceKind.HUGGINGFACE:
         payload.update(extract_huggingface_evidence(evidence))
         payload.update(extract_owner_evidence(evidence))
-        payload["related_display_ranks"] = list(related_display_ranks or [])
     elif entry.source_kind is SourceKind.JUYA:
         text_fields, title_url = _juya_text_fields(entry)
         payload.update(text_fields)
         payload.update(extract_juya_evidence(evidence, title_url=title_url))
+    elif entry.source_kind is SourceKind.OPENROUTER:
+        payload.update(extract_openrouter_evidence(evidence))
     return payload
 
 
@@ -156,7 +129,12 @@ def _append_caveat(existing: str | None, phrase: str) -> str:
     return phrase
 
 
-def _entry_common_fields(entry: DigestEntry, *, display_rank: int) -> dict[str, Any]:
+def _entry_common_fields(
+    entry: DigestEntry,
+    *,
+    display_rank: int,
+    related_display_ranks: list[int] | None = None,
+) -> dict[str, Any]:
     return {
         "source_kind": entry.source_kind,
         "source_id": entry.source_id,
@@ -170,6 +148,7 @@ def _entry_common_fields(entry: DigestEntry, *, display_rank: int) -> dict[str, 
         "confidence_caveat": entry.confidence_caveat,
         "display_rank": display_rank,
         "output_language": entry.language,
+        "related_display_ranks": list(related_display_ranks or []),
     }
 
 
@@ -269,13 +248,43 @@ def extract_huggingface_evidence(source_evidence: dict[str, Any]) -> dict[str, A
             )
 
     return {
-        "base_model": _optional_str(source_evidence.get("base_model")),
+        "base_model": _base_model_text(source_evidence.get("base_model")),
         "trending_score": source_evidence.get("trending_score"),
         "downloads_30d": _optional_int(source_evidence.get("downloads_30d")),
         "likes": _optional_int(source_evidence.get("likes")),
         "pipeline_tag": _optional_str(source_evidence.get("pipeline_tag")),
         "family_variants": family_variants,
     }
+
+
+def extract_openrouter_evidence(source_evidence: dict[str, Any]) -> dict[str, Any]:
+    """Return whitelisted OpenRouter model listing fields for digest views."""
+    prompt = _optional_str(source_evidence.get("prompt_price_per_million"))
+    completion = _optional_str(source_evidence.get("completion_price_per_million"))
+    modalities_raw = source_evidence.get("input_modalities")
+    modalities: list[str] = []
+    if isinstance(modalities_raw, list):
+        modalities = [str(m) for m in modalities_raw if m is not None]
+    free_token_pricing = _is_exact_zero(prompt) and _is_exact_zero(completion)
+    return {
+        "context_length": _optional_int(source_evidence.get("context_length")),
+        "prompt_price_per_million": prompt,
+        "completion_price_per_million": completion,
+        "free_token_pricing": free_token_pricing,
+        "input_modalities": modalities,
+        "provider": _optional_str(source_evidence.get("provider")),
+    }
+
+
+def _is_exact_zero(value: str | None) -> bool:
+    """True only for a finite decimal that is exactly zero; unknown prices are not zero."""
+    if value is None:
+        return False
+    try:
+        price = Decimal(value)
+    except (InvalidOperation, ValueError):
+        return False
+    return price.is_finite() and price == 0
 
 
 def _safe_http_url(value: Any) -> str | None:
@@ -296,6 +305,28 @@ def _optional_int(value: Any) -> int | None:
         return value
     if isinstance(value, float):
         return int(value)
+    return None
+
+
+def _base_model_text(value: Any) -> str | None:
+    """A base model ID, also from a list or a saved list-text value.
+
+    Digests saved before the connector read a card list keep its Python repr,
+    such as ``['Org/Model']``; show the first model ID instead.
+    """
+    text = _optional_str(value)
+    if text is None or not text.startswith("["):
+        return text
+    try:
+        parsed = ast.literal_eval(text)
+    except (ValueError, SyntaxError):
+        return text
+    if not isinstance(parsed, list | tuple):
+        return text
+    for candidate in parsed:
+        candidate_text = str(candidate).strip()
+        if candidate_text:
+            return candidate_text
     return None
 
 

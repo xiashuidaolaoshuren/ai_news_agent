@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import AppIcon from '@/components/ui/AppIcon.vue'
+import { t, type UiLang } from '@/i18n/labels'
 import { hostOf } from '@/vm'
 import type { JuyaIssueVm } from '@/vm'
 
-const props = defineProps<{ issue: JuyaIssueVm }>()
+const props = withDefaults(defineProps<{ issue: JuyaIssueVm; lang?: UiLang }>(), {
+  lang: 'en',
+})
 </script>
 
 <template>
@@ -18,7 +21,7 @@ const props = defineProps<{ issue: JuyaIssueVm }>()
     />
     <div class="issue-meta">
       <span class="eyebrow">{{ props.issue.eyebrow }}</span>
-      <span v-if="props.issue.leadTitle">Lead story</span>
+      <span v-if="props.issue.leadTitle">{{ t(props.lang, 'leadStory') }}</span>
       <b v-if="props.issue.leadTitle">{{ props.issue.leadTitle }}</b>
       <a
         v-if="props.issue.issueUrl"

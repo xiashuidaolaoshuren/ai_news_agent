@@ -383,3 +383,202 @@ def test_render_digest_editorial_text_is_compact_index_not_sections() -> None:
     assert "\n模型发布\n" not in out
     assert "https://daily.juya.uk/issue-7/" in out
     assert "第一条" in out or "follow up" in out.lower()
+
+
+def _sectioned_story_item(*, links: list[str] | None, snippet: str) -> NewsItem:
+    from datetime import UTC, datetime
+
+    evidence: dict[str, object] = {
+        "juya_item_type": "story",
+        "story_number": 2,
+        "story_section": "要闻",
+        "story_original_url": "https://original.example/article",
+    }
+    if links is not None:
+        evidence["story_links"] = links
+    return NewsItem(
+        source=SourceKind.JUYA,
+        source_id="juya-story-issue-9-2",
+        url="https://daily.juya.uk/issue-9/#story-2",
+        title="DeepSeek vision launch",
+        collected_at=datetime(2026, 10, 18, tzinfo=UTC),
+        raw_snippet=snippet,
+        source_evidence=evidence,
+    )
+
+
+def _sectioned_story_entry(item: NewsItem) -> DigestEntry:
+    return DigestEntry(
+        source_kind=SourceKind.JUYA,
+        source_id=item.source_id,
+        title=item.title,
+        source_name="juya",
+        source_url=item.url,
+        summary="模型发布摘要",
+        why_it_matters="多模态能力",
+        background_knowledge="",
+        follow_up_action=FollowUpAction.READ,
+    )
+
+
+def test_format_juya_story_deep_dive_renders_sections_with_links() -> None:
+    from ai_news_agent.juya_followup import format_juya_story_deep_dive
+
+    item = _sectioned_story_item(
+        links=["https://news.example/a/art_one.html"],
+        snippet="第一段正文。\n\n第二段正文。",
+    )
+    out = format_juya_story_deep_dive(_sectioned_story_entry(item), item, rank=2)
+
+    assert out == "\n".join(
+        [
+            "🔖 要闻 · 简报 #2",
+            "",
+            "### 第 2 条 · DeepSeek vision launch",
+            "",
+            "> **摘要** 模型发布摘要",
+            "",
+            "**要点** 多模态能力",
+            "",
+            "#### 详情",
+            "",
+            "第一段正文。",
+            "",
+            "第二段正文。",
+            "",
+            "#### 相关链接",
+            "",
+            "- [news.example · art_one.html](https://news.example/a/art_one.html)",
+            "",
+            "#### 来源",
+            "",
+            "- [原文](https://original.example/article)",
+            "- [简报](https://daily.juya.uk/issue-9/#story-2)",
+        ]
+    )
+
+
+def test_format_juya_story_deep_dive_legacy_item_keeps_snippet_without_links() -> None:
+    from ai_news_agent.juya_followup import format_juya_story_deep_dive
+
+    item = _sectioned_story_item(links=None, snippet="旧的扁平正文")
+    out = format_juya_story_deep_dive(_sectioned_story_entry(item), item, rank=2)
+
+    assert "#### 详情" in out
+    assert "旧的扁平正文" in out
+    assert "相关链接" not in out
+    assert "摘要：" not in out
+
+
+def test_format_juya_story_deep_dive_cleans_legacy_flattened_body() -> None:
+    """A story saved before paragraph splitting still reads as sections."""
+    from ai_news_agent.juya_followup import format_juya_story_deep_dive
+
+    evidence = {
+        "juya_item_type": "story",
+        "story_number": 1,
+        "story_section": "要闻",
+        "story_summary": "第一段正文。",
+        "story_original_url": "https://original.example/article",
+    }
+    item = NewsItem(
+        source=SourceKind.JUYA,
+        source_id="juya-story-issue-9-1",
+        url="https://daily.juya.uk/issue-9/#story-1",
+        title="DeepSeek vision launch",
+        collected_at=datetime(2026, 10, 18, tzinfo=UTC),
+        raw_snippet=(
+            "第一段正文。 第二段正文。 第三段正文。 相关链接： - "
+            "https://x.com/deepseek_ai/status/2121247896918253875 - "
+            "https://mp.weixin.qq.com/s/bFxAT04ohJs9hPcjjin3bg - "
+            "https://news.example/a/art_one.html"
+        ),
+        source_evidence=evidence,
+    )
+    entry = _sectioned_story_entry(item)
+    entry.summary = "第一段正文。"
+    out = format_juya_story_deep_dive(entry, item, rank=1)
+
+    assert out.count("第一段正文。") == 1
+    assert "第二段正文。" in out
+    assert "第三段正文。" in out
+    # The joined source lines come back as separate paragraphs.
+    assert "第一段正文。 第二段正文。" not in out
+    # The inline link tail becomes a list instead of trailing prose.
+    assert "https://x.com/deepseek_ai/status/2121247896918253875" in out
+    assert "- [" in out
+    assert out.index("#### 相关链接") < out.index("https://mp.weixin.qq.com/s/bFxAT04ohJs9hPcjjin3bg")
+
+
+def test_format_juya_story_deep_dive_labels_opaque_links_readably() -> None:
+    from ai_news_agent.juya_followup import format_juya_story_deep_dive
+
+    item = _sectioned_story_item(
+        links=[
+            "https://x.com/deepseek_ai/status/2121247896918253875",
+            "https://mp.weixin.qq.com/s/bFxAT04ohJs9hPcjjin3bg",
+            "https://code.claude.com/en/docs/interface",
+        ],
+        snippet="正文。",
+    )
+    out = format_juya_story_deep_dive(_sectioned_story_entry(item), item, rank=2)
+
+    assert "- [x.com · @deepseek_ai](https://x.com/deepseek_ai/status/2121247896918253875)" in out
+    assert "[mp.weixin.qq.com](https://mp.weixin.qq.com/s/bFxAT04ohJs9hPcjjin3bg)" in out
+    assert "- [code.claude.com · interface](https://code.claude.com/en/docs/interface)" in out
+
+
+def test_generic_rank_detail_uses_chinese_labels_for_zh_entry() -> None:
+    from ai_news_agent.followup_structured import format_rank_item
+    from ai_news_agent.models import Digest
+    from ai_news_agent.repositories.digest_store import FollowupContext
+
+    entry = DigestEntry(
+        source_kind=SourceKind.GITHUB,
+        source_id="owner/repo",
+        title="owner/repo",
+        source_name="GitHub",
+        source_url="https://github.com/owner/repo",
+        summary="仓库摘要。",
+        why_it_matters="仓库价值。",
+        background_knowledge="",
+        follow_up_action=FollowUpAction.READ,
+        confidence_caveat="低置信度提示。",
+        language="zh-CN",
+    )
+    ctx = FollowupContext(
+        run_id=None,
+        digest=Digest(generated_at=datetime(2026, 5, 7, 10, 0, tzinfo=UTC), entries=[entry], topics=[], timeframe=None),
+        news_items=[],
+        ranked_items=[],
+        warnings=[],
+    )
+    out = format_rank_item(ctx, 1)
+
+    assert out.startswith("第 1 条：owner/repo")
+    assert "链接：https://github.com/owner/repo" in out
+    assert "摘要：仓库摘要。" in out
+    assert "为什么重要：仓库价值。" in out
+    assert "注意：低置信度提示。" in out
+    assert "Digest item" not in out
+
+
+def test_juya_story_deep_dive_uses_english_labels_for_en_entry() -> None:
+    from ai_news_agent.juya_followup import format_juya_story_deep_dive
+
+    item = _sectioned_story_item(
+        links=["https://news.example/a/art_one.html"],
+        snippet="第一段正文。\n\n第二段正文。",
+    )
+    entry = DigestEntry(**{**_sectioned_story_entry(item).__dict__, "language": "en"})
+    out = format_juya_story_deep_dive(entry, item, rank=2)
+
+    assert "### Item 2 · DeepSeek vision launch" in out
+    assert "> **Summary** 模型发布摘要" in out
+    assert "**Key point** 多模态能力" in out
+    assert "Bulletin #2" in out
+    assert "#### Detail" in out
+    assert "#### Related links" in out
+    assert "#### Source" in out
+    for chinese in ("第 2 条", "详情", "相关链接", "来源", "简报 #2"):
+        assert chinese not in out

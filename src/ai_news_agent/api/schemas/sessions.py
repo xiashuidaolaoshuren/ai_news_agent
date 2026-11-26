@@ -68,6 +68,7 @@ class ResolvedRequestOut(BaseModel):
     per_source: int | None = None
     counts: dict[str, str] = Field(default_factory=dict)
     timeframe: str | None = None
+    windows: dict[str, str] = Field(default_factory=dict)
     topics: list[str] = Field(default_factory=list)
     language: str | None = None
     audience: str | None = None
@@ -90,6 +91,9 @@ class MessageOut(BaseModel):
     request: ResolvedRequestOut | None = None
     followup_target: FollowupTarget | None = None
     followup_action: FollowupAction | None = None
+    #: Related ranks of a deep-dive reply's target entry, so the card keeps its chip
+    #: even when the target digest is on an older page.
+    followup_related_display_ranks: list[int] = Field(default_factory=list)
     juya_confirmation: JuyaConfirmationOut | None = None
     #: How the assistant message's digest run ended, when it saved one.
     collection_outcome: CollectionOutcome | None = None

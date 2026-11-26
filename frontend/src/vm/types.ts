@@ -1,6 +1,13 @@
+import type { UiLang } from '@/i18n/labels'
 /** View-model types. API types stop at the `toVm` boundary. */
 
-export type EntryKind = 'github' | 'huggingface' | 'juya' | 'zhihu' | 'bilibili'
+export type EntryKind =
+  | 'github'
+  | 'huggingface'
+  | 'juya'
+  | 'zhihu'
+  | 'bilibili'
+  | 'openrouter'
 
 export type FollowUpKind = 'read' | 'watch' | 'try' | 'build'
 
@@ -44,14 +51,24 @@ export interface RefVm {
   rank: number
   /** Resolved entry title when known; otherwise a short fallback. */
   title: string
+  /** The entry's language, so a deep-dive bubble matches the digest. */
+  lang?: UiLang
 }
 
 export type FollowupActionVm = 'deep_dive' | 'ask'
+
+/** One labelled OpenRouter spec field, e.g. `Input / 1M tokens` → `$0.15`. */
+export interface OpenRouterSpecVm {
+  label: string
+  value: string
+}
 
 export interface EntryVm {
   key: string
   kind: EntryKind
   rank: number
+  /** Language the entry's card chrome is shown in. */
+  lang: UiLang
   title: string
   url: string | null
   sourceName: string
@@ -63,6 +80,10 @@ export interface EntryVm {
   avatar: AvatarVm
   previewUrl: string | null
   meta?: string
+  /** OpenRouter only: labelled context and price fields, shown as a spec block. */
+  spec?: OpenRouterSpecVm[]
+  /** Short claim shown beside the meta line, e.g. `Free token pricing`. */
+  badge?: string
   hf?: HfVm
   juya?: JuyaVm
   /** Hugging Face only: ranks for Related chips. */

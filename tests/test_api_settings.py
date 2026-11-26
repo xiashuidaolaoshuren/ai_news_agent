@@ -18,6 +18,114 @@ def _client(db_path: Path) -> TestClient:
     return TestClient(create_app(application), client=("127.0.0.1", 50000))
 
 
+def test_local_live_app_bootstraps_sidecar_and_saves_across_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sqlite3
+
+    monkeypatch.delenv("AI_NEWS_AGENT_SECRET_KEY", raising=False)
+    db = tmp_path / "live-bootstrap.db"
+    key_file = tmp_path / "live-bootstrap.db.key"
+
+    app = build_application(fake=False, db_path=db)
+    client = TestClient(create_app(app), client=("127.0.0.1", 50000))
+    listed = client.get("/api/v1/settings/credentials").json()
+    assert listed["secret_key_configured"] is True
+    assert key_file.exists()
+
+    github = client.put(
+        "/api/v1/settings/credentials/GITHUB_TOKEN", json={"value": "ghp_live1234"}
+    )
+    assert github.status_code == 200
+    llm = client.put(
+        "/api/v1/settings/credentials/llm",
+        json={"api_key": "sk-live-key", "base_url": "https://llm.example/v1", "model": "m"},
+    )
+    assert llm.status_code == 200
+
+    with sqlite3.connect(db) as conn:
+        rows = dict(conn.execute("SELECT name, ciphertext FROM secrets"))
+    assert "ghp_live1234" not in rows["GITHUB_TOKEN"]
+    assert "sk-live-key" not in rows["OPENAI_API_KEY"]
+
+    restarted = build_application(fake=False, db_path=db)
+    client2 = TestClient(create_app(restarted), client=("127.0.0.1", 50000))
+    body = client2.get("/api/v1/settings/credentials").json()
+    assert body["secret_key_configured"] is True
+    by_name = {row["name"]: row for row in body["credentials"]}
+    assert by_name["GITHUB_TOKEN"]["status"] == "ui"
+    assert by_name["GITHUB_TOKEN"]["last4"] == "1234"
+    assert by_name["llm"]["status"] == "ui"
+    assert "ghp_live1234" not in str(body)
+    assert "sk-live-key" not in str(body)
+
+
+def test_missing_key_beside_encrypted_rows_warns_without_secret_material(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cryptography.fernet import Fernet
+
+    from ai_news_agent.credentials import CredentialsProvider, key_file_path_for
+    from ai_news_agent.services import composition
+    from ai_news_agent.storage import DigestStore
+
+    messages: list[str] = []
+    monkeypatch.setattr(
+        composition.logger, "warning", lambda fmt, *args: messages.append(fmt % args)
+    )
+    monkeypatch.delenv("AI_NEWS_AGENT_SECRET_KEY", raising=False)
+    db = tmp_path / "recover.db"
+    DigestStore(db).init_schema()
+    key_file = key_file_path_for(db)
+    key_file.write_text(Fernet.generate_key().decode(), encoding="utf-8")
+    CredentialsProvider(db, environ={}, key_file=key_file).save(
+        "GITHUB_TOKEN", "ghp_recover1234"
+    )
+    key_file.unlink()
+
+    application = build_application(fake=False, db_path=db)
+
+    assert application.credentials_service.has_secret_key() is False
+    assert not key_file.exists()
+    assert any(
+        "credential key unavailable" in message and "recovery_required" in message
+        for message in messages
+    )
+    assert "ghp_recover1234" not in "".join(messages)
+
+
+def test_fake_and_remote_apps_never_create_a_sidecar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_news_agent.access import AccessConfig
+
+    monkeypatch.delenv("AI_NEWS_AGENT_SECRET_KEY", raising=False)
+    fake_db = tmp_path / "fake-no-sidecar.db"
+    fake_app = build_application(fake=True, db_path=fake_db)
+    fake_client = TestClient(create_app(fake_app), client=("127.0.0.1", 50000))
+    assert (
+        fake_client.get("/api/v1/settings/credentials").json()["secret_key_configured"]
+        is False
+    )
+    assert not (tmp_path / "fake-no-sidecar.db.key").exists()
+
+    remote_db = tmp_path / "remote-no-sidecar.db"
+    remote_app = build_application(
+        fake=False,
+        db_path=remote_db,
+        access=AccessConfig(remote=True, access_token="owner-token"),
+    )
+    remote_client = TestClient(create_app(remote_app), client=("127.0.0.1", 50000))
+    assert (
+        remote_client.get(
+            "/api/v1/settings/credentials",
+            headers={"Authorization": "Bearer owner-token"},
+        ).json()["secret_key_configured"]
+        is False
+    )
+    assert not (tmp_path / "remote-no-sidecar.db.key").exists()
+
+
 def test_get_settings_sources_lists_hidden_bilibili_and_openrouter_defaults(
     tmp_path: Path,
 ) -> None:

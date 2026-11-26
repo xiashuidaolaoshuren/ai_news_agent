@@ -1,21 +1,8 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import SourceSettings from '@/components/settings/SourceSettings.vue'
 import type { SourceProfileVm } from '@/vm/settings'
-
-/** The hidden-source flag is read at render time, so a test can flip it. */
-const flags = vi.hoisted(() => ({ showBilibili: false }))
-
-vi.mock('@/lib/features', () => ({
-  get SHOW_BILIBILI() {
-    return flags.showBilibili
-  },
-}))
-
-afterEach(() => {
-  flags.showBilibili = false
-})
 
 const PROFILES: SourceProfileVm[] = [
   { name: 'juya', hidden: false, itemCount: 5 },
@@ -73,6 +60,12 @@ describe('SourceSettings layout', () => {
       'settings-source-zhihu',
       'settings-source-bilibili',
     ])
+  })
+
+  it('shows a logo tile on the OpenRouter section head like the other sources', () => {
+    const wrapper = mountSettings()
+
+    expect(wrapper.find('[data-od-id="settings-source-openrouter"] .tile img').exists()).toBe(true)
   })
 
   it('shows the hidden Bilibili source with selection chip and editable fields', () => {

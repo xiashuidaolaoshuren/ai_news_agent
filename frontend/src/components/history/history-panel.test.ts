@@ -55,6 +55,10 @@ function openedVm(
       },
       error: null,
     },
+    catalog: [
+      { name: 'juya', label: 'Juya' },
+      { name: 'github', label: 'GitHub' },
+    ],
   })
 }
 

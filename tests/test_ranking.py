@@ -765,6 +765,19 @@ def test_order_selected_for_digest_includes_huggingface_and_zhihu_sections() -> 
         score_total=6.0,
         selected=True,
     )
+    openrouter = RankedItem(
+        item=NewsItem(
+            source=SourceKind.OPENROUTER,
+            source_id="vendor/m",
+            url="https://openrouter.ai/vendor/m",
+            title="OpenRouter model",
+            published_at=now - timedelta(hours=1),
+            collected_at=now,
+            raw_snippet="card",
+        ),
+        score_total=7.0,
+        selected=True,
+    )
     bili = RankedItem(
         item=NewsItem(
             source=SourceKind.BILIBILI,
@@ -778,7 +791,7 @@ def test_order_selected_for_digest_includes_huggingface_and_zhihu_sections() -> 
         score_total=3.0,
         selected=True,
     )
-    ranked = [github, zhihu, bili, huggingface, juya]
+    ranked = [github, zhihu, bili, huggingface, openrouter, juya]
 
     fallback = order_selected_for_digest(
         ranked,
@@ -789,6 +802,7 @@ def test_order_selected_for_digest_includes_huggingface_and_zhihu_sections() -> 
     assert [r.item.source.value for r in fallback] == [
         "juya",
         "huggingface",
+        "openrouter",
         "github",
         "zhihu",
         "bilibili",
@@ -809,6 +823,40 @@ def test_order_selected_for_digest_includes_huggingface_and_zhihu_sections() -> 
         primary_source=None,
     )
     assert all(r.item.source is not SourceKind.ZHIHU for r in without_zhihu)
+
+
+def test_openrouter_free_pricing_boosts_score_without_engagement() -> None:
+    from ai_news_agent.ranking import rank_items
+
+    now = _fixed_ts()
+    free = NewsItem(
+        source=SourceKind.OPENROUTER,
+        source_id="vendor/free",
+        url="https://openrouter.ai/vendor/free",
+        title="Free model A",
+        published_at=now,
+        collected_at=now,
+        metadata_completeness=0.5,
+        raw_snippet="desc",
+        source_evidence={"free_token_pricing": True},
+    )
+    priced = NewsItem(
+        source=SourceKind.OPENROUTER,
+        source_id="vendor/paid",
+        url="https://openrouter.ai/vendor/paid",
+        title="Paid model B",
+        published_at=now,
+        collected_at=now,
+        metadata_completeness=0.5,
+        raw_snippet="desc",
+        source_evidence={"free_token_pricing": False},
+    )
+    ranked = rank_items([priced, free], top_n=2, now=now)
+    by_id = {r.item.source_id: r for r in ranked}
+    assert by_id["vendor/free"].score_total > by_id["vendor/paid"].score_total
+    assert "engagement" not in by_id["vendor/free"].score_breakdown
+    assert "engagement" not in by_id["vendor/paid"].score_breakdown
+    assert by_id["vendor/free"].score_breakdown.get("free_token_pricing") == 0.15
 
 
 def _hf_item(

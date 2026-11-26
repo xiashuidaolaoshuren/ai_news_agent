@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from ai_news_agent.services.conversation import (
     ConversationContext,
     ConversationDecision,
@@ -259,6 +261,7 @@ def test_request_metadata_describes_what_the_run_will_use() -> None:
         "per_source": 5,
         "counts": {"juya": "5"},
         "timeframe": "latest",
+        "windows": {"juya": "latest"},
         "topics": ["AI"],
         "language": "zh-CN",
         "audience": "beginner",
@@ -310,6 +313,55 @@ def test_refresh_without_a_saved_request_stays_a_followup() -> None:
     assert decision.intent == "followup"
 
 
+def test_openrouter_in_message_selects_openrouter_connector() -> None:
+    decision = interpret_message(
+        "Summarize openrouter and github agent tooling releases"
+    )
+
+    assert decision.intent == "digest"
+    request = decision.request
+    assert request is not None
+    assert "openrouter" in request.connector_names
+    assert "github" in request.connector_names
+
+
+def test_windows_report_openrouter_fallback_without_storing_timeframe() -> None:
+    request = DigestRequest(
+        connector_names=["openrouter", "github"],
+        timeframe=None,
+    )
+    meta = request_metadata(request)
+    assert meta["timeframe"] is None
+    assert meta["windows"] == {"openrouter": "last_7_days", "github": ""}
+
+    payload = request_payload(request)
+    assert payload["timeframe"] is None
+    round_tripped = request_from_payload(payload)
+    assert round_tripped is not None
+    assert round_tripped.timeframe is None
+    assert request_metadata(round_tripped)["windows"]["openrouter"] == "last_7_days"
+
+
+def test_explicit_timeframe_fills_windows_for_every_source() -> None:
+    request = DigestRequest(
+        connector_names=["openrouter", "github"],
+        timeframe="today",
+    )
+    assert request_metadata(request)["windows"] == {
+        "openrouter": "today",
+        "github": "today",
+    }
+
+
+def test_typed_bilibili_request_selects_bilibili_while_hidden_by_default() -> None:
+    decision = interpret_message("Summarize bilibili AI news")
+
+    assert decision.intent == "digest"
+    request = decision.request
+    assert request is not None
+    assert "bilibili" in request.connector_names
+
+
 def test_explicit_repo_url_keeps_its_target_and_selection() -> None:
     decision = interpret_message("Summarize https://github.com/org/repo")
 
@@ -319,6 +371,68 @@ def test_explicit_repo_url_keeps_its_target_and_selection() -> None:
     assert request.connector_names == ["github"]
     assert request.github_manual_urls == ["https://github.com/org/repo"]
     assert request.topics_are_filters is False
+
+
+def test_untyped_message_drops_hidden_names_from_the_stored_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AI_NEWS_AGENT_HIDDEN_SOURCES", raising=False)
+
+    decision = interpret_message(
+        "Digest today's AI news",
+        context=ConversationContext(connector_names=["bilibili"]),
+    )
+
+    assert decision.intent == "digest"
+    request = decision.request
+    assert request is not None
+    assert request.connector_names == ["juya"]
+
+
+def test_stored_selection_keeps_its_visible_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AI_NEWS_AGENT_HIDDEN_SOURCES", raising=False)
+
+    decision = interpret_message(
+        "Digest today's AI news",
+        context=ConversationContext(connector_names=["juya", "bilibili"]),
+    )
+
+    assert decision.intent == "digest"
+    request = decision.request
+    assert request is not None
+    assert request.connector_names == ["juya"]
+
+
+def test_stored_selection_is_kept_when_nothing_is_hidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_NEWS_AGENT_HIDDEN_SOURCES", "")
+
+    decision = interpret_message(
+        "Digest today's AI news",
+        context=ConversationContext(connector_names=["bilibili"]),
+    )
+
+    assert decision.intent == "digest"
+    request = decision.request
+    assert request is not None
+    assert request.connector_names == ["bilibili"]
+
+
+def test_typed_hidden_source_still_routes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AI_NEWS_AGENT_HIDDEN_SOURCES", raising=False)
+
+    decision = interpret_message(
+        "Summarize bilibili AI news",
+        context=ConversationContext(connector_names=["juya"]),
+    )
+
+    assert decision.intent == "digest"
+    request = decision.request
+    assert request is not None
+    assert "bilibili" in request.connector_names
 
 
 __all__ = [

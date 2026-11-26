@@ -5,6 +5,7 @@ export function githubEntry(over: Partial<EntryVm> = {}): EntryVm {
   return {
     key: 'github:1',
     kind: 'github',
+    lang: 'en',
     rank: 1,
     title: 'NVIDIA/OpenShell',
     url: 'https://github.com/NVIDIA/OpenShell',
@@ -35,6 +36,7 @@ export function hfEntry(over: Partial<EntryVm> = {}): EntryVm {
   return {
     key: 'hf:1',
     kind: 'huggingface',
+    lang: 'en',
     rank: 2,
     title: 'Edge0/Audio8-ASR-Infinite',
     url: 'https://huggingface.co/Edge0/Audio8-ASR-Infinite',
@@ -56,6 +58,7 @@ export function juyaEntry(over: Partial<EntryVm> = {}): EntryVm {
   return {
     key: 'juya:1',
     kind: 'juya',
+    lang: 'zh-CN',
     rank: 3,
     title: 'Google 发布 Gemini 4 Argon',
     url: 'https://daily.juya.uk',
@@ -88,6 +91,7 @@ export function juyaIssue(over: Partial<JuyaIssueVm> = {}): JuyaIssueVm {
 export function sectionVm(over: Partial<SectionVm> = {}): SectionVm {
   return {
     kind: 'github',
+    lang: 'en',
     label: 'GitHub',
     subtitle: 'Trending repositories',
     count: 1,
@@ -113,6 +117,7 @@ export function digestVm(over: Partial<DigestVm> = {}): DigestVm {
     ref: 'd15',
     digestId: 15,
     generatedAt: '2026-10-01T20:04:00',
+    lang: 'en',
     itemCount: 5,
     sourcesReturned: 2,
     sourcesTotal: 3,

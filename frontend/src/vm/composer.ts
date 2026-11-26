@@ -85,6 +85,17 @@ export function parseSources(raw: unknown): SourceOption[] {
   return options
 }
 
+/**
+ * The names hidden from discovery, as `GET /sources` reports them alongside the
+ * visible catalog. Unknown shapes hide nothing.
+ */
+export function parseHiddenSources(raw: unknown): string[] {
+  if (!isRecord(raw) || !Array.isArray(raw.hidden)) {
+    return []
+  }
+  return raw.hidden.filter((name): name is string => typeof name === 'string' && name !== '')
+}
+
 /** The preferences the composer edits, as raw UI state. */
 export interface ComposerPrefs {
   selected: string[]
@@ -95,18 +106,28 @@ export interface PrefsSession {
   connector_names: string[] | null
 }
 
+function visibleDefaults(sources: SourceOption[]): string[] {
+  return sources.filter((item) => item.default).map((item) => item.name)
+}
+
 /**
  * Preferences to show for one session. Until the first PATCH the session stores
  * nothing, so the catalog defaults stand in.
+ *
+ * A stored name the catalog hides is dropped from the display only; the caller
+ * never writes that drop back. When nothing visible remains, the defaults stand in.
  */
 export function prefsFor(
   session: PrefsSession | null,
   sources: SourceOption[],
+  hidden: string[],
 ): ComposerPrefs {
-  return {
-    selected:
-      session?.connector_names ?? sources.filter((item) => item.default).map((item) => item.name),
+  const stored = session?.connector_names ?? null
+  if (stored === null) {
+    return { selected: visibleDefaults(sources) }
   }
+  const visible = stored.filter((name) => !hidden.includes(name))
+  return { selected: visible.length === 0 ? visibleDefaults(sources) : visible }
 }
 
 /** Error copy, aligned with the backend's 400s so the client can check first. */

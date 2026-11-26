@@ -80,6 +80,7 @@ const KINDS: Record<string, EntryKind> = {
   github: 'github',
   zhihu: 'zhihu',
   bilibili: 'bilibili',
+  openrouter: 'openrouter',
 }
 
 /** Entry kind for a connector name, or null when the stream sends an unknown one. */

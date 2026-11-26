@@ -67,8 +67,9 @@ Bilibili credentials stay editable while Bilibili is hidden.
 
 ### Storage
 
-- Encrypted rows in a new `secrets` table (name, ciphertext, updated_at), using Fernet with a key from `AI_NEWS_AGENT_SECRET_KEY`.
-- Without that variable the Keys tab is read-only and explains how to enable it. The API refuses writes with `409`.
+- Encrypted rows in a new `secrets` table (name, ciphertext, updated_at), using Fernet with a key from `AI_NEWS_AGENT_SECRET_KEY` or a generated sidecar key.
+- A local live service with no env key and no encrypted rows creates `<database>.key` beside the database on first start, owner-protected, and reuses it. The sidecar and database are Git-ignored and must be backed up together. A nonblank env key wins; remote and fake modes never read or create a sidecar implicitly.
+- The Keys tab is read-only when no usable key exists and explains sidecar recovery, permissions, or setting the env var and restarting. The API refuses writes with `409`.
 - Effective value = saved override if it can be read, otherwise the environment or `.env` value. Clearing a UI value falls back to the environment.
 - The LLM key, base URL, and model are saved and validated together. A request captures one configuration version at start and keeps it until it finishes. Later edits apply to later requests.
 - In remote mode, an LLM base URL must be HTTPS on a public address. A redirect is checked the same way. Private-network or plain-HTTP endpoints are rejected unless server configuration outside the web UI explicitly allows them. Local development can enable a local model server through that same server-side switch.
@@ -85,11 +86,13 @@ Bilibili credentials stay editable while Bilibili is hidden.
 - A `CredentialsProvider` is the only place that resolves a provider credential. Connectors and both LLM clients receive values from it instead of reading `os.environ` at call time. This includes the command-line path for the same database.
 - Connectors are already built per digest, so a readable token change applies on the next run.
 - LLM clients are built lazily for the current configuration version. If no LLM configuration can be resolved, the process still starts. Settings, history, credential tests that do not need the LLM, and saved-evidence deep dives work. An operation that needs an LLM returns a clear "Configure an LLM in Settings" result. Fake mode remains an explicit offline mode, not an automatic fallback.
-- A command-line run that needs an encrypted override requires `AI_NEWS_AGENT_SECRET_KEY`. The owner access token is not required for the command line.
+- A live command-line run reads the same `<database>.key` sidecar as the service, without creating one, and keeps the environment key as priority. The owner access token is not required for the command line.
 
 ### Unreadable override
 
-If `AI_NEWS_AGENT_SECRET_KEY` is missing or wrong and a saved ciphertext cannot be decrypted, that credential's status is `unreadable`. It is not `unset`. Operations that depend on it fail with an explicit error. Other sources continue. The owner can restore the key, replace the override, or delete it. The app must not silently use the environment value while an unreadable override exists.
+If no usable key exists or the key is wrong and a saved ciphertext cannot be decrypted, that credential's status is `unreadable`. It is not `unset`. Operations that depend on it fail with an explicit error. Other sources continue. The owner can restore the matching key, replace the override, or delete it. The app must not silently use the environment value while an unreadable override exists.
+
+A missing or invalid sidecar beside a database that already holds encrypted rows is never replaced automatically. The overrides stay unreadable until the owner restores the original key or explicitly clears them; a later start may create a sidecar once no encrypted rows remain. Automatic key creation fails closed (read-only, sanitized warning) when owner-only file protection cannot be established.
 
 ### Source health
 
@@ -125,7 +128,7 @@ The repository is already schema version 3. This change migrates v3 to v4 throug
 | Invalid setting | 400 with a field message; the panel shows it inline |
 | Secret key missing | writes 409; panel read-only with instructions |
 | Saved override cannot be decrypted | status `unreadable`; dependent operations fail until the owner resolves it |
-| Test fails | sanitized message shown, value kept |
+| Test fails | sanitized message shown on that row, value kept, writes stay available |
 | Token wrong or missing in remote mode | 401; sign-in screen. A rejected token shows `That token was rejected.` and keeps the app locked |
 | Remote mode without a configured token | process refuses to start |
 | LLM endpoint fails the remote-mode network rule | 400; value not saved |

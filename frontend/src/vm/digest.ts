@@ -1,6 +1,7 @@
 import type { ConnectorWarning, DigestView, JuyaDigestEntryView, SourceKind } from '@/api/generated/types.gen'
 import type { ApiDigestEntry } from '@/vm/entries'
 import { resolveDemoAsset, safeHttpUrl, textOrNull, toEntryVm } from '@/vm/entries'
+import { digestLang, entryLang, t, type UiLang } from '@/i18n/labels'
 import type { EntryKind, EntryVm } from '@/vm/types'
 
 export type SectionSubtitle = string | null
@@ -19,6 +20,8 @@ export interface JuyaIssueVm {
 export interface SectionVm {
   kind: EntryKind
   label: string
+  /** Language of the section's chrome: its first entry's language. */
+  lang: UiLang
   subtitle: SectionSubtitle
   count: number
   rangeStart: number
@@ -33,12 +36,23 @@ const SOURCE_LABELS: Record<EntryKind, string> = {
   github: 'GitHub',
   zhihu: 'Zhihu',
   bilibili: 'Bilibili',
+  openrouter: 'OpenRouter',
 }
 
-const SECTION_SUBTITLES: Partial<Record<EntryKind, string>> = {
-  juya: '橘鸦 AI 早报',
-  huggingface: 'Trending models',
-  github: 'Trending repositories',
+/** Section subtitle in the section's language; the Juya subtitle is its name. */
+function sectionSubtitle(kind: EntryKind, lang: UiLang): string | null {
+  switch (kind) {
+    case 'juya':
+      return '橘鸦 AI 早报'
+    case 'huggingface':
+      return t(lang, 'trendingModels')
+    case 'github':
+      return t(lang, 'trendingRepos')
+    case 'openrouter':
+      return t(lang, 'modelsYouCanCall')
+    default:
+      return null
+  }
 }
 
 /** Display label for a source kind. */
@@ -115,7 +129,8 @@ export function toSectionsVm(entries: ApiDigestEntry[]): SectionVm[] {
     sections.push({
       kind: vm.kind,
       label: SOURCE_LABELS[vm.kind],
-      subtitle: SECTION_SUBTITLES[vm.kind] ?? null,
+      lang: vm.lang,
+      subtitle: sectionSubtitle(vm.kind, vm.lang),
       count: 1,
       rangeStart: vm.rank,
       rangeEnd: vm.rank,
@@ -144,6 +159,8 @@ export interface WarningVm {
 }
 
 export interface DigestVm {
+  /** Chinese only when every entry is Chinese. */
+  lang: UiLang
   ref: string | null
   /** Numeric id for follow-up targets and data-ref attributes. */
   digestId: number | null
@@ -162,14 +179,18 @@ export interface DigestVmInput {
   connectorNames?: string[] | null
 }
 
-/** Connector warning with a display label; unknown connectors keep their raw name. */
-export function toWarningVm(warning: ConnectorWarning): WarningVm {
+/**
+ * Connector warning with a display label; unknown connectors keep their raw name.
+ * The OpenRouter window notice is localized here; other warning text stays as the API sent it.
+ */
+export function toWarningVm(warning: ConnectorWarning, lang: UiLang = 'en'): WarningVm {
   const known = (SOURCE_LABELS as Record<string, string | undefined>)[warning.connector]
+  const isWindowNotice = warning.connector === 'openrouter' && warning.code === 'window_widened'
   return {
     source: warning.connector,
     label: known ?? warning.connector,
     code: warning.code,
-    message: warning.message,
+    message: isWindowNotice ? t(lang, 'windowNotice') : warning.message,
   }
 }
 
@@ -177,11 +198,42 @@ function sourceNames(warning: ConnectorWarning): EntryKind | null {
   return warning.connector in SOURCE_LABELS ? (warning.connector as EntryKind) : null
 }
 
+/**
+ * Warnings for requested sources that neither returned an entry nor warned.
+ *
+ * A connector that collects cleanly with nothing in the window says nothing at all,
+ * so the reply would otherwise count it as returned. Synthesized here rather than in
+ * the backend so a quiet source never reads as a broken one in credential health.
+ */
+function noItemsWarnings(
+  connectorNames: readonly string[],
+  warned: ReadonlySet<EntryKind>,
+  returned: ReadonlySet<EntryKind>,
+  lang: UiLang,
+): WarningVm[] {
+  const out: WarningVm[] = []
+  for (const name of connectorNames) {
+    if (!(name in SOURCE_LABELS)) {
+      continue
+    }
+    const kind = name as EntryKind
+    if (returned.has(kind) || warned.has(kind)) {
+      continue
+    }
+    out.push({
+      source: kind,
+      label: SOURCE_LABELS[kind],
+      code: 'no_items',
+      message: t(lang, 'noItems'),
+    })
+  }
+  return out
+}
+
 /** Project a digest and its connector warnings onto the digest-reply view-model. */
 export function toDigestVm(input: DigestVmInput): DigestVm {
   const entries = (input.digest.entries ?? []) as ApiDigestEntry[]
   const sections = toSectionsVm(entries)
-  const warnings = (input.warnings ?? []).map(toWarningVm)
   const seen = new Set<EntryKind>()
   for (const kind of input.connectorNames ?? []) {
     if (kind in SOURCE_LABELS) {
@@ -198,7 +250,18 @@ export function toDigestVm(input: DigestVmInput): DigestVm {
     }
   }
   const returned = new Set<EntryKind>(sections.map((section) => section.kind))
+  const warned = new Set<EntryKind>(
+    (input.warnings ?? []).map(sourceNames).filter((kind) => kind !== null),
+  )
+  const lang = digestLang(
+    entries.map((entry) => entryLang(entry.output_language, String(entry.source_kind ?? ''))),
+  )
+  const warnings = [
+    ...(input.warnings ?? []).map((warning) => toWarningVm(warning, lang)),
+    ...noItemsWarnings(input.connectorNames ?? [], warned, returned, lang),
+  ]
   return {
+    lang,
     ref: typeof input.digestId === 'number' ? `d${input.digestId}` : null,
     digestId: typeof input.digestId === 'number' ? input.digestId : null,
     generatedAt: input.digest.generated_at,

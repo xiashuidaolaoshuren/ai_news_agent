@@ -4,8 +4,10 @@ import type {
   DigestEntryView,
   GitHubDigestEntryView,
   HuggingFaceDigestEntryView,
+  OpenRouterDigestEntryView,
 } from '@/api/generated/types.gen'
 import { resolveDemoAsset, safeHttpUrl, toVm } from '@/vm'
+import { formatPrice, githubMeta, openRouterSpec } from '@/vm/entries'
 
 function zhihuEntry(overrides: Partial<DigestEntryView> = {}): DigestEntryView {
   return {
@@ -60,6 +62,112 @@ describe('toVm', () => {
     expect(vm.hf).toBeUndefined()
     expect(vm.juya).toBeUndefined()
     expect(vm.previewUrl).toBeNull()
+  })
+})
+
+function openRouterEntry(
+  overrides: Partial<OpenRouterDigestEntryView> = {},
+): OpenRouterDigestEntryView {
+  return {
+    source_kind: 'openrouter',
+    source_id: 'anthropic/claude-sonnet-4',
+    title: 'Anthropic: Claude Sonnet 4',
+    source_name: 'OpenRouter',
+    source_url: 'https://openrouter.ai/anthropic/claude-sonnet-4',
+    summary: 'A callable model listing.',
+    why_it_matters: 'One API for many providers.',
+    background_knowledge: 'OpenRouter routes to provider endpoints.',
+    follow_up_action: 'try',
+    display_rank: 2,
+    context_length: 128000,
+    prompt_price_per_million: '0.15',
+    completion_price_per_million: '0.6',
+    free_token_pricing: false,
+    input_modalities: ['text'],
+    provider: 'anthropic',
+    ...overrides,
+  }
+}
+
+describe('OpenRouter entries', () => {
+  it('renders context length and both prices as labelled spec fields', () => {
+    const vm = toVm(openRouterEntry())
+
+    expect(vm.kind).toBe('openrouter')
+    expect(vm.meta).toBeUndefined()
+    expect(vm.spec).toEqual([
+      { label: 'Context', value: '128,000 tokens' },
+      { label: 'Input / 1M tokens', value: '$0.15' },
+      { label: 'Output / 1M tokens', value: '$0.60' },
+    ])
+  })
+
+  it('omits a spec field whose value is missing or blank', () => {
+    expect(toVm(openRouterEntry({ prompt_price_per_million: null })).spec).toEqual([
+      { label: 'Context', value: '128,000 tokens' },
+      { label: 'Output / 1M tokens', value: '$0.60' },
+    ])
+    expect(toVm(openRouterEntry({ completion_price_per_million: '  ' })).spec).toEqual([
+      { label: 'Context', value: '128,000 tokens' },
+      { label: 'Input / 1M tokens', value: '$0.15' },
+    ])
+  })
+
+  it('has no spec block when every value is unknown', () => {
+    const vm = toVm(
+      openRouterEntry({
+        context_length: null,
+        prompt_price_per_million: null,
+        completion_price_per_million: null,
+      }),
+    )
+
+    expect(vm.spec).toBeUndefined()
+  })
+
+  it('badges only a listing with known-zero token prices', () => {
+    expect(
+      toVm(
+        openRouterEntry({
+          prompt_price_per_million: '0',
+          completion_price_per_million: '0',
+          free_token_pricing: true,
+        }),
+      ).badge,
+    ).toBe('Free token pricing')
+  })
+
+  it('does not badge a priced listing or a :free id without zero prices', () => {
+    expect(toVm(openRouterEntry()).badge).toBeUndefined()
+    expect(
+      toVm(
+        openRouterEntry({
+          source_id: 'meta-llama/llama-3.1-8b:free',
+          source_name: 'Meta: Llama 3.1 8B (free)',
+          prompt_price_per_million: null,
+          completion_price_per_million: null,
+          free_token_pricing: false,
+        }),
+      ).badge,
+    ).toBeUndefined()
+  })
+
+  it('gives no other kind the badge', () => {
+    expect(toVm(zhihuEntry()).badge).toBeUndefined()
+  })
+})
+
+describe('formatPrice', () => {
+  it('shows at least two decimals without rounding small prices down', () => {
+    expect(formatPrice('10')).toBe('$10.00')
+    expect(formatPrice('1.25')).toBe('$1.25')
+    expect(formatPrice('0.6')).toBe('$0.60')
+    expect(formatPrice('0.0375')).toBe('$0.0375')
+  })
+
+  it('shows a known zero as $0', () => {
+    expect(formatPrice('0')).toBe('$0')
+    expect(formatPrice('0.00')).toBe('$0')
   })
 })
 
@@ -378,5 +486,65 @@ describe('Hugging Face projection', () => {
     const vm = toVm(hfEntry())
 
     expect(vm.relatedRanks).toBeUndefined()
+  })
+
+  it('maps related_display_ranks for a Zhihu entry', () => {
+    const vm = toVm(zhihuEntry({ related_display_ranks: [2] }))
+
+    expect(vm.relatedRanks).toEqual([2])
+  })
+
+  it('maps related_display_ranks for an OpenRouter entry', () => {
+    const vm = toVm(openRouterEntry({ related_display_ranks: [5, 6] }))
+
+    expect(vm.relatedRanks).toEqual([5, 6])
+  })
+
+  it('leaves relatedRanks unset for an empty rank list on any kind', () => {
+    expect(toVm(zhihuEntry({ related_display_ranks: [] })).relatedRanks).toBeUndefined()
+    expect(toVm(openRouterEntry({ related_display_ranks: [] })).relatedRanks).toBeUndefined()
+  })
+})
+
+describe('entry language', () => {
+  it('carries the saved output language and keeps legacy Juya and Zhihu rows Chinese', () => {
+    expect(toVm(zhihuEntry({ output_language: 'en' })).lang).toBe('en')
+    expect(toVm(zhihuEntry({ output_language: 'zh-CN' })).lang).toBe('zh-CN')
+    expect(toVm(zhihuEntry({ output_language: null })).lang).toBe('zh-CN')
+    expect(
+      toVm({ ...zhihuEntry({ output_language: null }), source_kind: 'bilibili' }).lang,
+    ).toBe('en')
+  })
+})
+
+describe('entry metadata language', () => {
+  it('localizes the GitHub meta line, OpenRouter spec labels, and the free badge', () => {
+    expect(
+      githubMeta(
+        { language: 'Rust', stars: 13659, stars_today: 2503 } as GitHubDigestEntryView,
+        'zh-CN',
+      ),
+    ).toBe('Rust · 13,659 ★ · 今日 +2,503')
+
+    const spec = openRouterSpec(
+      {
+        context_length: 128000,
+        prompt_price_per_million: '1',
+        completion_price_per_million: '2',
+      } as OpenRouterDigestEntryView,
+      'zh-CN',
+    )
+    expect(spec?.map((field) => field.label)).toEqual([
+      '上下文',
+      '输入 / 每百万 tokens',
+      '输出 / 每百万 tokens',
+    ])
+
+    const badge = toVm({
+      ...zhihuEntry({ output_language: 'zh-CN' }),
+      source_kind: 'openrouter',
+      free_token_pricing: true,
+    } as unknown as DigestEntryView).badge
+    expect(badge).toBe('免费 token 定价')
   })
 })

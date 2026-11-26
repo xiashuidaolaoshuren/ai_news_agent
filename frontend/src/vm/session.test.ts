@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { MessageOut, SessionOut } from '@/api/generated/types.gen'
+import type { DigestEntryView, MessageOut, SessionOut } from '@/api/generated/types.gen'
 import {
   groupSessions,
   summarizeRequest,
@@ -142,6 +142,58 @@ describe('toMessageVm kinds', () => {
     expect(vm.digest?.warnings).toEqual([
       { source: 'zhihu', label: 'Zhihu', code: 'no_items', message: 'No items.' },
     ])
+  })
+})
+
+describe('toMessages digest tally', () => {
+  function digestEntry(kind: 'juya' | 'huggingface', rank: number): DigestEntryView {
+    return {
+      source_kind: kind as DigestEntryView['source_kind'],
+      source_id: `${kind}-${rank}`,
+      title: `${kind} item ${rank}`,
+      source_name: kind,
+      source_url: `https://example.com/${rank}`,
+      summary: 's',
+      why_it_matters: 'w',
+      background_knowledge: 'b',
+      display_rank: rank,
+      follow_up_action: 'read' as const,
+    }
+  }
+
+  it('counts the sources the question asked for, and names the empty one', () => {
+    const vms = toMessages([
+      message({
+        id: 1,
+        sequence: 1,
+        request: {
+          sources: ['juya', 'huggingface', 'openrouter'],
+          per_source: null,
+          counts: {},
+          timeframe: null,
+          windows: {},
+          topics: [],
+          language: null,
+          audience: null,
+        },
+      }),
+      message({
+        id: 2,
+        sequence: 2,
+        role: 'assistant',
+        run_id: 1,
+        digest_id: 15,
+        digest: {
+          generated_at: '2026-10-01T20:04:00Z',
+          entries: [digestEntry('juya', 1), digestEntry('huggingface', 2)],
+        },
+      }),
+    ])
+
+    const digest = vms[1]!.digest
+    expect(digest?.sourcesTotal).toBe(3)
+    expect(digest?.sourcesReturned).toBe(2)
+    expect(digest?.warnings.map((warning) => warning.source)).toEqual(['openrouter'])
   })
 })
 
@@ -345,6 +397,105 @@ describe('resolved request chips', () => {
   })
 })
 
+describe('deep-dive related ranks', () => {
+  const DIGEST_ENTRY = {
+    source_kind: 'github',
+    source_id: 'gh:qwen-agent',
+    title: 'Qwen/Qwen-Agent',
+    source_name: 'GitHub',
+    source_url: 'https://github.com/Qwen/Qwen-Agent',
+    summary: 'An agent framework.',
+    why_it_matters: 'It is the same model family as the model listing.',
+    display_rank: 3,
+    follow_up_action: 'try',
+    confidence_caveat: null,
+    related_display_ranks: [5],
+  }
+
+  function transcript(action: 'deep_dive' | 'ask' = 'deep_dive', related = [5]) {
+    return toMessages([
+      message({
+        id: 1,
+        sequence: 1,
+        role: 'assistant',
+        content: '',
+        digest_id: 15,
+        digest: {
+          generated_at: '2026-10-01T20:04:00Z',
+          entries: [{ ...DIGEST_ENTRY, related_display_ranks: related }],
+        },
+      } as Partial<MessageOut>),
+      message({
+        id: 2,
+        sequence: 2,
+        content: 'Deep dive on Qwen-Agent',
+        followup_action: action,
+        followup_target: { digest_id: 15, display_rank: 3 },
+      }),
+      message({
+        id: 3,
+        sequence: 3,
+        role: 'assistant',
+        content: 'It wraps tool calls.',
+      }),
+    ])
+  }
+
+  it('carries the target entry ranks on the deep-dive reply', () => {
+    const [, , reply] = transcript()
+
+    expect(reply?.relatedRanks).toEqual([5])
+  })
+
+  it('carries no ranks on an ask reply', () => {
+    const [, , reply] = transcript('ask')
+
+    expect(reply?.relatedRanks).toBeUndefined()
+  })
+
+  it('carries no ranks when the target entry has none', () => {
+    const [, , reply] = transcript('deep_dive', [])
+
+    expect(reply?.relatedRanks).toBeUndefined()
+  })
+
+  it('uses the ranks the message carries when the target digest is off-page', () => {
+    const [, reply] = toMessages([
+      message({
+        id: 2,
+        sequence: 2,
+        content: 'Deep dive on something older',
+        followup_action: 'deep_dive',
+        followup_target: { digest_id: 99, display_rank: 3 },
+      }),
+      message({
+        id: 3,
+        sequence: 3,
+        role: 'assistant',
+        content: 'It wraps tool calls.',
+        followup_related_display_ranks: [2],
+      }),
+    ])
+
+    expect(reply?.relatedRanks).toEqual([2])
+  })
+
+  it('carries no ranks when the target digest is not in the transcript', () => {
+    const [, , reply] = toMessages([
+      message({
+        id: 2,
+        sequence: 2,
+        content: 'Deep dive on something older',
+        followup_action: 'deep_dive',
+        followup_target: { digest_id: 99, display_rank: 3 },
+      }),
+      message({ id: 3, sequence: 3, role: 'assistant', content: 'It wraps tool calls.' }),
+    ])
+
+    expect(reply?.relatedRanks).toBeUndefined()
+  })
+})
+
 describe('collection outcomes', () => {
   it('maps a finished empty collect to no eligible results', () => {
     const [user, assistant] = toMessages([
@@ -469,6 +620,41 @@ describe('collection outcomes', () => {
     expect(withoutRequest?.repeat).toBeUndefined()
   })
 
+  it('adds the effective window from a saved window_widened warning to the summary', () => {
+    const stored = {
+      sources: ['openrouter'],
+      per_source: 5,
+      timeframe: 'today',
+      windows: { openrouter: 'today' },
+      topics: [],
+      language: null,
+      audience: null,
+    }
+    const digestWith = (detail: string | null) =>
+      message({
+        id: 8,
+        sequence: 2,
+        role: 'assistant',
+        content: '',
+        run_id: 4,
+        digest_id: 15,
+        digest: { generated_at: '2026-10-01T20:04:00Z', entries: [] },
+        collection_outcome: 'results',
+        warnings: [
+          { connector: 'openrouter', code: 'window_widened', message: 'widened', detail },
+        ],
+      })
+    const user = message({ id: 7, content: 'Digest today', request: stored })
+    const [, widened] = toMessages([
+      user,
+      digestWith('{"requested_timeframe":"today","effective_timeframe":"last_7_days"}'),
+    ])
+    const [, malformed] = toMessages([user, digestWith('not json')])
+
+    expect(widened?.repeat?.summary).toBe('OpenRouter · 5 per source · today → last 7 days')
+    expect(malformed?.repeat?.summary).toBe('OpenRouter · 5 per source · today')
+  })
+
   it('summarizes a stored request the way the prototype does', () => {
     expect(
       summarizeRequest({
@@ -513,5 +699,152 @@ describe('collection outcomes', () => {
         audience: null,
       }),
     ).toBe('Juya · all stories')
+  })
+})
+
+describe('summarizeRequest language', () => {
+  it('writes the request summary in Chinese', () => {
+    expect(
+      summarizeRequest(
+        {
+          sources: ['juya', 'github'],
+          per_source: 2,
+          timeframe: 'this_week',
+          topics: [],
+          language: 'zh-CN',
+          audience: null,
+        },
+        'zh-CN',
+      ),
+    ).toBe('Juya、GitHub · 每个来源 2 条 · 本周 · 中文')
+    expect(
+      summarizeRequest(
+        {
+          sources: ['juya', 'github', 'huggingface'],
+          per_source: null,
+          counts: { juya: '2 of 5', github: '3 of 5', huggingface: 'all' },
+          timeframe: 'today',
+          topics: [],
+          language: null,
+          audience: null,
+        },
+        'zh-CN',
+      ),
+    ).toBe('Juya、GitHub、Hugging Face · 2/5, 3/5, 全部 · 今天')
+  })
+
+  it('names known timeframes in English instead of their raw token', () => {
+    expect(
+      summarizeRequest({
+        sources: ['github'],
+        per_source: 5,
+        timeframe: 'this_week',
+        topics: [],
+        language: null,
+        audience: null,
+      }),
+    ).toBe('GitHub · 5 per source · this week')
+  })
+})
+
+describe('summarizeRequest per-source windows', () => {
+  it('names each source window when they differ', () => {
+    expect(
+      summarizeRequest({
+        sources: ['juya', 'openrouter'],
+        per_source: 5,
+        counts: {},
+        timeframe: null,
+        windows: { juya: '', openrouter: 'last_7_days' },
+        topics: [],
+        language: 'en',
+        audience: null,
+      }),
+    ).toBe('Juya, OpenRouter · 5 per source · OpenRouter: last 7 days · English')
+  })
+
+  it('prints one window without a source prefix when every source agrees', () => {
+    expect(
+      summarizeRequest({
+        sources: ['openrouter'],
+        per_source: 5,
+        counts: {},
+        timeframe: null,
+        windows: { openrouter: 'last_7_days' },
+        topics: [],
+        language: null,
+        audience: null,
+      }),
+    ).toBe('OpenRouter · 5 per source · last 7 days')
+  })
+
+  it('writes per-source windows in Chinese', () => {
+    expect(
+      summarizeRequest(
+        {
+          sources: ['juya', 'openrouter'],
+          per_source: 5,
+          counts: {},
+          timeframe: null,
+          windows: { juya: '', openrouter: 'last_7_days' },
+          topics: [],
+          language: 'en',
+          audience: null,
+        },
+        'zh-CN',
+      ),
+    ).toBe('Juya、OpenRouter · 每个来源 5 条 · OpenRouter：近 7 天 · 英文')
+  })
+
+  it('keeps the shared timeframe as one label', () => {
+    expect(
+      summarizeRequest({
+        sources: ['juya', 'openrouter'],
+        per_source: 5,
+        counts: {},
+        timeframe: 'last_7_days',
+        windows: { juya: 'last_7_days', openrouter: 'last_7_days' },
+        topics: [],
+        language: null,
+        audience: null,
+      }),
+    ).toBe('Juya, OpenRouter · 5 per source · last 7 days')
+  })
+
+  it('shows requested and effective windows for a widened source', () => {
+    const request = {
+      sources: ['juya', 'openrouter'],
+      per_source: 5,
+      counts: {},
+      timeframe: 'today',
+      windows: { juya: 'today', openrouter: 'today' },
+      topics: [],
+      language: null,
+      audience: null,
+    }
+
+    expect(summarizeRequest(request, 'en', { openrouter: 'last_7_days' })).toBe(
+      'Juya, OpenRouter · 5 per source · Juya: today · OpenRouter: today → last 7 days',
+    )
+    expect(
+      summarizeRequest({ ...request, sources: ['openrouter'] }, 'en', {
+        openrouter: 'last_7_days',
+      }),
+    ).toBe('OpenRouter · 5 per source · today → last 7 days')
+  })
+
+  it('prints nothing extra when the request carries no windows', () => {
+    expect(
+      summarizeRequest({
+        sources: ['juya', 'openrouter'],
+        per_source: 5,
+        counts: {},
+        timeframe: null,
+        windows: { juya: '', openrouter: '' },
+        topics: [],
+        language: null,
+        audience: null,
+      }),
+    ).toBe('Juya, OpenRouter · 5 per source')
   })
 })

@@ -51,6 +51,13 @@ export interface MessagePage {
   nextCursor: string | null
 }
 
+/** What one older-page request did, shared by every caller that awaited it. */
+export type OlderPageResult =
+  | { status: 'loaded'; requestedCursor: string; nextCursor: string | null }
+  | { status: 'exhausted' }
+  | { status: 'failed' }
+  | { status: 'stale' }
+
 /** Server calls and ambient services the thread store needs, injected for tests. */
 export interface ThreadDeps {
   loadMessages(sessionId: string, cursor?: string | null): Promise<MessagePage>
@@ -135,6 +142,9 @@ export function createThreadController(deps: ThreadDeps) {
   /** True only while the transcript for a newly opened conversation is loading. */
   const opening = ref(false)
   const loadingOlder = ref(false)
+  /** Changes when loaded rows and their paging cursor are replaced or discarded. */
+  const transcriptGeneration = ref(0)
+  let olderPage: Promise<OlderPageResult> | null = null
   /** The cursor for the page before the oldest row on screen, or null at the start. */
   const nextCursor = ref<string | null>(null)
   const loadError = ref<string | null>(null)
@@ -267,7 +277,8 @@ export function createThreadController(deps: ThreadDeps) {
           digest: next.digest.digest,
           digestId: next.digest.digest_id,
           warnings: next.digest.warnings,
-          connectorNames: session.value?.connector_names ?? null,
+          // What this run asked for; the stored session preference may differ.
+          connectorNames: next.request?.sources ?? null,
         })
       }
       if (next.progress.length > progressTimes.value.length) {
@@ -473,15 +484,23 @@ export function createThreadController(deps: ThreadDeps) {
     sessionId: string,
     options: { markFresh?: boolean; opening?: boolean } = {},
   ): Promise<void> {
+    if (session.value?.id !== sessionId) {
+      return
+    }
+    const generation = ++transcriptGeneration.value
+    olderPage = null
     loading.value = true
+    // Block paging (and disable the manual button) while replacing the cursor.
+    loadingOlder.value = true
     if (options.opening === true) {
       opening.value = true
     }
     loadError.value = null
     try {
       const page = await deps.loadMessages(sessionId)
-      // The user may have opened another conversation while this was in flight.
-      if ((session.value?.id ?? null) !== sessionId) {
+      // The user may have opened another conversation, or reloaded this one, while
+      // this page was in flight. Either one owns the transcript now.
+      if ((session.value?.id ?? null) !== sessionId || generation !== transcriptGeneration.value) {
         return
       }
       rawMessages.value = mergeRawMessages([], page.messages)
@@ -496,14 +515,15 @@ export function createThreadController(deps: ThreadDeps) {
               .map((message) => message.id)
           : []
     } catch (caught) {
-      if ((session.value?.id ?? null) === sessionId) {
+      if ((session.value?.id ?? null) === sessionId && generation === transcriptGeneration.value) {
         loadError.value =
           caught instanceof Error ? caught.message : 'Failed to load this conversation'
       }
     } finally {
-      loading.value = false
-      if (options.opening === true) {
+      if (generation === transcriptGeneration.value) {
+        loading.value = false
         opening.value = false
+        loadingOlder.value = false
       }
     }
   }
@@ -511,31 +531,56 @@ export function createThreadController(deps: ThreadDeps) {
   /**
    * Load the page before the oldest row on screen and put it in front. Rows the
    * transcript already carries are dropped, since a page boundary can repeat one.
+   * A caller that arrives while that page is already in flight gets the same result.
    */
-  async function loadOlder(): Promise<void> {
+  function loadOlder(): Promise<OlderPageResult> {
+    if (loading.value) {
+      return Promise.resolve({ status: 'stale' })
+    }
+    if (olderPage !== null) {
+      return olderPage
+    }
     const cursor = nextCursor.value
     const sessionId = session.value?.id
-    if (cursor === null || sessionId === undefined || loadingOlder.value) {
-      return
+    if (cursor === null || sessionId === undefined) {
+      return Promise.resolve({ status: 'exhausted' })
     }
+    const generation = transcriptGeneration.value
     loadingOlder.value = true
+    olderPage = fetchOlderPage(sessionId, cursor, generation).finally(() => {
+      if (generation === transcriptGeneration.value) {
+        olderPage = null
+        loadingOlder.value = false
+      }
+    })
+    return olderPage
+  }
+
+  async function fetchOlderPage(
+    sessionId: string,
+    cursor: string,
+    generation: number,
+  ): Promise<OlderPageResult> {
     try {
       const page = await deps.loadMessages(sessionId, cursor)
-      if ((session.value?.id ?? null) !== sessionId) {
-        return
+      if ((session.value?.id ?? null) !== sessionId || generation !== transcriptGeneration.value) {
+        return { status: 'stale' }
       }
       nextCursor.value = page.nextCursor
       const known = new Set(rawMessages.value.map((message) => message.id))
       const olderRaw = page.messages.filter((message) => !known.has(message.id))
       rawMessages.value = mergeRawMessages(rawMessages.value, olderRaw)
       messages.value = toMessages(rawMessages.value)
+      loadError.value = null
+      return { status: 'loaded', requestedCursor: cursor, nextCursor: page.nextCursor }
     } catch (caught) {
-      if ((session.value?.id ?? null) === sessionId) {
+      const current =
+        (session.value?.id ?? null) === sessionId && generation === transcriptGeneration.value
+      if (current) {
         loadError.value =
           caught instanceof Error ? caught.message : 'Failed to load this conversation'
       }
-    } finally {
-      loadingOlder.value = false
+      return current ? { status: 'failed' } : { status: 'stale' }
     }
   }
 
@@ -563,6 +608,11 @@ export function createThreadController(deps: ThreadDeps) {
     // gone with it; its transcript reloads from the server on its own.
     holding.value = false
     if (next === null) {
+      transcriptGeneration.value += 1
+      olderPage = null
+      loading.value = false
+      loadingOlder.value = false
+      opening.value = false
       return
     }
     await loadMessages(next.id, { opening: true })
@@ -665,6 +715,7 @@ export function createThreadController(deps: ThreadDeps) {
     opening,
     loadingOlder,
     nextCursor,
+    transcriptGeneration,
     loadError,
     session,
     draft,

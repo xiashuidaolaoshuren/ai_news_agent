@@ -1,21 +1,8 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import KeysPanel from '@/components/settings/KeysPanel.vue'
 import type { KeysVm } from '@/vm/settings'
-
-/** The hidden-source flag is read at render time, so a test can flip it. */
-const flags = vi.hoisted(() => ({ showBilibili: false }))
-
-vi.mock('@/lib/features', () => ({
-  get SHOW_BILIBILI() {
-    return flags.showBilibili
-  },
-}))
-
-afterEach(() => {
-  flags.showBilibili = false
-})
 
 function keysVm(overrides: Partial<KeysVm> = {}): KeysVm {
   return {
@@ -65,7 +52,7 @@ describe('KeysPanel', () => {
     expect(inputs.every((input) => (input.element as HTMLInputElement).value === '')).toBe(true)
   })
 
-  it('disables every write in read-only mode and explains the missing secret key', () => {
+  it('disables every write in read-only mode and explains the missing key', () => {
     const wrapper = mount(KeysPanel, {
       props: { vm: keysVm({ readOnly: true }) },
     })
@@ -80,8 +67,60 @@ describe('KeysPanel', () => {
     expect(
       wrapper
         .findAll('button')
-        .filter((button) => /Save|Test connection/.test(button.text()))
+        .filter((button) => /^Save/.test(button.text()))
         .every((button) => (button.element as HTMLButtonElement).disabled),
+    ).toBe(true)
+  })
+
+  it('tests configured readable credentials while writes are locked', async () => {
+    const wrapper = mount(KeysPanel, {
+      props: { vm: keysVm({ readOnly: true }) },
+    })
+
+    const ghTest = wrapper.get('[data-od-id="test-GITHUB_TOKEN"]')
+    expect((ghTest.element as HTMLButtonElement).disabled).toBe(false)
+    await ghTest.trigger('click')
+    expect(wrapper.emitted('test')).toEqual([['GITHUB_TOKEN']])
+
+    expect(
+      (wrapper.get('[data-od-id="test-HUGGINGFACE_TOKEN"]').element as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect(
+      (wrapper.get('[data-od-id="test-llm"]').element as HTMLButtonElement).disabled,
+    ).toBe(false)
+    expect(wrapper.text()).toContain('<database>.key')
+    expect(wrapper.text()).toContain('AI_NEWS_AGENT_SECRET_KEY')
+  })
+
+  it('keeps testing disabled for unreadable or in-flight credentials', () => {
+    const vm = keysVm({ readOnly: true })
+    const unreadable = mount(KeysPanel, {
+      props: {
+        vm: keysVm({
+          readOnly: true,
+          rows: {
+            ...vm.rows,
+            GITHUB_TOKEN: { status: 'bad', last4: null, version: 'v2' },
+            OPENAI_API_KEY: { status: 'none', last4: null, version: null },
+          },
+        }),
+      },
+    })
+    expect(
+      (unreadable.get('[data-od-id="test-GITHUB_TOKEN"]').element as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect(
+      (unreadable.get('[data-od-id="test-llm"]').element as HTMLButtonElement).disabled,
+    ).toBe(true)
+
+    const inFlight = mount(KeysPanel, {
+      props: { vm: keysVm({ testing: 'GITHUB_TOKEN' }) },
+    })
+    expect(
+      (inFlight.get('[data-od-id="test-GITHUB_TOKEN"]').element as HTMLButtonElement)
+        .disabled,
     ).toBe(true)
   })
 
@@ -164,7 +203,6 @@ describe('KeysPanel', () => {
   })
 
   it('saves each source credential on its own and keeps Bilibili editable', async () => {
-    flags.showBilibili = true
     const wrapper = mount(KeysPanel, { props: { vm: keysVm() } })
 
     await wrapper

@@ -137,6 +137,23 @@ def test_huggingface_entry_view_exposes_family_metrics_and_variants() -> None:
     ]
 
 
+def test_extract_huggingface_evidence_cleans_saved_list_text_base_model() -> None:
+    """Saved evidence from before the connector fix holds a Python list repr."""
+    from ai_news_agent.services.digest_views import extract_huggingface_evidence
+
+    assert (
+        extract_huggingface_evidence({"base_model": "['MiniMaxAI/MiniMax-H3']"})["base_model"]
+        == "MiniMaxAI/MiniMax-H3"
+    )
+    assert (
+        extract_huggingface_evidence(
+            {"base_model": "['A/one', 'B/two']"}
+        )["base_model"]
+        == "A/one"
+    )
+    assert extract_huggingface_evidence({"base_model": "[]"})["base_model"] is None
+
+
 def test_extract_huggingface_evidence_projects_base_model() -> None:
     from ai_news_agent.services.digest_views import extract_huggingface_evidence
 
@@ -646,13 +663,19 @@ def test_build_digest_view_related_display_ranks_same_hf_family() -> None:
     base = "Qwen/Qwen3.8-27B"
     hf_a = _huggingface_entry(source_id=f"{base}-A").model_copy(update={"title": "Qwen A"})
     hf_b = _huggingface_entry(source_id=f"{base}-B").model_copy(update={"title": "Qwen B"})
+    hf_matched = _huggingface_entry(source_id="org/match").model_copy(
+        update={"title": "M3.1 8B"}
+    )
+    hf_matched_b = _huggingface_entry(source_id="org/match2").model_copy(
+        update={"title": "M3.1 8B"}
+    )
     hf_other = _huggingface_entry(source_id="Other/Model").model_copy(
         update={"title": "Other model"}
     )
-    gh = _github_entry()
+    gh = _github_entry().model_copy(update={"title": "M3.1 8B", "source_id": "gh/m3"})
     digest = Digest(
         generated_at=_fixture_dt(),
-        entries=[hf_a, hf_b, hf_other, gh],
+        entries=[hf_a, hf_b, hf_matched, hf_matched_b, hf_other, gh],
     )
     news_items = [
         NewsItem(
@@ -683,6 +706,22 @@ def test_build_digest_view_related_display_ranks_same_hf_family() -> None:
             source_evidence={"base_model": "Other/Model"},
         ),
         NewsItem(
+            source=SourceKind.HUGGINGFACE,
+            source_id=hf_matched.source_id,
+            url=hf_matched.source_url,
+            title=hf_matched.title,
+            collected_at=_fixture_dt(),
+            content_confidence=ConfidenceLevel.HIGH,
+        ),
+        NewsItem(
+            source=SourceKind.HUGGINGFACE,
+            source_id=hf_matched_b.source_id,
+            url=hf_matched_b.source_url,
+            title=hf_matched_b.title,
+            collected_at=_fixture_dt(),
+            content_confidence=ConfidenceLevel.HIGH,
+        ),
+        NewsItem(
             source=SourceKind.GITHUB,
             source_id=gh.source_id,
             url=gh.source_url,
@@ -692,17 +731,20 @@ def test_build_digest_view_related_display_ranks_same_hf_family() -> None:
     ]
 
     payload = build_digest_view_payload(digest, news_items=news_items)
-    assert payload["entries"][0]["related_display_ranks"] == [2]
-    assert payload["entries"][1]["related_display_ranks"] == [1]
+    assert payload["entries"][0]["related_display_ranks"] == []
+    assert payload["entries"][1]["related_display_ranks"] == []
+    assert payload["entries"][2]["related_display_ranks"] == [4, 6]
+    assert payload["entries"][3]["related_display_ranks"] == [3, 6]
+    assert payload["entries"][4]["related_display_ranks"] == []
+    assert payload["entries"][5]["related_display_ranks"] == [3, 4]
 
     view = build_digest_view(digest, news_items=news_items)
     assert isinstance(view.entries[0], HuggingFaceDigestEntryView)
-    assert view.entries[0].related_display_ranks == [2]
-    assert view.entries[1].related_display_ranks == [1]
-    assert isinstance(view.entries[2], HuggingFaceDigestEntryView)
-    assert view.entries[2].related_display_ranks == []
-    assert isinstance(view.entries[3], GitHubDigestEntryView)
-    assert "related_display_ranks" not in view.entries[3].model_dump()
+    assert view.entries[0].related_display_ranks == []
+    assert view.entries[1].related_display_ranks == []
+    assert view.entries[2].related_display_ranks == [4, 6]
+    assert isinstance(view.entries[5], GitHubDigestEntryView)
+    assert view.entries[5].related_display_ranks == [3, 4]
 
 
 def test_build_digest_view_payload_exposes_entry_output_language() -> None:
@@ -720,3 +762,205 @@ def test_build_digest_view_payload_exposes_entry_output_language() -> None:
     legacy_digest = Digest(generated_at=_fixture_dt(), entries=[legacy])
     legacy_payload = build_digest_view_payload(legacy_digest)
     assert legacy_payload["entries"][0]["output_language"] is None
+
+
+def _openrouter_entry() -> DigestEntry:
+    return DigestEntry(
+        source_kind=SourceKind.OPENROUTER,
+        source_id="openai/gpt-4o",
+        title="GPT-4o",
+        source_name="OpenRouter",
+        source_url="https://openrouter.ai/openai/gpt-4o",
+        summary="OpenRouter summary.",
+        why_it_matters="Why OpenRouter.",
+        background_knowledge="BG.",
+        follow_up_action=FollowUpAction.TRY,
+    )
+
+
+def test_build_digest_view_wires_openrouter_evidence_via_news_item_lookup() -> None:
+    from ai_news_agent.api.schemas.digests import OpenRouterDigestEntryView, build_digest_view
+
+    or_entry = _openrouter_entry()
+    digest = Digest(generated_at=_fixture_dt(), entries=[or_entry])
+    news_items = [
+        NewsItem(
+            source=SourceKind.OPENROUTER,
+            source_id=or_entry.source_id,
+            url=or_entry.source_url,
+            title=or_entry.title,
+            source_evidence={
+                "context_length": 128000,
+                "prompt_price_per_million": "2.5",
+                "completion_price_per_million": "10",
+                "free_token_pricing": False,
+                "input_modalities": ["text", "image"],
+                "provider": "openai",
+            },
+        )
+    ]
+
+    view = build_digest_view(digest, news_items=news_items)
+    entry = view.entries[0]
+    assert isinstance(entry, OpenRouterDigestEntryView)
+    assert entry.display_rank == 1
+    assert entry.context_length == 128000
+    assert entry.prompt_price_per_million == "2.5"
+    assert entry.completion_price_per_million == "10"
+    assert entry.free_token_pricing is False
+    assert entry.input_modalities == ["text", "image"]
+    assert entry.provider == "openai"
+
+
+def test_extract_openrouter_evidence_known_zero_prices_set_free_token_pricing() -> None:
+    from ai_news_agent.services.digest_views import extract_openrouter_evidence
+
+    assert extract_openrouter_evidence(
+        {
+            "prompt_price_per_million": "0",
+            "completion_price_per_million": "0",
+        }
+    )["free_token_pricing"] is True
+
+
+def test_extract_openrouter_evidence_missing_prices_not_free() -> None:
+    from ai_news_agent.services.digest_views import extract_openrouter_evidence
+
+    out = extract_openrouter_evidence({})
+    assert out["prompt_price_per_million"] is None
+    assert out["completion_price_per_million"] is None
+    assert out["free_token_pricing"] is False
+
+    partial = extract_openrouter_evidence(
+        {"prompt_price_per_million": "0", "free_route_suffix": ":free"}
+    )
+    assert partial["completion_price_per_million"] is None
+    assert partial["free_token_pricing"] is False
+
+
+def test_build_digest_view_openrouter_free_suffix_without_zero_prices() -> None:
+    from ai_news_agent.api.schemas.digests import OpenRouterDigestEntryView, build_digest_view
+
+    or_entry = _openrouter_entry().model_copy(
+        update={"source_id": "meta-llama/llama-3.2-3b-instruct:free"}
+    )
+    digest = Digest(generated_at=_fixture_dt(), entries=[or_entry])
+    news_items = [
+        NewsItem(
+            source=SourceKind.OPENROUTER,
+            source_id=or_entry.source_id,
+            url=or_entry.source_url,
+            title=or_entry.title,
+            source_evidence={
+                "free_route_suffix": ":free",
+                "free_token_pricing": False,
+            },
+        )
+    ]
+    entry = build_digest_view(digest, news_items=news_items).entries[0]
+    assert isinstance(entry, OpenRouterDigestEntryView)
+    assert entry.prompt_price_per_million is None
+    assert entry.completion_price_per_million is None
+    assert entry.free_token_pricing is False
+
+
+def test_build_digest_view_openrouter_tiny_positive_price_is_not_free() -> None:
+    from ai_news_agent.api.schemas.digests import OpenRouterDigestEntryView, build_digest_view
+
+    or_entry = _openrouter_entry()
+    for prompt, completion in (("1e-400", "0"), ("0", "1e-400")):
+        digest = Digest(generated_at=_fixture_dt(), entries=[or_entry])
+        news_items = [
+            NewsItem(
+                source=SourceKind.OPENROUTER,
+                source_id=or_entry.source_id,
+                url=or_entry.source_url,
+                title=or_entry.title,
+                source_evidence={
+                    "prompt_price_per_million": prompt,
+                    "completion_price_per_million": completion,
+                    "free_token_pricing": True,
+                },
+            )
+        ]
+
+        entry = build_digest_view(digest, news_items=news_items).entries[0]
+        assert isinstance(entry, OpenRouterDigestEntryView)
+        assert entry.prompt_price_per_million == prompt
+        assert entry.completion_price_per_million == completion
+        assert entry.free_token_pricing is False
+
+
+def test_build_digest_view_union_validates_all_kinds_plus_openrouter() -> None:
+    from ai_news_agent.api.schemas.digests import (
+        DigestEntryView,
+        GitHubDigestEntryView,
+        HuggingFaceDigestEntryView,
+        JuyaDigestEntryView,
+        OpenRouterDigestEntryView,
+        build_digest_view,
+    )
+
+    zhihu = DigestEntry(
+        source_kind=SourceKind.ZHIHU,
+        source_id="zh-answer-1",
+        title="RAG patterns",
+        source_name="Zhihu",
+        source_url="https://www.zhihu.com/question/1",
+        summary="Zhihu summary.",
+        why_it_matters="Why.",
+        background_knowledge="",
+        follow_up_action=FollowUpAction.READ,
+    )
+    bilibili = DigestEntry(
+        source_kind=SourceKind.BILIBILI,
+        source_id="BV123",
+        title="AI video",
+        source_name="Bilibili",
+        source_url="https://www.bilibili.com/video/BV123",
+        summary="Bili summary.",
+        why_it_matters="Why.",
+        background_knowledge="",
+        follow_up_action=FollowUpAction.WATCH,
+    )
+    digest = Digest(
+        generated_at=_fixture_dt(),
+        entries=[
+            _github_entry(),
+            _huggingface_entry(),
+            _juya_entry(),
+            zhihu,
+            bilibili,
+            _openrouter_entry(),
+        ],
+    )
+    hf = _huggingface_entry()
+    or_ent = _openrouter_entry()
+    news_items = [
+        NewsItem(
+            source=SourceKind.HUGGINGFACE,
+            source_id=hf.source_id,
+            url=hf.source_url,
+            title=hf.title,
+            source_evidence={"base_model": "Qwen/Qwen3.8-27B"},
+        ),
+        NewsItem(
+            source=SourceKind.OPENROUTER,
+            source_id=or_ent.source_id,
+            url=or_ent.source_url,
+            title=or_ent.title,
+            source_evidence={"provider": "openai"},
+        ),
+    ]
+
+    view = build_digest_view(digest, news_items=news_items)
+    assert len(view.entries) == 6
+    assert isinstance(view.entries[0], GitHubDigestEntryView)
+    assert isinstance(view.entries[1], HuggingFaceDigestEntryView)
+    assert view.entries[1].base_model == "Qwen/Qwen3.8-27B"
+    assert isinstance(view.entries[2], JuyaDigestEntryView)
+    assert isinstance(view.entries[3], DigestEntryView)
+    assert view.entries[3].source_kind == SourceKind.ZHIHU
+    assert isinstance(view.entries[4], DigestEntryView)
+    assert view.entries[4].source_kind == SourceKind.BILIBILI
+    assert isinstance(view.entries[5], OpenRouterDigestEntryView)

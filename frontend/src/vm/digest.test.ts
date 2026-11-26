@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import type {
   DigestEntryView,
+  DigestView,
   JuyaDigestEntryView,
   SourceKind,
 } from '@/api/generated/types.gen'
 import { toDigestVm, toSectionsVm, toWarningVm } from '@/vm'
+import { sourceKind } from '@/vm/run'
 
 function entry(kind: SourceKind, rank: number, id?: string): DigestEntryView {
   return {
@@ -75,19 +77,27 @@ describe('toSectionsVm', () => {
       entry('juya', 1),
       entry('github', 2),
       entry('huggingface', 3),
-      entry('zhihu', 4),
+      entry('openrouter', 4),
+      entry('zhihu', 5),
     ])
 
     expect(sections.map((section) => [section.label, section.subtitle])).toEqual([
       ['Juya', '橘鸦 AI 早报'],
       ['GitHub', 'Trending repositories'],
       ['Hugging Face', 'Trending models'],
+      ['OpenRouter', 'Models you can call'],
       ['Zhihu', null],
     ])
   })
 
   it('returns no sections for no entries', () => {
     expect(toSectionsVm([])).toEqual([])
+  })
+
+  it('maps the run-progress connector name for every kind', () => {
+    expect(sourceKind('openrouter')).toBe('openrouter')
+    expect(sourceKind('bilibili')).toBe('bilibili')
+    expect(sourceKind('unknown-source')).toBeNull()
   })
 })
 
@@ -278,7 +288,64 @@ describe('toDigestVm', () => {
     expect(toDigestVm({ digest }).ref).toBeNull()
   })
 
-  it('counts sources returned against the session selected sources', () => {
+  it('counts a widened OpenRouter window as returned without a no-items warning', () => {
+    const vm = toDigestVm({
+      digest: {
+        generated_at: '2026-10-01T20:04:00Z',
+        entries: [entry('openrouter', 1)],
+      },
+      digestId: 20,
+      connectorNames: ['openrouter'],
+      warnings: [
+        {
+          connector: 'openrouter',
+          code: 'window_widened',
+          message: 'No models matched the requested window; showing matching listings from the last 7 days instead.',
+        },
+      ],
+    })
+
+    expect(vm.sourcesReturned).toBe(1)
+    expect(vm.sourcesTotal).toBe(1)
+    expect(vm.warnings.map((warning) => warning.code)).toEqual(['window_widened'])
+  })
+
+  it('announces a requested source that returned nothing', () => {
+    const vm = toDigestVm({
+      digest: {
+        generated_at: '2026-10-01T20:04:00Z',
+        entries: [entry('juya', 1), entry('huggingface', 2)],
+      },
+      digestId: 15,
+      connectorNames: ['juya', 'huggingface', 'openrouter'],
+    })
+
+    expect(vm.warnings).toEqual([
+      {
+        source: 'openrouter',
+        label: 'OpenRouter',
+        code: 'no_items',
+        message:
+          'Connector returned no items for this request. Other sources completed normally.',
+      },
+    ])
+    expect(vm.sourcesReturned).toBe(2)
+    expect(vm.sourcesTotal).toBe(3)
+  })
+
+  it('keeps the real warnings first and adds the empty ones in request order', () => {
+    const vm = toDigestVm({
+      digest,
+      digestId: 15,
+      connectorNames: ['zhihu', 'openrouter', 'juya'],
+      warnings: [{ connector: 'zhihu', code: 'timeout', message: 'Request timed out.' }],
+    })
+
+    expect(vm.warnings.map((warning) => warning.source)).toEqual(['zhihu', 'openrouter'])
+    expect(vm.warnings[1]?.code).toBe('no_items')
+  })
+
+  it('counts sources returned against the requested sources', () => {
     const vm = toDigestVm({
       digest,
       digestId: 15,
@@ -340,5 +407,41 @@ describe('toWarningVm', () => {
     expect(
       toWarningVm({ connector: 'mystery', code: 'x', message: 'Something happened.' }),
     ).toMatchObject({ source: 'mystery', label: 'mystery' })
+  })
+})
+
+describe('digest language', () => {
+  it('localizes section subtitles, the digest language, and the no-items notice', () => {
+    const vm = toDigestVm({
+      digest: {
+        generated_at: '2026-10-01T20:04:00Z',
+        entries: [{ ...entry('huggingface', 1), output_language: 'zh-CN' }],
+      } as DigestView,
+      connectorNames: ['huggingface', 'github'],
+    })
+
+    expect(vm.lang).toBe('zh-CN')
+    expect(vm.sections[0]?.lang).toBe('zh-CN')
+    expect(vm.sections[0]?.subtitle).toBe('热门模型')
+    expect(vm.warnings).toEqual([
+      expect.objectContaining({
+        source: 'github',
+        message: '本次请求没有返回条目，其他来源已正常完成。',
+      }),
+    ])
+  })
+
+  it('keeps English chrome when any entry is English', () => {
+    const vm = toDigestVm({
+      digest: {
+        generated_at: '2026-10-01T20:04:00Z',
+        entries: [
+          { ...entry('juya', 1), output_language: 'zh-CN' },
+          { ...entry('github', 2), output_language: 'en' },
+        ],
+      } as DigestView,
+    })
+
+    expect(vm.lang).toBe('en')
   })
 })

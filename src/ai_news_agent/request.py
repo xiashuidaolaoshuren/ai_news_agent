@@ -65,6 +65,8 @@ class DigestRequest:
     strict_timeframe: bool = False
     #: Explanation audience (``beginner``) applied when summarizing entries.
     audience: str | None = None
+    #: OpenRouter listing: keep only models with zero prompt and completion pricing.
+    free_only: bool = False
 
     def __post_init__(self) -> None:
         if self.max_items_per_source < 1:

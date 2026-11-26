@@ -25,6 +25,7 @@ _BILIBILI_BASE = 0.88
 _JUYA_BASE = 1.05
 _HUGGINGFACE_BASE = 0.95
 _ZHIHU_BASE = 0.90
+_OPENROUTER_BASE = 0.95
 _MAX_ENGAGEMENT_REF = 50_000.0
 
 
@@ -347,6 +348,7 @@ def find_newest_in_window_bilibili_candidate(
 _FALLBACK_KIND_ORDER: tuple[SourceKind, ...] = (
     SourceKind.JUYA,
     SourceKind.HUGGINGFACE,
+    SourceKind.OPENROUTER,
     SourceKind.GITHUB,
     SourceKind.ZHIHU,
     SourceKind.BILIBILI,
@@ -364,7 +366,8 @@ def order_selected_for_digest(
 
     Single-kind digests keep relevance order with newest-in-window Bilibili first
     when a timeframe is set. Mixed digests group by source section: primary intent
-    first, otherwise Juya → GitHub → Bilibili, omitting empty kinds.
+    first, otherwise Juya → Hugging Face → OpenRouter → GitHub → Zhihu →
+    Bilibili, omitting empty kinds.
     """
     selected = [r for r in ranked_items if r.selected]
     if not selected:
@@ -594,6 +597,10 @@ def _score_item(item: NewsItem, reference: datetime) -> tuple[dict[str, float], 
     elif item.source is SourceKind.JUYA:
         bulletin = 1.0 if item.raw_snippet and str(item.raw_snippet).strip() else 0.4
         bd["bulletin"] = round(bulletin * _W_ENGAGEMENT, 6)
+    elif item.source is SourceKind.OPENROUTER:
+        ev = item.source_evidence or {}
+        if ev.get("free_token_pricing"):
+            bd["free_token_pricing"] = 0.15
     else:
         bd["engagement"] = round(eng * _W_ENGAGEMENT, 6)
     bd["confidence_adj"] = round(conf * _W_CONFIDENCE, 6)
@@ -613,6 +620,8 @@ def _source_base(source: SourceKind) -> float:
         return _HUGGINGFACE_BASE
     if source is SourceKind.ZHIHU:
         return _ZHIHU_BASE
+    if source is SourceKind.OPENROUTER:
+        return _OPENROUTER_BASE
     return _BILIBILI_BASE
 
 

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import AppIcon from '@/components/ui/AppIcon.vue'
 import { sourceLabel } from '@/vm/digest'
 import type { CollectionVm, RepeatVm } from '@/vm/session'
@@ -13,6 +15,15 @@ const emit = defineEmits<{ repeat: [payload: RepeatVm] }>()
 const source = props.collection.failedSource
 const label = source === null ? 'a source' : sourceLabel(source)
 
+/** The reason as its own sentence: connector messages vary in whether they end with a stop. */
+const reasonText = computed(() => {
+  const reason = (props.collection.reason ?? '').trim()
+  if (reason === '' || /[.!?。]$/.test(reason)) {
+    return reason
+  }
+  return `${reason}.`
+})
+
 function retry(): void {
   if (props.repeat !== null) {
     emit('repeat', props.repeat)
@@ -25,7 +36,7 @@ function retry(): void {
     <AppIcon name="alert" />
     <p>
       <b>Couldn’t collect from {{ label }}.</b>
-      {{ props.collection.reason }} No stories were checked, so this isn’t a “no news” result.
+      {{ reasonText }} No stories were checked, so this isn’t a “no news” result.
     </p>
     <button
       v-if="props.repeat"

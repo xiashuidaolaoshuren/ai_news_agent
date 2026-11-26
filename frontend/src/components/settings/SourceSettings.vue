@@ -4,6 +4,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import SourceLogo from '@/components/thread/SourceLogo.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import type { OutputLanguage } from '@/stores/settings'
+import type { EntryKind } from '@/vm'
 import type { SourceProfileVm } from '@/vm/settings'
 
 type SourceName = SourceProfileVm['name']
@@ -60,9 +61,10 @@ const ordered = computed(() =>
 )
 
 /** Only the sources the app has artwork for get a head tile. */
-const LOGO_KINDS: Partial<Record<SourceName, 'juya' | 'huggingface' | 'github' | 'zhihu' | 'bilibili'>> = {
+const LOGO_KINDS: Partial<Record<SourceName, EntryKind>> = {
   juya: 'juya',
   huggingface: 'huggingface',
+  openrouter: 'openrouter',
   github: 'github',
   zhihu: 'zhihu',
   bilibili: 'bilibili',

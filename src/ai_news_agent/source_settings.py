@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,16 +107,36 @@ class SourceSettingsValidationError(SourceSettingsError):
         self.message = message
 
 
+#: Canonical discovery order (`GET /sources`), per the source-visibility spec.
 SOURCE_CATALOG_ORDER: tuple[str, ...] = (
     "juya",
-    "github",
     "huggingface",
     "openrouter",
+    "github",
     "zhihu",
     "bilibili",
 )
 
-HIDDEN_SOURCES: frozenset[str] = frozenset({"bilibili"})
+_HIDDEN_SOURCES_ENV = "AI_NEWS_AGENT_HIDDEN_SOURCES"
+_DEFAULT_HIDDEN: frozenset[str] = frozenset({"bilibili"})
+
+
+def hidden_source_names() -> frozenset[str]:
+    """Names hidden from discovery; read from the environment on each call."""
+    raw = os.environ.get(_HIDDEN_SOURCES_ENV)
+    if raw is None:
+        return _DEFAULT_HIDDEN
+    stripped = raw.strip()
+    if not stripped:
+        return frozenset()
+    from ai_news_agent.sources import ALLOWED_SOURCES
+
+    names: set[str] = set()
+    for part in stripped.split(","):
+        name = part.strip().lower()
+        if name and name in ALLOWED_SOURCES:
+            names.add(name)
+    return frozenset(names)
 
 DEFAULT_ITEM_COUNT: int | Literal["all"] = 5
 
@@ -223,7 +244,7 @@ _PROFILE_MODELS: dict[str, type[BaseModel]] = {
 def _profile_to_dict(name: str, model: BaseModel) -> dict[str, Any]:
     payload = model.model_dump()
     payload["name"] = name
-    payload["hidden"] = name in HIDDEN_SOURCES
+    payload["hidden"] = name in hidden_source_names()
     return payload
 
 
@@ -395,6 +416,15 @@ class SourceSettingsService:
         ):
             hf_pipeline = profiles["huggingface"].pipeline_tag
 
+        free_only = request.free_only
+        if (
+            "openrouter" in sources
+            and not free_only
+            and isinstance(profiles["openrouter"], OpenRouterProfile)
+            and profiles["openrouter"].free_only
+        ):
+            free_only = True
+
         juya_item_mode = request.juya_item_mode
         if juya_all:
             juya_item_mode = "stories"
@@ -410,6 +440,7 @@ class SourceSettingsService:
             github_language=github_language,
             huggingface_pipeline_tag=hf_pipeline,
             output_language=output_language,
+            free_only=free_only,
         )
 
 
@@ -519,7 +550,7 @@ def _message_has_no_topic(request: DigestRequest) -> bool:
 
 __all__ = [
     "DEFAULT_ITEM_COUNT",
-    "HIDDEN_SOURCES",
+    "hidden_source_names",
     "OutputLanguagePreference",
     "SOURCE_CATALOG_ORDER",
     "SourceSettingsService",

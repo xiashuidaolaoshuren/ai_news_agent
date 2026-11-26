@@ -88,3 +88,21 @@ describe('HfTable', () => {
     expect(wrapper.get('.table-note').text()).toContain('—')
   })
 })
+
+describe('HfTable language', () => {
+  it('uses Chinese headers and actions for zh-CN entries and keeps pipeline tags raw', () => {
+    const wrapper = mount(HfTable, {
+      props: {
+        entries: [{ ...withVariant, lang: 'zh-CN' }, hfEntry({ lang: 'zh-CN' })],
+        digestId: DIGEST_ID,
+      },
+    })
+
+    const headers = wrapper.findAll('th').map((th) => th.text())
+    expect(headers).toEqual(['排名', '模型', '链接', '热度', '30 天下载', '点赞', '任务类型', '变体', '操作'])
+    expect(wrapper.get('[data-od-id="deepdive-hf-3"]').text()).toContain('深入了解')
+    expect(wrapper.get('[data-od-id="followup-hf-3"]').text()).toContain('追问这条')
+    expect(wrapper.text()).toContain('image-text-to-text')
+    expect(wrapper.text()).not.toContain('Deep dive')
+  })
+})

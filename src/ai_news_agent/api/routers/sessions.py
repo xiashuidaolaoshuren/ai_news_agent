@@ -59,6 +59,7 @@ from ai_news_agent.services.chat import (
 )
 from ai_news_agent.services.composition import Application
 from ai_news_agent.services.conversation import request_from_payload
+from ai_news_agent.services.digest_views import build_digest_view_payload
 from ai_news_agent.services.session_search import SessionSearchHit, search_sessions
 from ai_news_agent.services.session_records import (
     MessageRecord,
@@ -326,12 +327,33 @@ def _validate_repeat(
         )
 
 
+def _target_related_ranks(
+    digest_store: DigestStore,
+    target: FollowupTarget,
+    cache: dict[int, dict[int, list[int]]],
+) -> list[int]:
+    """Related ranks of the targeted entry; each digest is loaded once per page."""
+    by_rank = cache.get(target.digest_id)
+    if by_rank is None:
+        by_rank = {}
+        context = digest_store.get_followup_context_for_digest(target.digest_id)
+        if context is not None:
+            payload = build_digest_view_payload(context.digest, news_items=context.news_items)
+            for entry in payload["entries"]:
+                by_rank[int(entry["display_rank"])] = list(
+                    entry.get("related_display_ranks") or []
+                )
+        cache[target.digest_id] = by_rank
+    return list(by_rank.get(target.display_rank, []))
+
+
 def _message_out(
     message: MessageRecord,
     digest_store: DigestStore,
     request: dict[str, Any] | None = None,
     followup: dict[str, Any] | None = None,
     juya_confirmation: dict[str, Any] | None = None,
+    related_cache: dict[int, dict[int, list[int]]] | None = None,
 ) -> MessageOut:
     digest = None
     digest_id = None
@@ -358,6 +380,18 @@ def _message_out(
             followup_target = FollowupTarget(**raw_target)
         if raw_action in ("deep_dive", "ask"):
             followup_action = raw_action
+
+    followup_related: list[int] = []
+    if (
+        message.role == "assistant"
+        and followup_action == "deep_dive"
+        and followup_target is not None
+    ):
+        followup_related = _target_related_ranks(
+            digest_store,
+            followup_target,
+            related_cache if related_cache is not None else {},
+        )
 
     juya_out = None
     if juya_confirmation is not None:
@@ -390,6 +424,7 @@ def _message_out(
         request=ResolvedRequestOut(**request) if request else None,
         followup_target=followup_target,
         followup_action=followup_action,
+        followup_related_display_ranks=followup_related,
         juya_confirmation=juya_out,
         collection_outcome=collection_outcome,
     )
@@ -416,6 +451,7 @@ def _page_messages(
         if len(ordered) > len(page_desc)
         else None
     )
+    related_cache: dict[int, dict[int, list[int]]] = {}
     return MessageListPage(
         messages=[
             _message_out(
@@ -424,6 +460,7 @@ def _page_messages(
                 (requests or {}).get(message.id),
                 (followups or {}).get(message.id),
                 (juya_confirmations or {}).get(message.id),
+                related_cache,
             )
             for message in page
         ],

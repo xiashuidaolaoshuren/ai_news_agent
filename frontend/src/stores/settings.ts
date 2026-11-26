@@ -299,7 +299,18 @@ export function createSettingsController(deps: SettingsDeps) {
     try {
       state.testResults = { ...state.testResults, [name]: await deps.testCredential(name) }
     } catch (error) {
-      refuseWrite(name, error, 'Could not test this credential.')
+      // A refused test says something about this credential, not about whether
+      // settings can be saved. Keep the panel writable and show the reason inline.
+      const reason =
+        error instanceof Error && error.message !== ''
+          ? error.message
+          : 'Could not test this credential.'
+      const unreadable =
+        error instanceof SettingsRequestError && error.status === 409
+      state.testResults = {
+        ...state.testResults,
+        [name]: { result: unreadable ? 'unreadable' : 'error', reason },
+      }
     } finally {
       state.testing = null
     }

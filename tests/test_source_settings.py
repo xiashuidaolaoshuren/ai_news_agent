@@ -366,7 +366,7 @@ def test_source_settings_schema_defaults_and_validation(tmp_path: Path) -> None:
 
     profiles = service.list_profiles()
     names = [profile["name"] for profile in profiles]
-    assert names == ["juya", "github", "huggingface", "openrouter", "zhihu", "bilibili"]
+    assert names == ["juya", "huggingface", "openrouter", "github", "zhihu", "bilibili"]
     juya = next(p for p in profiles if p["name"] == "juya")
     assert juya["item_count"] == 5
     assert juya["hidden"] is False
@@ -390,6 +390,40 @@ def test_source_settings_schema_defaults_and_validation(tmp_path: Path) -> None:
         service.save_profile("bilibili", {"item_count": 5})
     with pytest.raises(UnknownSourceError):
         service.save_profile("nope", {"item_count": 5})
+
+
+def test_hidden_source_names_defaults_to_bilibili_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AI_NEWS_AGENT_HIDDEN_SOURCES", raising=False)
+    from ai_news_agent.source_settings import hidden_source_names
+
+    assert hidden_source_names() == frozenset({"bilibili"})
+
+
+def test_hidden_source_names_empty_env_hides_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_NEWS_AGENT_HIDDEN_SOURCES", "")
+    from ai_news_agent.source_settings import hidden_source_names
+
+    assert hidden_source_names() == frozenset()
+
+
+def test_hidden_source_names_parses_list_and_ignores_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_NEWS_AGENT_HIDDEN_SOURCES", "bilibili, zhihu, nope")
+    from ai_news_agent.source_settings import hidden_source_names
+
+    assert hidden_source_names() == frozenset({"bilibili", "zhihu"})
+
+
+def test_hidden_source_names_reads_env_each_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_news_agent.source_settings import hidden_source_names
+
+    monkeypatch.delenv("AI_NEWS_AGENT_HIDDEN_SOURCES", raising=False)
+    assert hidden_source_names() == frozenset({"bilibili"})
+    monkeypatch.setenv("AI_NEWS_AGENT_HIDDEN_SOURCES", "")
+    assert hidden_source_names() == frozenset()
 
 
 def test_apply_uses_profile_defaults_and_explicit_counts(tmp_path: Path) -> None:
@@ -531,10 +565,10 @@ def test_cli_and_session_service_share_saved_juya_profile(tmp_path: Path) -> Non
     assert web_req.source_item_counts.get("juya") == 8
 
 
-def test_openrouter_profile_is_not_a_connector_name() -> None:
+def test_openrouter_is_an_allowed_connector_name() -> None:
     from ai_news_agent.sources import ALLOWED_SOURCES
 
-    assert "openrouter" not in ALLOWED_SOURCES
+    assert "openrouter" in ALLOWED_SOURCES
 
 
 def test_finalize_public_counts_reports_shortfall() -> None:
@@ -591,6 +625,24 @@ def test_output_language_preference_defaults_and_round_trip(tmp_path: Path) -> N
 
     with pytest.raises(SourceSettingsValidationError):
         service.save_language("fr")
+
+
+def test_apply_sets_free_only_from_openrouter_profile(tmp_path: Path) -> None:
+    from ai_news_agent.request import DigestRequest
+    from ai_news_agent.source_settings import SourceSettingsService
+
+    db_path = tmp_path / "openrouter-free.db"
+    DigestStore(db_path).init_schema()
+    service = SourceSettingsService(db_path)
+    service.save_profile("openrouter", {"item_count": 5, "free_only": True})
+
+    applied = service.apply(DigestRequest(connector_names=["openrouter"]))
+    assert applied.free_only is True
+
+    already_true = service.apply(
+        DigestRequest(connector_names=["openrouter"], free_only=True)
+    )
+    assert already_true.free_only is True
 
 
 def test_apply_merges_saved_output_language_when_request_unset(tmp_path: Path) -> None:

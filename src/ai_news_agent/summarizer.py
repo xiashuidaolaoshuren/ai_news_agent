@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from ai_news_agent import card_labels
 from ai_news_agent.models import (
     ConfidenceLevel,
     Digest,
@@ -191,40 +192,32 @@ def _build_digest_entry(
     language: str | None = None,
 ) -> DigestEntry:
     fu = _normalize_follow_action(raw.get("follow_up_action"))
+    lang = card_labels.card_lang(language)
     caveat: str | None = None
 
     if fu is FollowUpAction.READ and raw.get("follow_up_action") not in (None, "", "read", "READ"):
-        caveat = (
-            _append_caveat(
-                caveat,
-                f'Unrecognized follow_up_action={raw.get("follow_up_action")!r}; defaulted to read.',
-            )
+        caveat = _append_caveat(
+            caveat,
+            card_labels.text(
+                lang, "unrecognized_follow_up", value=repr(raw.get("follow_up_action"))
+            ),
         )
 
     if item.content_confidence is ConfidenceLevel.LOW:
-        caveat = _append_caveat(
-            caveat,
-            "Source metadata is limited or low-confidence; summaries may omit unavailable details.",
-        )
+        caveat = _append_caveat(caveat, card_labels.text(lang, "low_confidence"))
 
     snippet = item.raw_snippet
     if snippet is None or not str(snippet).strip():
-        caveat = _append_caveat(caveat, "No excerpt/snippet available; summary is metadata-only.")
+        caveat = _append_caveat(caveat, card_labels.text(lang, "no_snippet"))
 
     if item.source is SourceKind.HUGGINGFACE:
-        caveat = _append_caveat(
-            caveat,
-            "Hub trending reflects popularity, not model quality or fitness for your use case.",
-        )
+        caveat = _append_caveat(caveat, card_labels.text(lang, "hf_popularity"))
 
     if item.source is SourceKind.ZHIHU:
         ev = item.source_evidence or {}
         text_len = int(ev.get("evidence_text_length") or 0)
         if item.content_confidence is ConfidenceLevel.LOW or text_len < 80:
-            caveat = _append_caveat(
-                caveat,
-                "Zhihu result is discovery-only; thin evidence may limit summary depth.",
-            )
+            caveat = _append_caveat(caveat, card_labels.text(lang, "zhihu_discovery"))
 
     return DigestEntry(
         source_kind=item.source,

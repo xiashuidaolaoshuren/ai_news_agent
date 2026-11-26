@@ -351,6 +351,14 @@ def test_parse_request_node_maps_huggingface_fields() -> None:
     assert cr.huggingface_pipeline_tag == "text-generation"
 
 
+def test_parse_request_node_maps_free_only_and_null_timeframe() -> None:
+    req = DigestRequest(topics=["AI"], free_only=True, timeframe=None)
+    out = parse_request_node({"request": req})
+    cr = out["connector_request"]
+    assert cr.free_only is True
+    assert cr.timeframe is None
+
+
 def test_parse_request_node_missing_request_emits_error() -> None:
     out = parse_request_node({})
     assert "connector_request" not in out
@@ -1343,6 +1351,68 @@ def test_run_digest_with_no_items_returns_empty_digest_no_errors(tmp_path: Path)
     assert result.digest.entries == []
     assert result.markdown
     assert result.errors == []
+
+
+def test_openrouter_window_fallback_survives_digest_without_rewriting_request(
+    tmp_path: Path,
+) -> None:
+    import httpx
+
+    from ai_news_agent.connectors.openrouter import OpenRouterConnector
+
+    now = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
+    created = int(datetime(2026, 11, 9, 12, 0, tzinfo=UTC).timestamp())
+    payload = {
+        "data": [
+            {
+                "id": "lab/fallback",
+                "name": "Fallback Model",
+                "created": created,
+                "description": "Listed yesterday",
+                "pricing": {"prompt": "0", "completion": "0"},
+                "architecture": {"input_modalities": ["text"]},
+            }
+        ]
+    }
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=payload))
+    client = httpx.AsyncClient(transport=transport, base_url="https://openrouter.ai")
+    connector = OpenRouterConnector(client=client, now=lambda: now)
+    req = DigestRequest(
+        topics=[],
+        timeframe="today",
+        connector_names=["openrouter"],
+        max_items_per_source=5,
+    )
+    store = DigestStore(tmp_path / "openrouter-window-fallback.db")
+    store.init_schema()
+
+    async def main():
+        try:
+            return await run_digest(
+                req,
+                connectors=[connector],
+                model=_FakeDigestModel(),
+                store=store,
+                now_provider=lambda: now,
+            )
+        finally:
+            await client.aclose()
+
+    result = asyncio.run(main())
+
+    assert req.timeframe == "today"
+    assert result.errors == []
+    assert result.digest is not None
+    assert [entry.source_id for entry in result.digest.entries] == ["lab/fallback"]
+    assert [(warning.connector, warning.code) for warning in result.warnings] == [
+        ("openrouter", "window_widened")
+    ]
+    saved = store.get_latest_followup_context()
+    assert saved.digest is not None
+    assert [entry.source_id for entry in saved.digest.entries] == ["lab/fallback"]
+    assert [(warning.connector, warning.code) for warning in saved.warnings] == [
+        ("openrouter", "window_widened")
+    ]
 
 
 def test_run_digest_propagates_connector_warnings_into_result(tmp_path: Path) -> None:

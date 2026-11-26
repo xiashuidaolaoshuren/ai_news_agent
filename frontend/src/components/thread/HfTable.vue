@@ -2,6 +2,7 @@
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AvatarTile from '@/components/thread/AvatarTile.vue'
 import { riseStyle } from '@/lib/motion'
+import { t, type LabelKey } from '@/i18n/labels'
 import type { EntryVm, RefVm } from '@/vm'
 
 const props = defineProps<{
@@ -19,6 +20,11 @@ const emit = defineEmits<{
   'goto-related': [ref: RefVm]
 }>()
 
+/** Table chrome follows the language of its rows; a table is one section. */
+function tr(key: LabelKey, vars?: Record<string, string | number>): string {
+  return t(props.entries[0]?.lang ?? 'en', key, vars)
+}
+
 function rowStyle(index: number): string | undefined {
   return props.animate === true ? riseStyle((props.startIndex ?? 0) + index) : undefined
 }
@@ -28,6 +34,7 @@ function rowRef(entry: EntryVm): RefVm {
     digestId: props.digestId,
     rank: entry.rank,
     title: entry.hf?.modelId ?? entry.title,
+    lang: entry.lang,
   }
 }
 
@@ -45,15 +52,15 @@ function relatedRef(rank: number): RefVm {
     <table data-od-id="hf-comparison-table">
       <thead>
         <tr>
-          <th scope="col">Rank</th>
-          <th scope="col">Model</th>
-          <th scope="col">Link</th>
-          <th scope="col" class="r">Trending</th>
-          <th scope="col" class="r">30-day downloads</th>
-          <th scope="col" class="r">Likes</th>
-          <th scope="col">Pipeline</th>
-          <th scope="col">Variants</th>
-          <th scope="col" class="acts">Actions</th>
+          <th scope="col">{{ tr('hfRank') }}</th>
+          <th scope="col">{{ tr('hfModel') }}</th>
+          <th scope="col">{{ tr('hfLink') }}</th>
+          <th scope="col" class="r">{{ tr('hfTrending') }}</th>
+          <th scope="col" class="r">{{ tr('hfDownloads') }}</th>
+          <th scope="col" class="r">{{ tr('hfLikes') }}</th>
+          <th scope="col">{{ tr('hfPipeline') }}</th>
+          <th scope="col">{{ tr('hfVariants') }}</th>
+          <th scope="col" class="acts">{{ tr('hfActions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -80,7 +87,7 @@ function relatedRef(rank: number): RefVm {
               :href="entry.url"
               target="_blank"
               rel="noopener"
-              :aria-label="`Open ${entry.hf?.modelId ?? entry.title} on Hugging Face`"
+              :aria-label="tr('hfOpen', { id: entry.hf?.modelId ?? entry.title })"
               >hf.co<AppIcon name="ext" /></a
             >
           </td>
@@ -98,7 +105,7 @@ function relatedRef(rank: number): RefVm {
                 {{ variant.title }}<br /><code>{{ variant.sourceId }}</code>
               </span>
             </template>
-            <span v-else aria-label="None reported">—</span>
+            <span v-else :aria-label="tr('hfNone')">—</span>
             <div
               v-if="entry.relatedRanks && entry.relatedRanks.length > 0"
               class="row-related"
@@ -109,10 +116,10 @@ function relatedRef(rank: number): RefVm {
                 type="button"
                 class="chip rel-chip"
                 :data-od-id="`related-${relatedRank}`"
-                :aria-label="`Related: entry #${relatedRank} names the same model`"
+                :aria-label="tr('relatedAria', { n: relatedRank })"
                 @click="emit('goto-related', relatedRef(relatedRank))"
               >
-                Related: #{{ relatedRank }}
+                {{ tr('relatedChip', { n: relatedRank }) }}
               </button>
             </div>
           </td>
@@ -122,19 +129,19 @@ function relatedRef(rank: number): RefVm {
                 type="button"
                 class="link-btn"
                 :data-od-id="`deepdive-hf-${entry.rank}`"
-                :aria-label="`Deep dive: ${rowRef(entry).title}`"
+                :aria-label="tr('hfDeepAria', { title: rowRef(entry).title })"
                 @click="emit('deepdive', rowRef(entry))"
               >
-                <AppIcon name="layers" />Deep dive
+                <AppIcon name="layers" />{{ tr('deepDive') }}
               </button>
               <button
                 type="button"
                 class="link-btn"
                 :data-od-id="`followup-hf-${entry.rank}`"
-                :aria-label="`Ask about this: ${rowRef(entry).title}`"
+                :aria-label="tr('hfAskAria', { title: rowRef(entry).title })"
                 @click="emit('ask', rowRef(entry))"
               >
-                <AppIcon name="reply" />Ask about this
+                <AppIcon name="reply" />{{ tr('askAbout') }}
               </button>
             </div>
           </td>
@@ -143,8 +150,7 @@ function relatedRef(rank: number): RefVm {
     </table>
   </div>
   <div class="table-note">
-    Trending score and downloads from the Hugging Face Hub API. “—” means no base model is
-    declared.
+    {{ tr('hfNote') }}
   </div>
 </template>
 

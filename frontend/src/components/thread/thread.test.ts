@@ -1,8 +1,9 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import Thread from '@/components/thread/Thread.vue'
 import type { DigestView, MessageOut } from '@/api/generated/types.gen'
+import type { OlderPageResult } from '@/stores/thread'
 import { toDigestVm, toMessageVm, toMessages, toSentSourcesVm } from '@/vm'
 import { toRunVm } from '@/vm/run'
 
@@ -202,12 +203,12 @@ describe('Thread', () => {
     const wrapper = mount(Thread, {
       props: {
         messages: [user!, noResults!],
+        // The visible catalog: a hidden source is already absent from it.
         catalog: [
           { name: 'github', label: 'GitHub', kind: 'github' },
           { name: 'juya', label: 'Juya', kind: 'juya' },
           { name: 'huggingface', label: 'Hugging Face', kind: 'huggingface' },
           { name: 'zhihu', label: 'Zhihu', kind: 'zhihu' },
-          { name: 'bilibili', label: 'Bilibili', kind: 'bilibili' },
         ],
       },
     })
@@ -218,6 +219,7 @@ describe('Thread', () => {
     const tries = block.findAll('[data-od-id^="try-"]')
     expect(tries).toHaveLength(3)
     expect(tries.map((button) => button.attributes('data-od-id'))).not.toContain('try-github')
+    expect(block.find('[data-od-id="try-bilibili"]').exists()).toBe(false)
 
     await tries[0]!.trigger('click')
 
@@ -272,6 +274,49 @@ describe('Thread', () => {
       text: 'What shipped in speech models?',
     })
     expect(wrapper.emitted('repeat')?.[0]?.[0]).not.toHaveProperty('replaceSource')
+  })
+
+  it('ends a collection reason with one full stop before the no-results sentence', () => {
+    const failedWith = (message: string) => {
+      const [, failed] = toMessages([
+        assistantMessage({
+          id: 1,
+          sequence: 1,
+          role: 'user',
+          content: 'New models today?',
+          digest: null,
+          digest_id: null,
+          warnings: [],
+          request: {
+            sources: ['openrouter'],
+            per_source: 5,
+            timeframe: null,
+            topics: [],
+            language: null,
+            audience: null,
+          },
+        }),
+        assistantMessage({
+          id: 2,
+          sequence: 2,
+          content: '',
+          digest: { generated_at: '2026-10-01T20:04:00', entries: [] } as DigestView,
+          warnings: [{ connector: 'openrouter', code: 'request_failed', message }],
+          collection_outcome: 'failed',
+        }),
+      ])
+      return mount(Thread, { props: { messages: [failed!] } }).get(
+        '[data-od-id="collection-failed"]',
+      ).text()
+    }
+
+    expect(failedWith('OpenRouter models request failed')).toContain(
+      'OpenRouter models request failed. No stories were checked',
+    )
+    expect(failedWith('GitHub search returned 503.')).toContain(
+      'GitHub search returned 503. No stories were checked',
+    )
+    expect(failedWith('GitHub search returned 503.')).not.toContain('..')
   })
 
   it('renders a user message as a bubble with no agent label', () => {
@@ -518,8 +563,7 @@ describe('Thread', () => {
     )
   })
 
-  it('offers to keep polling only while the outcome is still unknown', async () => {
-    const wrapper = mount(Thread, {
+  it('offers to keep polling only while the outcome is still unknown', async () => {    const wrapper = mount(Thread, {
       props: {
         messages: [],
         alert: {
@@ -546,5 +590,332 @@ describe('Thread', () => {
     })
 
     expect(known.text()).not.toContain('Keep polling')
+  })
+
+  it('offers the deep-dive reply the same Related chip its digest row shows', async () => {
+    const relatedDigest = {
+      generated_at: '2026-10-01T20:04:00',
+      entries: [{ ...GITHUB_ENTRY, related_display_ranks: [5] }],
+    } as unknown as DigestView
+    const messages = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        content: '',
+        digest: relatedDigest,
+        digest_id: 15,
+        warnings: [],
+      }),
+      assistantMessage({
+        id: 2,
+        sequence: 2,
+        role: 'user',
+        content: 'Deep dive on OpenShell',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        followup_action: 'deep_dive',
+        followup_target: { digest_id: 15, display_rank: 1 },
+      }),
+      assistantMessage({
+        id: 3,
+        sequence: 3,
+        content: 'It is a sandboxed runtime.',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+      }),
+    ])
+    const wrapper = mount(Thread, { props: { messages } })
+
+    // One chip on the digest row, one on the deep-dive card.
+    expect(wrapper.findAll('[data-od-id="related-5"]')).toHaveLength(1)
+    const card = wrapper.findAll('[data-od-id="related-reply-5"]')
+    expect(card).toHaveLength(1)
+    expect(card[0]!.text()).toBe('Related: #5')
+    expect(card[0]!.attributes('aria-label')).toBe(
+      'Related: entry #5 names the same model',
+    )
+
+    await card[0]!.trigger('click')
+
+    // The chip navigates the thread; it never sends a turn.
+    expect(wrapper.emitted('ask')).toBeUndefined()
+    expect(wrapper.emitted('deepdive')).toBeUndefined()
+    expect(wrapper.emitted('repeat')).toBeUndefined()
+  })
+
+  function deepDive(relatedRanks: number[]) {
+    return toMessages([
+      assistantMessage({
+        id: 2,
+        role: 'user',
+        content: 'Deep dive on OpenShell',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        followup_action: 'deep_dive',
+        followup_target: { digest_id: 15, display_rank: 1 },
+      }),
+      assistantMessage({
+        id: 3,
+        sequence: 3,
+        content: 'It is a sandboxed runtime.',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        followup_related_display_ranks: relatedRanks,
+      }),
+    ])
+  }
+
+  function earlierDigest(ranks = [1]) {
+    return toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        digest: {
+          ...DIGEST,
+          entries: ranks.map((rank) => ({
+            ...GITHUB_ENTRY,
+            source_id: `entry-${rank}`,
+            display_rank: rank,
+          })),
+        } as unknown as DigestView,
+        warnings: [],
+      }),
+    ])[0]!
+  }
+
+  function observeScroll() {
+    const targets: HTMLElement[] = []
+    const prototype = HTMLElement.prototype
+    const original = Object.getOwnPropertyDescriptor(prototype, 'scrollIntoView')
+    Object.defineProperty(prototype, 'scrollIntoView', {
+      configurable: true,
+      value(this: HTMLElement) { targets.push(this) },
+    })
+    onTestFinished(() => {
+      if (original === undefined) {
+        Reflect.deleteProperty(prototype, 'scrollIntoView')
+      } else {
+        Object.defineProperty(prototype, 'scrollIntoView', original)
+      }
+    })
+    return targets
+  }
+
+  function pendingPage() {
+    let resolve!: (outcome: OlderPageResult) => void
+    const promise = new Promise<OlderPageResult>((done) => { resolve = done })
+    return { promise, resolve }
+  }
+
+  function loaded(requestedCursor: string, nextCursor: string | null): OlderPageResult {
+    return { status: 'loaded', requestedCursor, nextCursor }
+  }
+
+  const jumpStatus = '[data-od-id="related-jump-status"]'
+  const relatedChip = (rank: number) => `[data-od-id="related-reply-${rank}"]`
+
+  it('jumps a deep-dive Related chip to the digest row, not the reply link', async () => {
+    const scrolled = observeScroll()
+    const loadOlder = vi.fn()
+    // Put the same-key reply link first so a generic ref lookup would choose it.
+    const messages = [...deepDive([1]), earlierDigest()]
+    const wrapper = mount(Thread, { props: { messages, loadOlder } })
+
+    await wrapper.get(relatedChip(1)).trigger('click')
+
+    const row = wrapper.get('.entry[data-ref="d15-1"]')
+    expect(scrolled).toEqual([row.element])
+    expect(row.classes()).toContain('hl')
+    expect(loadOlder).not.toHaveBeenCalled()
+    expect(wrapper.emitted('ask')).toBeUndefined()
+    expect(wrapper.emitted('deepdive')).toBeUndefined()
+  })
+
+  it('loads earlier pages for an off-page Related target and flashes it once rendered', async () => {
+    const scrolled = observeScroll()
+    const firstPage = pendingPage()
+    const secondPage = pendingPage()
+    const loadOlder = vi.fn<() => Promise<OlderPageResult>>()
+      .mockReturnValueOnce(firstPage.promise)
+      .mockReturnValueOnce(secondPage.promise)
+    const messages = deepDive([2])
+    const wrapper = mount(Thread, { props: { messages, loadOlder } })
+    loadOlder.mockImplementationOnce(async () => {
+      await wrapper.setProps({ messages: [earlierDigest([1, 2]), ...messages] })
+      return loaded('older-3', null)
+    })
+
+    await wrapper.get(relatedChip(2)).trigger('click')
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+    expect(wrapper.get(jumpStatus).text()).toContain('Loading earlier messages')
+    expect(scrolled).toEqual([])
+
+    firstPage.resolve(loaded('older-1', 'older-2'))
+    await flushPromises()
+    expect(loadOlder).toHaveBeenCalledTimes(2)
+    expect(scrolled).toEqual([])
+
+    secondPage.resolve(loaded('older-2', 'older-3'))
+    await flushPromises()
+    expect(loadOlder).toHaveBeenCalledTimes(3)
+    const row = wrapper.get('.entry[data-ref="d15-2"]')
+    expect(scrolled).toEqual([row.element])
+    expect(row.classes()).toContain('hl')
+    expect(wrapper.emitted('ask')).toBeUndefined()
+    expect(wrapper.emitted('deepdive')).toBeUndefined()
+  })
+
+  it('shows localized paging status only on the deep-dive card whose chip was clicked', async () => {
+    const first = deepDive([2])[1]!
+    const second = {
+      ...first,
+      id: first.id + 1,
+      replyRef: { digestId: 16, rank: 1, title: 'Second', lang: 'zh-CN' as const },
+    }
+    const page = pendingPage()
+    const loadOlder = vi.fn(() => page.promise)
+    const wrapper = mount(Thread, { props: { messages: [first, second], loadOlder } })
+    const cards = wrapper.findAll('.row-related')
+
+    await cards[1]!.get(relatedChip(2)).trigger('click')
+    expect(cards[1]!.get(jumpStatus).text()).toContain('正在加载')
+    expect(cards[0]!.find(jumpStatus).exists()).toBe(false)
+    page.resolve({ status: 'exhausted' })
+    await flushPromises()
+    expect(cards[1]!.get(jumpStatus).text()).toContain('当前对话')
+  })
+
+  it('says the related entry is unavailable when the transcript ends without it', async () => {
+    const loadOlder = vi.fn<() => Promise<OlderPageResult>>()
+      .mockResolvedValueOnce(loaded('older-1', null))
+      .mockResolvedValueOnce({ status: 'exhausted' })
+    const wrapper = mount(Thread, { props: { messages: deepDive([2]), loadOlder } })
+
+    await wrapper.get(relatedChip(2)).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get(jumpStatus).text()).toContain('not in this conversation')
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers another try after an older page fails, then jumps on retry', async () => {
+    const scrolled = observeScroll()
+    const retry = pendingPage()
+    const loadOlder = vi.fn<() => Promise<OlderPageResult>>()
+      .mockResolvedValueOnce({ status: 'failed' })
+      .mockReturnValueOnce(retry.promise)
+    const messages = deepDive([1])
+    const wrapper = mount(Thread, { props: { messages, loadOlder } })
+    const chip = wrapper.get(relatedChip(1))
+
+    await chip.trigger('click')
+    await flushPromises()
+    expect(wrapper.get(jumpStatus).text()).toContain('Try again')
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+
+    await chip.trigger('click')
+    expect(loadOlder).toHaveBeenCalledTimes(2)
+    expect(scrolled).toEqual([])
+    await wrapper.setProps({ messages: [earlierDigest(), ...messages] })
+    retry.resolve(loaded('older-1', null))
+    await flushPromises()
+
+    expect(scrolled).toEqual([wrapper.get('.entry[data-ref="d15-1"]').element])
+  })
+
+  it('stops when an older page repeats a cursor instead of requesting it again', async () => {
+    const loadOlder = vi.fn<() => Promise<OlderPageResult>>()
+      .mockResolvedValueOnce(loaded('older-1', 'older-2'))
+      .mockResolvedValueOnce(loaded('older-2', 'older-1'))
+      .mockResolvedValue({ status: 'exhausted' })
+    const wrapper = mount(Thread, { props: { messages: deepDive([2]), loadOlder } })
+
+    await wrapper.get(relatedChip(2)).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get(jumpStatus).text()).toContain('Try again')
+    expect(loadOlder).toHaveBeenCalledTimes(2)
+  })
+
+  it('lets the latest Related click finish without feedback or scrolling from the old one', async () => {
+    const scrolled = observeScroll()
+    const oldPage = pendingPage()
+    const newPage = pendingPage()
+    const loadOlder = vi.fn<() => Promise<OlderPageResult>>()
+      .mockReturnValueOnce(oldPage.promise)
+      .mockReturnValueOnce(newPage.promise)
+    const messages = deepDive([1, 2])
+    const wrapper = mount(Thread, { props: { messages, loadOlder } })
+
+    await wrapper.get(relatedChip(1)).trigger('click')
+    await wrapper.get(relatedChip(2)).trigger('click')
+    oldPage.resolve(loaded('older-1', 'older-2'))
+    await flushPromises()
+    expect(wrapper.get(jumpStatus).text()).toContain('Loading earlier')
+    expect(scrolled).toEqual([])
+
+    await wrapper.setProps({ messages: [earlierDigest([1, 2]), ...messages] })
+    newPage.resolve(loaded('older-2', null))
+    await flushPromises()
+    expect(loadOlder).toHaveBeenCalledTimes(2)
+    expect(scrolled).toEqual([wrapper.get('.entry[data-ref="d15-2"]').element])
+    expect(wrapper.find(jumpStatus).exists()).toBe(false)
+  })
+
+  it.each(['transcript replacement', 'unmount'])('drops an in-flight jump on %s', async (reason) => {
+    const page = pendingPage()
+    const loadOlder = vi.fn(() => page.promise)
+    const wrapper = mount(Thread, {
+      props: { messages: deepDive([2]), transcriptGeneration: 1, loadOlder },
+    })
+    await wrapper.get(relatedChip(2)).trigger('click')
+    if (reason === 'unmount') {
+      wrapper.unmount()
+    } else {
+      await wrapper.setProps({ transcriptGeneration: 2 })
+      expect(wrapper.find(jumpStatus).exists()).toBe(false)
+    }
+    page.resolve(loaded('older-1', 'older-2'))
+    await flushPromises()
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows no Related chip on a deep-dive reply whose entry has none', () => {
+    const messages = toMessages([
+      assistantMessage({
+        id: 1,
+        sequence: 1,
+        content: '',
+        digest: DIGEST,
+        digest_id: 15,
+        warnings: [],
+      }),
+      assistantMessage({
+        id: 2,
+        sequence: 2,
+        role: 'user',
+        content: 'Deep dive on OpenShell',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+        followup_action: 'deep_dive',
+        followup_target: { digest_id: 15, display_rank: 1 },
+      }),
+      assistantMessage({
+        id: 3,
+        sequence: 3,
+        content: 'It is a sandboxed runtime.',
+        digest: null,
+        digest_id: null,
+        warnings: [],
+      }),
+    ])
+    const wrapper = mount(Thread, { props: { messages } })
+
+    expect(wrapper.find('[data-od-id^="related-reply-"]').exists()).toBe(false)
   })
 })

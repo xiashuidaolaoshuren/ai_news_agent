@@ -9,6 +9,7 @@ import {
 import type { RequestLifecycle, RequestSnapshot } from '@/api/lifecycle'
 import { SseHttpError } from '@/api/sse'
 import { setupApiClient } from '@/api/setupClient'
+import { t } from '@/i18n/labels'
 import { useSessionsStore } from '@/stores/sessions'
 import { useThreadStore } from '@/stores/thread'
 import {
@@ -16,6 +17,7 @@ import {
   SEND_FAILED,
   FOLLOWUP_TARGET_UNAVAILABLE,
   REPEAT_UNAVAILABLE,
+  parseHiddenSources,
   parseSources,
   prefsFor,
   toComposerVm,
@@ -28,10 +30,15 @@ import {
 import type { SentSourcesInput } from '@/vm/session'
 import type { RefVm } from '@/vm/types'
 
+/** One `GET /sources` payload: the visible catalog and the names it hides. */
+export interface SourceCatalog {
+  sources: SourceOption[]
+  hidden: string[]
+}
+
 /** Server calls and shared state the composer needs, injected for tests. */
 export interface ComposerDeps {
-  loadSources(): Promise<SourceOption[]>
-  hiddenSources(): Promise<string[]>
+  loadCatalog(): Promise<SourceCatalog>
   countsSeen(): boolean
   writeCountsSeen(): void
   /** The transcript failed to load, so a send is refused. */
@@ -68,22 +75,11 @@ export function defaultComposerDeps(): ComposerDeps {
   const sessions = useSessionsStore()
   const { draft } = storeToRefs(thread)
   return {
-    async loadSources(): Promise<SourceOption[]> {
+    async loadCatalog(): Promise<SourceCatalog> {
       const result = await sourcesApiV1SourcesGet()
-      return parseSources(result.data ?? null)
-    },
-    async hiddenSources(): Promise<string[]> {
-      const { listSourceProfilesApiV1SettingsSourcesGet } = await import(
-        '@/api/generated/sdk.gen'
-      )
-      const { toSourceProfilesVm } = await import('@/vm/settings')
-      try {
-        const result = await listSourceProfilesApiV1SettingsSourcesGet()
-        return toSourceProfilesVm(result.data ?? null)
-          .filter((profile) => profile.hidden)
-          .map((profile) => profile.name)
-      } catch {
-        return []
+      return {
+        sources: parseSources(result.data ?? null),
+        hidden: parseHiddenSources(result.data ?? null),
       }
     },
     countsSeen: () => {
@@ -136,6 +132,8 @@ export function defaultComposerDeps(): ComposerDeps {
  */
 export function createComposerController(deps: ComposerDeps) {
   const sources = ref<SourceOption[]>([])
+  /** Names the catalog hides; the display drops them without writing that back. */
+  const hidden = ref<string[]>([])
   const selected = ref<string[]>([])
   const errors = ref<ComposerErrors>({})
   /** Follow-up target for "Ask about this" messages; cleared after send. */
@@ -149,19 +147,18 @@ export function createComposerController(deps: ComposerDeps) {
 
   /** Take the session's stored preferences, falling back to the catalog defaults. */
   function syncPrefs(): void {
-    const prefs = prefsFor(deps.session(), sources.value)
+    const prefs = prefsFor(deps.session(), sources.value, hidden.value)
     selected.value = [...prefs.selected]
     errors.value = {}
     targetRef.value = null
   }
 
+  /** One `GET /sources` call supplies both the visible catalog and the hidden names. */
   async function load(): Promise<void> {
     try {
-      const [catalog, hidden] = await Promise.all([
-        deps.loadSources(),
-        deps.hiddenSources(),
-      ])
-      sources.value = catalog.filter((source) => !hidden.includes(source.name))
+      const catalog = await deps.loadCatalog()
+      sources.value = catalog.sources
+      hidden.value = catalog.hidden
     } catch {
       sources.value = []
     }
@@ -391,7 +388,7 @@ export function createComposerController(deps: ComposerDeps) {
     }
     errors.value = {}
     sendBlocked.value = false
-    const content = `Deep dive: ${ref.title}`
+    const content = t(ref.lang ?? 'en', 'deepDivePrompt', { title: ref.title })
     const body: PostMessageBody = {
       content,
       client_request_id: deps.newId(),

@@ -39,6 +39,8 @@ logs/
 *.db
 digest_artifacts/
 *.sqlite
+# Encryption sidecar beside a local database; keep it private and back it up with the DB.
+*.key
 
 # IDE
 .idea/

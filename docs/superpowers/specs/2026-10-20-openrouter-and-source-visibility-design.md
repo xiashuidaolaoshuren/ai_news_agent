@@ -24,7 +24,7 @@ ADR-0001 gives each source one job. OpenRouter's job: **models you can call thro
 - New `SourceKind.OPENROUTER = "openrouter"` and `connectors/openrouter.py`.
 - One unauthenticated `GET https://openrouter.ai/api/v1/models`. A provider key is optional and unused in v1.
 - Keep models whose `created` timestamp falls inside the request timeframe.
-- The OpenRouter fallback timeframe is **7 days** only when the request gives no timeframe. It does not widen any other selected source. An explicit timeframe applies to every selected source. The resolved request shows each source's effective window. Run again preserves those window rules and evaluates them at the new run time.
+- The OpenRouter fallback timeframe is **7 days** when the request gives no timeframe. It does not widen any other selected source. An explicit timeframe applies to every selected source. One exception: when a non-strict explicit window is a proper subset of the last 7 days and yields no eligible models, the same payload is re-filtered over the last 7 days with the same topic and `free_only` filters. That is saved as a benign `window_widened` notice, not a failure. Strict, unknown, equal, and wider windows are never widened. The resolved request shows each source's requested window; when the run widened one, the Run again summary also shows the effective window (`today → last 7 days`). Run again preserves the original window rules and evaluates them at the new run time.
 - When `topics_are_filters` is true, keep only models whose id, name, or description match a topic, using the same rule as other connectors.
 - `free_only` keeps models whose input and output token prices are both explicitly zero. A `:free` suffix is stored as metadata and is not enough. Missing or invalid prices are unknown, not zero.
 - Item fields: `source_id` = model id; `title` = model name; `url` = `https://openrouter.ai/<model id>`; `source_evidence` = provider (id prefix), created date, context length, input and output price per million tokens, whether both prices are explicitly zero, the free-route suffix when present, and input modalities.
@@ -66,7 +66,7 @@ After ranking, a pure function links selected entries that confidently name the 
 
 - Each member gets `related_display_ranks: list[int]` on its API view. The default is empty.
 - Nothing is removed or reranked, so `dN:rN` tokens stay valid.
-- The frontend shows a "Related: #1" chip that scrolls to the other entry. The chip appears wherever the entry is shown — its digest row and its deep-dive card — and is absent when the list is empty.
+- The frontend shows a "Related: #1" chip that scrolls to the other entry. The chip appears wherever the entry is shown — its digest row and its deep-dive card — and is absent when the list is empty. A deep-dive reply carries its target entry's ranks from the API, so the card keeps its chip when its digest is on an older, unloaded page.
 - Markdown rendering is unchanged.
 - This is not Hugging Face model-family grouping. Family grouping still collapses packaging variants before display. Related coverage links entries that remain separate.
 
@@ -83,7 +83,7 @@ After ranking, a pure function links selected entries that confidently name the 
 ## Testing (TDD; one failing test per behaviour)
 
 1. The parser turns the fixture into items with the agreed evidence. Explicit zero input and output prices qualify as free token pricing. A `:free` suffix without known zero prices does not. Unknown prices do not become zero.
-2. The timeframe filter keeps only in-window models. The 7-day fallback applies only to OpenRouter when the request has no timeframe. An explicit timeframe applies to every selected source.
+2. The timeframe filter keeps only in-window models. The 7-day fallback applies only to OpenRouter when the request has no timeframe, and to an empty non-strict short window as described above. An explicit timeframe applies to every selected source.
 3. The topic filter applies only when `topics_are_filters` is true. `free_only` applies the zero-price rule.
 4. HTTP and JSON failure produce a warning and no items, and the digest outcome is a collection failure rather than no eligible results.
 5. Ranking boosts explicitly free-priced listings and orders sections with OpenRouter after Hugging Face and before GitHub.

@@ -96,8 +96,11 @@ function makeComposer(overrides: Partial<ComposerDeps> = {}): Harness {
   } as unknown as RequestLifecycle
 
   const deps: ComposerDeps = {
-    loadSources: async () => CATALOG,
-    hiddenSources: async () => ['bilibili'],
+    // `GET /sources` omits a hidden name from `sources` and reports it in `hidden`.
+    loadCatalog: async () => ({
+      sources: CATALOG.filter((source) => source.name !== 'bilibili'),
+      hidden: ['bilibili'],
+    }),
     countsSeen: () => true,
     writeCountsSeen: () => {},
     loadFailed: () => false,
@@ -223,6 +226,24 @@ describe('composer source preferences', () => {
 
     expect(controller.vm.value.sources.map((source) => source.name)).not.toContain('bilibili')
     expect(controller.vm.value.sources.map((source) => source.name)).toContain('juya')
+  })
+
+  it('shows the visible defaults for a session that stores only a hidden source', async () => {
+    const { controller, patches } = await ready({
+      session: () => sessionOut({ connector_names: ['bilibili'] }),
+    })
+
+    expect(controller.selected.value).toEqual(['juya'])
+    expect(patches).toEqual([])
+  })
+
+  it('drops only the hidden name from a mixed stored selection, without patching', async () => {
+    const { controller, patches } = await ready({
+      session: () => sessionOut({ connector_names: ['juya', 'bilibili'] }),
+    })
+
+    expect(controller.selected.value).toEqual(['juya'])
+    expect(patches).toEqual([])
   })
 
   it('patches the session when a source is toggled', async () => {
@@ -474,6 +495,20 @@ describe('composer prefill', () => {
     expect(controller.vm.value.ref).toEqual(ref)
     expect(controller.vm.value.placeholder).toBe('Ask about d15 #3…')
     expect(controller.focusToken.value).toBe(1)
+  })
+
+  it('sends the deep-dive bubble in the entry language', async () => {
+    const { controller, sends, marked } = await ready()
+    const ref: RefVm = { digestId: 15, rank: 3, title: 'NVIDIA/OpenShell', lang: 'zh-CN' }
+
+    expect(controller.deepDive(ref)).toBe(true)
+    expect(sends[0]?.body.content).toBe('深入了解：NVIDIA/OpenShell')
+    expect(sends[0]?.body.followup_action).toBe('deep_dive')
+    expect(marked[0]?.text).toBe('深入了解：NVIDIA/OpenShell')
+
+    const english: RefVm = { digestId: 15, rank: 3, title: 'NVIDIA/OpenShell' }
+    controller.deepDive(english)
+    expect(sends[1]?.body.content).toBe('Deep dive: NVIDIA/OpenShell')
   })
 
   it('refills from the last user message on Run again and focuses', async () => {

@@ -17,6 +17,7 @@ from ai_news_agent.sources import (
     FakeGitHubConnector,
     FakeHuggingFaceConnector,
     FakeJuyaConnector,
+    FakeOpenRouterConnector,
     FakeZhihuConnector,
     build_connector_factory,
     build_connectors,
@@ -37,6 +38,32 @@ def test_allowed_sources_include_huggingface_and_zhihu() -> None:
     assert "zhihu" in ALLOWED_SOURCES
     assert DEFAULT_SOURCE_NAMES == ("juya",)
     assert normalize_source_names(["huggingface", "zhihu"]) == ["huggingface", "zhihu"]
+
+
+def test_normalize_source_names_accepts_openrouter() -> None:
+    assert normalize_source_names(["openrouter"]) == ["openrouter"]
+
+
+def test_fake_openrouter_connector_returns_free_and_priced_items() -> None:
+    connector = FakeOpenRouterConnector()
+    assert connector.name() == "openrouter"
+
+    async def _collect() -> None:
+        result = await connector.collect(None)  # noqa: ARG002
+        assert result.raw_count == 2
+        free_rows = [
+            i for i in result.items if i.source_evidence.get("free_token_pricing") is True
+        ]
+        priced_rows = [
+            i for i in result.items if i.source_evidence.get("free_token_pricing") is False
+        ]
+        assert len(free_rows) == 1
+        assert len(priced_rows) == 1
+        assert free_rows[0].source_evidence.get("prompt_price_per_million") == "0"
+        assert free_rows[0].source_evidence.get("completion_price_per_million") == "0"
+        assert all(item.source is SourceKind.OPENROUTER for item in result.items)
+
+    asyncio.run(_collect())
 
 
 def test_normalize_source_names_rejects_arxiv_only() -> None:

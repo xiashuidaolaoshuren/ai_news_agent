@@ -3,9 +3,11 @@ import type {
   GitHubDigestEntryView,
   HuggingFaceDigestEntryView,
   JuyaDigestEntryView,
+  OpenRouterDigestEntryView,
   PublisherOwnerView,
 } from '@/api/generated/types.gen'
-import type { AvatarVm, EntryKind, EntryVm, HfVm } from '@/vm/types'
+import { entryLang, t, type UiLang } from '@/i18n/labels'
+import type { AvatarVm, EntryKind, EntryVm, HfVm, OpenRouterSpecVm } from '@/vm/types'
 
 /** Any digest entry the API can send, including the kind-specific views. */
 export type ApiDigestEntry = NonNullable<DigestView['entries']>[number]
@@ -113,13 +115,32 @@ export function formatCount(value: number): string {
   return value.toLocaleString('en-US')
 }
 
+/**
+ * Dollar price from a per-million token string, e.g. `10` → `$10.00`, `0.0375` → `$0.0375`.
+ *
+ * Works on the digits as given (no float math) so a small price is never rounded down.
+ * Two decimals is the floor; a known zero reads `$0`.
+ */
+export function formatPrice(raw: string): string {
+  const value = raw.trim()
+  if (/^0*\.?0*$/.test(value)) {
+    return '$0'
+  }
+  const [whole = '0', fraction = ''] = value.split('.')
+  let digits = fraction.padEnd(2, '0')
+  while (digits.length > 2 && digits.endsWith('0')) {
+    digits = digits.slice(0, -1)
+  }
+  return `$${whole}.${digits}`
+}
+
 /** Formatted metric, or null when the API omitted it. */
 export function metricText(value: number | null | undefined): string | null {
   return typeof value === 'number' ? formatCount(value) : null
 }
 
 /** GitHub meta line: `language · stars ★ · +N today`, omitting null segments. */
-export function githubMeta(entry: GitHubDigestEntryView): string | undefined {
+export function githubMeta(entry: GitHubDigestEntryView, lang: UiLang = 'en'): string | undefined {
   const parts: string[] = []
   const language = textOrNull(entry.language ?? null)
   if (language !== null) {
@@ -129,9 +150,35 @@ export function githubMeta(entry: GitHubDigestEntryView): string | undefined {
     parts.push(`${formatCount(entry.stars)} ★`)
   }
   if (typeof entry.stars_today === 'number') {
-    parts.push(`+${formatCount(entry.stars_today)} today`)
+    parts.push(t(lang, 'githubToday', { n: formatCount(entry.stars_today) }))
   }
   return parts.length === 0 ? undefined : parts.join(' · ')
+}
+
+/**
+ * OpenRouter spec fields (context, input and output price per million), in that
+ * order. A field the listing did not supply is left out; no fields means no block.
+ */
+export function openRouterSpec(
+  entry: OpenRouterDigestEntryView,
+  lang: UiLang = 'en',
+): OpenRouterSpecVm[] | undefined {
+  const fields: OpenRouterSpecVm[] = []
+  if (typeof entry.context_length === 'number') {
+    fields.push({
+      label: t(lang, 'specContext'),
+      value: `${formatCount(entry.context_length)} tokens`,
+    })
+  }
+  const prompt = textOrNull(entry.prompt_price_per_million)
+  if (prompt !== null) {
+    fields.push({ label: t(lang, 'specInput'), value: formatPrice(prompt) })
+  }
+  const completion = textOrNull(entry.completion_price_per_million)
+  if (completion !== null) {
+    fields.push({ label: t(lang, 'specOutput'), value: formatPrice(completion) })
+  }
+  return fields.length === 0 ? undefined : fields
 }
 
 /** Hugging Face comparison-table data. `modelId` is the entry title (the repo id). */
@@ -157,10 +204,12 @@ export function toVm(api: ApiDigestEntry): EntryVm {
   const url = safeHttpUrl(api.source_url)
   const kind = entryKind(api)
   const owner = (api as { owner?: PublisherOwnerView | null }).owner
+  const lang = entryLang(api.output_language, kind)
   const vm: EntryVm = {
     key: api.source_id,
     kind,
     rank: api.display_rank,
+    lang,
     title: api.title,
     url,
     sourceName: api.source_name,
@@ -172,18 +221,25 @@ export function toVm(api: ApiDigestEntry): EntryVm {
     avatar: avatarFor(owner),
     previewUrl: null,
   }
+  const related = api.related_display_ranks
+  if (related !== undefined && related.length > 0) {
+    vm.relatedRanks = [...related]
+  }
   if (kind === 'github') {
     const github = api as GitHubDigestEntryView
-    vm.meta = githubMeta(github)
+    vm.meta = githubMeta(github, lang)
     vm.previewUrl = resolveDemoAsset(github.preview_image_url)
+  }
+  if (kind === 'openrouter') {
+    const openRouter = api as OpenRouterDigestEntryView
+    vm.spec = openRouterSpec(openRouter, lang)
+    if (openRouter.free_token_pricing === true) {
+      vm.badge = t(lang, 'freeTokenPricing')
+    }
   }
   if (kind === 'huggingface') {
     const hf = api as HuggingFaceDigestEntryView
     vm.hf = huggingFaceVm(hf)
-    const related = hf.related_display_ranks
-    if (related !== undefined && related.length > 0) {
-      vm.relatedRanks = [...related]
-    }
   }
   return vm
 }

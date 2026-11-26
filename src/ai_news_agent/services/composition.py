@@ -13,7 +13,7 @@ from ai_news_agent.credential_health import (
     CredentialHealthStore,
     record_connector_health_from_digest,
 )
-from ai_news_agent.credentials import CredentialsProvider
+from ai_news_agent.credentials import CredentialsProvider, key_file_path_for
 from ai_news_agent.env import configure_bilibili_network_from_env, load_local_env
 from ai_news_agent.graph.state import DigestResult, WorkflowError
 from ai_news_agent.models import utcnow
@@ -248,7 +248,19 @@ def build_application(
     store = DigestStore(db_path)
     store.init_schema()
     source_settings_service = SourceSettingsService(db_path)
-    credentials_service = CredentialsProvider(db_path)
+    sidecar_key_file = (
+        key_file_path_for(db_path) if not fake and not resolved_access.remote else None
+    )
+    credentials_service = CredentialsProvider(db_path, key_file=sidecar_key_file)
+    if sidecar_key_file is not None:
+        key_status = credentials_service.bootstrap_key_file()
+        if key_status not in ("env", "existing", "created"):
+            logger.warning(
+                "credential key unavailable beside %s (%s); Settings keys stay read-only. "
+                "Restore the matching <database>.key or set AI_NEWS_AGENT_SECRET_KEY.",
+                db_path,
+                key_status,
+            )
     credential_health_store = CredentialHealthStore(db_path)
     session_service = SessionService(
         SessionStore(db_path),
@@ -403,6 +415,9 @@ def _build_chat_service(
             ),
             zhihu_factory=build_connector_factory(
                 fake=fake, name="zhihu", credentials=credentials_service
+            ),
+            openrouter_factory=build_connector_factory(
+                fake=fake, name="openrouter", credentials=credentials_service
             ),
             interface_name="api",
         )

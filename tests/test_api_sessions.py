@@ -129,6 +129,68 @@ def test_post_message_juya_stories_mode_returns_story_digest_entries(tmp_path: P
     assert assistant["digest"]["entries"][0]["item_type"] == "story"
 
 
+def test_fake_openrouter_scenarios_cover_fallback_failure_and_in_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _build_test_client(fake=True, db_path=tmp_path / "openrouter-scenarios.db")
+    session_id = client.post("/api/v1/sessions").json()["id"]
+    patched = client.patch(
+        f"/api/v1/sessions/{session_id}",
+        json={"connector_names": ["openrouter"]},
+    )
+    assert patched.status_code == 200
+
+    def run(content: str, request_id: str) -> tuple[dict, dict]:
+        with client.stream(
+            "POST",
+            f"/api/v1/sessions/{session_id}/messages",
+            json={"content": content, "client_request_id": request_id},
+        ) as response:
+            assert response.status_code == 200
+            events = _parse_sse_events(response.read().decode())
+        started = next(payload for name, payload in events if name == "started")
+        digest = next(payload for name, payload in events if name == "digest")
+        return started, digest
+
+    monkeypatch.setenv("AI_NEWS_AGENT_FAKE_OPENROUTER", "empty-today")
+    started, digest = run("Digest today's AI news", "fallback")
+    assert started["request"]["timeframe"] == "today"
+    assert [entry["source_id"] for entry in digest["digest"]["entries"]] == [
+        "lab/fallback-model"
+    ]
+    assert [
+        (warning["connector"], warning["code"]) for warning in digest["warnings"]
+    ] == [("openrouter", "window_widened")]
+
+    monkeypatch.setenv("AI_NEWS_AGENT_FAKE_OPENROUTER", "request-failed")
+    _, failed = run("Digest today's AI news", "failed")
+    assert failed["digest"]["entries"] == []
+    assert [
+        (warning["connector"], warning["code"]) for warning in failed["warnings"]
+    ] == [("openrouter", "request_failed")]
+
+    monkeypatch.setenv("AI_NEWS_AGENT_FAKE_OPENROUTER", "in-window")
+    _, current = run("Digest today's AI news", "current")
+    assert [entry["source_id"] for entry in current["digest"]["entries"]] == [
+        "lab/today-model"
+    ]
+    assert current["warnings"] == []
+
+    saved = client.get(f"/api/v1/sessions/{session_id}/messages").json()
+    assistant_digests = [
+        message for message in saved["messages"] if message.get("digest") is not None
+    ]
+    assert [
+        entry["source_id"]
+        for entry in assistant_digests[0]["digest"]["entries"]
+    ] == ["lab/fallback-model"]
+    assert [
+        (warning["connector"], warning["code"])
+        for warning in assistant_digests[0]["warnings"]
+    ] == [("openrouter", "window_widened")]
+
+
 def test_post_message_fake_mode_all_sources_returns_presentation_evidence(
     tmp_path: Path,
 ) -> None:
@@ -251,6 +313,7 @@ def _seed_session_owned_digest(
     tmp_path: Path,
     *,
     db_name: str = "target-digest.db",
+    titles: tuple[str, ...] = ("Repo 1",),
 ) -> tuple[object, str, int]:
     """Session with one digest linked through a succeeded session_request."""
     from ai_news_agent.models import Digest, DigestEntry, FollowUpAction, SourceKind
@@ -280,15 +343,16 @@ def _seed_session_owned_digest(
         entries=[
             DigestEntry(
                 source_kind=SourceKind.GITHUB,
-                source_id="repo-1",
-                title="Repo 1",
+                source_id=f"repo-{index}",
+                title=title,
                 source_name="GitHub",
-                source_url="https://example.com/repo-1",
+                source_url=f"https://example.com/repo-{index}",
                 summary="summary",
                 why_it_matters="why",
                 background_knowledge="bg",
                 follow_up_action=FollowUpAction.READ,
             )
+            for index, title in enumerate(titles, start=1)
         ],
         topics=["ai"],
         timeframe="today",
@@ -372,6 +436,34 @@ def test_list_messages_includes_followup_target_on_user_and_assistant(
     assert reloaded["messages"] == page["messages"]
 
 
+def test_deep_dive_reply_carries_related_ranks_when_digest_is_off_page(
+    tmp_path: Path,
+) -> None:
+    client, session_id, digest_id = _seed_session_owned_digest(
+        tmp_path, titles=("Llama 3.1 8B", "Llama 3.1 8B")
+    )
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/messages",
+        json={
+            "content": "follow up on item 1",
+            "client_request_id": "req-related-ranks",
+            "followup_target": {"digest_id": digest_id, "display_rank": 1},
+            "followup_action": "deep_dive",
+        },
+    ) as response:
+        assert response.status_code == 200
+        response.read()
+
+    # Only the follow-up user/assistant pair fits on the page; the digest is older.
+    page = client.get(f"/api/v1/sessions/{session_id}/messages?limit=2").json()
+    by_role = {message["role"]: message for message in page["messages"]}
+    assert by_role["assistant"]["digest"] is None
+    assert by_role["assistant"]["followup_related_display_ranks"] == [2]
+    assert by_role["user"]["followup_related_display_ranks"] == []
+
+
 def test_post_message_rejects_followup_target_from_other_session(
     tmp_path: Path,
 ) -> None:
@@ -440,7 +532,7 @@ def test_post_message_repeat_streams_from_stored_resolution_and_rejects_unknown(
             "content": "Run again",
             "client_request_id": "repeat-bad-source",
             "repeat_of_user_message_id": original.user_message_id,
-            "replace_source": "openrouter",
+            "replace_source": "arxiv",
         },
     )
     assert bad_source.status_code == 400
@@ -607,7 +699,10 @@ def test_api_v1_health_reports_status_and_fake_mode(tmp_path: Path) -> None:
     assert response.json() == {"status": "ok", "fake": True}
 
 
-def test_api_v1_sources_lists_defaults_and_opt_in_metadata(tmp_path: Path) -> None:
+def test_api_v1_sources_default_hides_bilibili_and_lists_openrouter(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("AI_NEWS_AGENT_HIDDEN_SOURCES", raising=False)
     client = _build_test_client(fake=True, db_path=tmp_path / "digest.db")
 
     response = client.get("/api/v1/sources")
@@ -615,12 +710,13 @@ def test_api_v1_sources_lists_defaults_and_opt_in_metadata(tmp_path: Path) -> No
     assert response.status_code == 200
     payload = response.json()
     assert payload["defaults"] == ["juya"]
+    assert payload["hidden"] == ["bilibili"]
     assert [item["name"] for item in payload["sources"]] == [
         "juya",
         "huggingface",
+        "openrouter",
         "github",
         "zhihu",
-        "bilibili",
     ]
     by_name = {item["name"]: item for item in payload["sources"]}
     _unchecked = {
@@ -642,6 +738,38 @@ def test_api_v1_sources_lists_defaults_and_opt_in_metadata(tmp_path: Path) -> No
         "opt_in": True,
         "health": _unchecked,
     }
+
+
+def test_api_v1_sources_empty_hidden_env_lists_all_catalog_names(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AI_NEWS_AGENT_HIDDEN_SOURCES", "")
+    client = _build_test_client(fake=True, db_path=tmp_path / "digest.db")
+    response = client.get("/api/v1/sources")
+    payload = response.json()
+    assert payload["hidden"] == []
+    assert [item["name"] for item in payload["sources"]] == [
+        "juya",
+        "huggingface",
+        "openrouter",
+        "github",
+        "zhihu",
+        "bilibili",
+    ]
+
+
+def test_api_v1_sources_custom_hidden_list(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AI_NEWS_AGENT_HIDDEN_SOURCES", "bilibili,zhihu")
+    client = _build_test_client(fake=True, db_path=tmp_path / "digest.db")
+    response = client.get("/api/v1/sources")
+    payload = response.json()
+    assert payload["hidden"] == ["zhihu", "bilibili"]
+    assert [item["name"] for item in payload["sources"]] == [
+        "juya",
+        "huggingface",
+        "openrouter",
+        "github",
+    ]
 
 
 def test_api_v1_allows_loopback_cors_origins_only(tmp_path: Path) -> None:

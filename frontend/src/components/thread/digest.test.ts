@@ -56,6 +56,32 @@ describe('DigestReply', () => {
     expect(alerts[1]!.text()).toContain('Bilibili connector:')
   })
 
+  it('shows an OpenRouter window fallback as information rather than a failure', () => {
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          warnings: [
+            warningVm({
+              source: 'openrouter',
+              label: 'OpenRouter',
+              code: 'window_widened',
+              message:
+                'No models matched the requested window; showing matching listings from the last 7 days instead.',
+            }),
+          ],
+        }),
+      },
+    })
+
+    const notice = wrapper.get('[data-od-id="connector-warning-openrouter"]')
+    expect(notice.classes()).toContain('alert-info')
+    expect(notice.attributes('role')).toBe('status')
+    expect(notice.text()).toContain('OpenRouter:')
+    expect(notice.text()).not.toContain('OpenRouter connector:')
+    expect(notice.text()).toContain('showing matching listings from the last 7 days instead')
+    expect(notice.find('button').exists()).toBe(false)
+  })
+
   it('opens that connector settings from its warning', async () => {
     const wrapper = mount(DigestReply, {
       props: {
@@ -211,13 +237,113 @@ describe('DigestReply', () => {
     expect(row.get('.entry-src .ext').attributes('href')).toBe('https://original.test/story-1')
   })
 
-  it('bubbles ask from an entry row up to the digest reply', async () => {
-    const d = digestVm()
+  it('shows the OpenRouter spec block, New model label, and free-token badge after the link', () => {
+    const free = githubEntry({
+      key: 'openrouter:1',
+      kind: 'openrouter',
+      title: 'Meta: Llama 3.3 70B Instruct (free)',
+      sourceName: 'OpenRouter',
+      host: 'openrouter.ai',
+      url: 'https://openrouter.ai/meta-llama/llama-3.3-70b-instruct:free',
+      spec: [
+        { label: 'Context', value: '128,000 tokens' },
+        { label: 'Input / 1M tokens', value: '$0.00' },
+        { label: 'Output / 1M tokens', value: '$0' },
+      ],
+      badge: 'Free token pricing',
+    })
+    const priced = githubEntry({
+      key: 'openrouter:2',
+      kind: 'openrouter',
+      rank: 2,
+      title: 'Anthropic: Claude Sonnet 4',
+      sourceName: 'OpenRouter',
+      host: 'openrouter.ai',
+      spec: [
+        { label: 'Context', value: '200,000 tokens' },
+        { label: 'Input / 1M tokens', value: '$3.00' },
+        { label: 'Output / 1M tokens', value: '$15.00' },
+      ],
+    })
+    const bare = githubEntry({
+      key: 'openrouter:3',
+      kind: 'openrouter',
+      rank: 3,
+      title: 'Unpriced listing',
+      sourceName: 'OpenRouter',
+      host: 'openrouter.ai',
+    })
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          itemCount: 2,
+          sections: [
+            sectionVm({
+              kind: 'openrouter',
+              label: 'OpenRouter',
+              subtitle: 'Models you can call',
+              count: 2,
+              rangeStart: 1,
+              rangeEnd: 3,
+              entries: [free, priced, bare],
+            }),
+          ],
+        }),
+      },
+    })
+    const rows = wrapper.findAll('.entries .entry')
+
+    const freeSpec = rows[0]!.findAll('.entry-body.spec dt').map((dt) => dt.text())
+    expect(freeSpec).toEqual(['Context', 'Input / 1M tokens', 'Output / 1M tokens'])
+    expect(rows[0]!.get('.entry-src').text()).toContain('New model')
+    expect(rows[0]!.get('.entry-src').text()).not.toContain('128,000 tokens')
+
+    const badge = rows[0]!.get('.badge-ok')
+    expect(badge.text()).toBe('Free token pricing')
+    expect(badge.element.previousElementSibling?.classList.contains('ext')).toBe(true)
+    expect(rows[0]!.find('.free-chip').exists()).toBe(false)
+
+    expect(rows[1]!.find('.entry-body.spec').exists()).toBe(true)
+    expect(rows[1]!.find('.badge-ok').exists()).toBe(false)
+
+    expect(rows[2]!.find('.entry-body.spec').exists()).toBe(false)
+    expect(rows[2]!.find('.badge-ok').exists()).toBe(false)
+  })
+
+  it('shows the Related chip on a non-Hugging-Face row and emits its rank', async () => {
+    const entry = githubEntry({ relatedRanks: [2] })
+    const d = digestVm({
+      itemCount: 2,
+      sections: [
+        sectionVm({
+          kind: 'github',
+          label: 'GitHub',
+          count: 2,
+          rangeStart: 1,
+          rangeEnd: 2,
+          entries: [entry, githubEntry({ key: 'gh:2', rank: 2, title: 'Other' })],
+        }),
+      ],
+    })
+    const wrapper = mount(DigestReply, { props: { digest: d } })
+
+    const chip = wrapper.get('[data-od-id="related-2"]')
+    expect(chip.text()).toBe('Related: #2')
+
+    await chip.trigger('click')
+
+    expect(wrapper.emitted('goto-related')).toEqual([
+      [{ digestId: d.digestId ?? 15, rank: 2, title: '#2' }],
+    ])
+  })
+
+  it('bubbles ask from an entry row up to the digest reply', async () => {    const d = digestVm()
     const wrapper = mount(DigestReply, { props: { digest: d } })
     const expected: RefVm = {
       digestId: d.digestId ?? 15,
       rank: 1,
       title: 'NVIDIA/OpenShell',
+      lang: 'en',
     }
 
     const askBtn = wrapper
@@ -243,5 +369,68 @@ describe('DigestReply', () => {
 
     const without = mount(DigestReply, { props: { digest: digestVm() } })
     expect(without.find('[data-od-id="digest-run-again"]').exists()).toBe(false)
+  })
+})
+
+describe('DigestReply language', () => {
+  it('shows the head, tally, and repeat action in Chinese for a zh-CN digest', () => {
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          lang: 'zh-CN',
+          sections: [sectionVm({ lang: 'zh-CN', subtitle: '热门仓库', entries: [githubEntry({ lang: 'zh-CN' })] })],
+        }),
+        repeat: REPEAT,
+      },
+    })
+
+    expect(wrapper.get('.digest-head h2').text()).toBe('早报')
+    expect(wrapper.get('.digest-head .digest-meta').text()).toContain('5 条 · 2/3 个来源有结果')
+    expect(wrapper.get('[data-od-id="digest-run-again"] button').text()).toContain('重新运行')
+    expect(wrapper.text()).not.toContain('Run again')
+  })
+})
+
+describe('DigestReply language notices', () => {
+  it('renders a zh-CN no-items notice without repeated or spaced punctuation', () => {
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          lang: 'zh-CN',
+          warnings: [
+            {
+              source: 'openrouter',
+              label: 'OpenRouter',
+              code: 'no_items',
+              message: '本次请求没有返回条目，其他来源已正常完成。',
+            },
+          ],
+        }),
+      },
+    })
+
+    const text = wrapper.get('[data-od-id="connector-warning-openrouter"] p').text()
+    expect(text).toBe('OpenRouter 连接器：本次请求没有返回条目，其他来源已正常完成。')
+  })
+
+  it('renders a zh-CN window notice with no space after the colon', () => {
+    const wrapper = mount(DigestReply, {
+      props: {
+        digest: digestVm({
+          lang: 'zh-CN',
+          warnings: [
+            {
+              source: 'openrouter',
+              label: 'OpenRouter',
+              code: 'window_widened',
+              message: '所选时间范围内没有匹配的模型，已改为显示近 7 天的匹配列表。',
+            },
+          ],
+        }),
+      },
+    })
+
+    const text = wrapper.get('[data-od-id="connector-warning-openrouter"] p').text()
+    expect(text).toBe('OpenRouter：所选时间范围内没有匹配的模型，已改为显示近 7 天的匹配列表。')
   })
 })
