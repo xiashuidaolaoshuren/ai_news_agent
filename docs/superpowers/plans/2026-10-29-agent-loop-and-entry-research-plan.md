@@ -102,7 +102,7 @@ Dependency notation: `Blocked by: R3` means start after R3 is done. `Blocked by:
 
 ### R3 — Research observation
 
-- [ ] **Do:** Define the evidence object the fetcher, the loop, the citation check, and the record all share.
+- [x] **Do:** Define the evidence object the fetcher, the loop, the citation check, and the record all share.
 - **Consumes:** `ToolObservation` field meanings (`status` is execution, not answerability).
 - **Produces:** `ResearchPassage { passage_id: str, text: str }`. `ResearchObservation` with requested URL, final URL, evidence id, publisher, relationship to the target, approved scope, retrieval time, `fresh: bool`, passages, extraction completeness (`complete | truncated | unsupported | unsuccessful`), retrieval outcome (`retrieved | inaccessible | refused | failed`), and candidate links that are not yet approved. A readable document with no answer uses retrieval outcome `retrieved` and does not use `inaccessible`.
 - **Acceptance:** The model can be given a hand-built observation with no fetch. Inaccessible content and readable content that lacks the answer are different. Truncation is visible. A candidate link in the observation is not an authorization. Execution status stays separate from whether the question is answered.
@@ -196,3 +196,4 @@ Per subtask, obey **`TDD suitable`**. **`yes`** means strict test-first. The lis
 | 2026-10-30 | Follow-ups F1/F2/F5 became backend B1/B2 and frontend U1. Research records moved from schema 4 to schema 5 because settings owns schema 4. | material |
 | 2026-11-26 | R1 shipped. Text-only "research item N" binds the session's latest successful digest and pins its digest id when it asks for a subject; a specific offer is accepted only on the immediately following completed turn. Ask appends an invitation only when a research handoff is wired, and the default handoff reports research as unavailable until R7. | material |
 | 2026-11-26 | R2 shipped. `approved_scopes` are active, application-verified grants bound to the exact entry and subject, with a required non-root project path; no publisher registry exists yet. URL identity is HTTPS, default port, no fragment, exact query; ambiguous path forms are refused. DNS and per-hop redirect checks remain R4/R6/R7. | material |
+| 2026-11-26 | R3 shipped. `ResearchObservation` extends `ToolObservation` with typed retrieval outcome, extraction completeness, optional R2 provenance, passages, plain candidate URLs, and caller-supplied freshness timestamps; no fetch or persistence yet. | material |
