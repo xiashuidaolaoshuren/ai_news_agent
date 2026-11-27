@@ -90,7 +90,7 @@ Dependency notation: `Blocked by: R3` means start after R3 is done. `Blocked by:
 
 ### R2 — Source scope
 
-- [ ] **Do:** Decide whether a candidate URL may be read for the selected entry, before any fetch.
+- [x] **Do:** Decide whether a candidate URL may be read for the selected entry, before any fetch.
 - **Consumes:** The selected entry's saved source URL and ownership fields. No network.
 - **Produces:** `authorize_research_url(entry, url, approved_scopes) -> ResearchAuthorization` with allow, deny, or unverified, plus publisher attribution and the approved project scope when allow. Deny reasons cover: another repository on a shared host, a link or redirect outside the approved project path, a private or local network destination, and a publisher the application has not accepted.
 - **Acceptance:** The original source URL is allowed as the entry's own page and is not treated as proof of its claims. Verified original-developer documentation and verified exact-variant maintainer documentation are allowed and attributed separately. A bare link, a page title, an "official" label, or a model assertion does not authorize a publisher. After a documentation entry point is verified, further URLs on that host and project path can be allowed. Another owner or repository on that host is denied. An allowed page's outbound link does not add a publisher. Redirect targets are decided again, not trusted from the first URL. Page text is not an input to the decision.
@@ -195,3 +195,4 @@ Per subtask, obey **`TDD suitable`**. **`yes`** means strict test-first. The lis
 | 2026-10-30 | Initial plan | — |
 | 2026-10-30 | Follow-ups F1/F2/F5 became backend B1/B2 and frontend U1. Research records moved from schema 4 to schema 5 because settings owns schema 4. | material |
 | 2026-11-26 | R1 shipped. Text-only "research item N" binds the session's latest successful digest and pins its digest id when it asks for a subject; a specific offer is accepted only on the immediately following completed turn. Ask appends an invitation only when a research handoff is wired, and the default handoff reports research as unavailable until R7. | material |
+| 2026-11-26 | R2 shipped. `approved_scopes` are active, application-verified grants bound to the exact entry and subject, with a required non-root project path; no publisher registry exists yet. URL identity is HTTPS, default port, no fragment, exact query; ambiguous path forms are refused. DNS and per-hop redirect checks remain R4/R6/R7. | material |
